@@ -76,6 +76,12 @@ without holding one database connection per waiting worker. See
 
 The API should expose endpoints for publishing tasks, query task status, fetch a task to work, inform task start processing.
 
+A claim is a lease: a worker heartbeats while it executes, and a task whose
+lease expires is handed to another worker. The API therefore also exposes an
+endpoint to extend the lease. See
+[postgres-implementation.md](postgres-implementation.md) for why, and for what
+this maps onto in SQS.
+
 Fetching of a tasks will be in a separate endpoint from informing task start.
 So the task fetching can be done with SQS in the future, while the inform start stays in Postgres. No references to Postgres or SQS will be in neorc-core.
 
