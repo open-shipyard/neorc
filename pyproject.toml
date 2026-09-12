@@ -11,7 +11,7 @@ neorc-core = { workspace = true }
 [dependency-groups]
 dev = [
     "mypy>=2",
-    "neorc",
+    "neorc[http,manager,postgres]",
     "neorc-core",
     "pytest>=9",
     "ruff>=0.16",

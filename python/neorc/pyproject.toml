@@ -29,6 +29,16 @@ dependencies = [
     "neorc-core",
 ]
 
+# Nothing is installed by default: a host installs the extras for the role it
+# plays. See docs/specs/core.md.
+[project.optional-dependencies]
+http = ["httpx>=0.28"]
+manager = ["fastapi>=0.120", "uvicorn>=0.38"]
+postgres = ["psycopg[binary,pool]>=3.2"]
+
+[project.scripts]
+neorc = "neorc._cli:main"
+
 [project.urls]
 Homepage = "https://github.com/open-shipyard/neorc"
 Issues = "https://github.com/open-shipyard/neorc/issues"
