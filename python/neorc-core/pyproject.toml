@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling>=1.27", "hatch-vcs>=0.4"]
+build-backend = "hatchling.build"
+
+[project]
+name = "neorc-core"
+dynamic = ["version"]
+description = "Core primitives for the neorc orchestration system"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE", "AUTHORS"]
+authors = [{ name = "The neorc Authors" }]
+maintainers = [{ name = "Luis Castro", email = "dev@guish.in" }]
+requires-python = ">=3.11"
+classifiers = [
+    "Development Status :: 1 - Planning",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Distributed Computing",
+    "Typing :: Typed",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/open-shipyard/neorc"
+Issues = "https://github.com/open-shipyard/neorc/issues"
+Changelog = "https://github.com/open-shipyard/neorc/blob/main/CHANGELOG.md"
+
+[tool.hatch.version]
+source = "vcs"
+raw-options = { root = "../.." }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/neorc_core"]

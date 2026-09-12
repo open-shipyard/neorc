@@ -1,0 +1,36 @@
+# Workspace root. It ships no code of its own; the distributions live in
+# python/<name>. See CONTRIBUTING.md for the layout.
+
+[tool.uv.workspace]
+members = ["python/*"]
+
+[tool.uv.sources]
+neorc = { workspace = true }
+neorc-core = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "mypy>=2",
+    "neorc",
+    "neorc-core",
+    "pytest>=9",
+    "ruff>=0.16",
+]
+
+[tool.ruff]
+line-length = 88
+# Every package keeps its importable code in python/<name>/src, so isort can
+# tell first-party imports from third-party ones.
+src = ["python/*/src"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP", "SIM", "RUF"]
+
+[tool.mypy]
+strict = true
+files = ["python/*/src", "python/*/tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["python/neorc-core/tests", "python/neorc/tests"]
+addopts = ["--strict-config", "--strict-markers", "--import-mode=importlib"]
+xfail_strict = true

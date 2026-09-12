@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v4
+      - run: uv sync --locked
+      - run: uv run ruff check
+      - run: uv run ruff format --check
+      - run: uv run mypy
+      # Each distribution ships its own copy of the license files, so they must
+      # stay identical to the ones at the root of the repository.
+      - name: Check license files are in sync
+        run: |
+          for dir in python/*/; do
+            for file in LICENSE NOTICE AUTHORS; do
+              diff -q "$file" "$dir$file"
+            done
+          done
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: uv sync --locked
+      - run: uv run pytest
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v4
+      - run: uv build --all-packages
