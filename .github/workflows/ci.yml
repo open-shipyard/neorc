@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v4
       - run: uv sync --locked
       - run: uv run ruff check
       - run: uv run ruff format --check
@@ -40,7 +40,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v4
         with:
           python-version: ${{ matrix.python-version }}
       - run: uv sync --locked
@@ -53,5 +53,5 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v4
       - run: uv build --all-packages

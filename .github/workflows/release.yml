@@ -19,7 +19,7 @@ jobs:
           # hatch-vcs derives every package's version from the git tag.
           fetch-depth: 0
           persist-credentials: false
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v4
       - run: uv build --package ${{ matrix.package }} --out-dir dist
       - uses: actions/upload-artifact@v7
         with:
