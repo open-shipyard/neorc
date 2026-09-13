@@ -12,9 +12,17 @@ from neorc_core._errors import (
     TaskStateError,
 )
 from neorc_core._manager import Manager
-from neorc_core._task import Payload, Task, TaskId, TaskStatus
+from neorc_core._task import (
+    LEASED_STATUSES,
+    TERMINAL_STATUSES,
+    Payload,
+    Task,
+    TaskId,
+    TaskStatus,
+    ensure_transition,
+)
 from neorc_core._worker import TaskHandler, Worker
-from neorc_core.ports import QueueClient, TaskNotifier, TaskStore
+from neorc_core.ports import QueueClient, Subscription, TaskNotifier, TaskStore
 
 try:
     __version__ = version("neorc-core")
@@ -22,11 +30,14 @@ except PackageNotFoundError:  # a source checkout on sys.path, not installed
     __version__ = "0+unknown"
 
 __all__ = [
+    "LEASED_STATUSES",
+    "TERMINAL_STATUSES",
     "Manager",
     "ManagerUnavailableError",
     "NeorcError",
     "Payload",
     "QueueClient",
+    "Subscription",
     "Task",
     "TaskHandler",
     "TaskId",
@@ -37,4 +48,5 @@ __all__ = [
     "TaskStore",
     "Worker",
     "__version__",
+    "ensure_transition",
 ]

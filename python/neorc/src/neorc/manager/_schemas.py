@@ -9,7 +9,7 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
-from neorc_core import Payload, TaskId, TaskStatus
+from neorc_core import Payload, Task, TaskId, TaskStatus
 
 
 class PublishRequest(BaseModel):
@@ -33,6 +33,23 @@ class TaskResponse(BaseModel):
     priority: int
     attempts: int
     lease_expires_at: datetime | None
+    error: str | None
+
+    @classmethod
+    def of(cls, task: Task) -> TaskResponse:
+        """Render a stored task."""
+        return cls(
+            id=task.id,
+            name=task.name,
+            payload=task.payload,
+            status=task.status,
+            created_at=task.created_at,
+            run_after=task.run_after,
+            priority=task.priority,
+            attempts=task.attempts,
+            lease_expires_at=task.lease_expires_at,
+            error=task.error,
+        )
 
 
 class HeartbeatRequest(BaseModel):
@@ -46,13 +63,6 @@ class LeaseResponse(BaseModel):
 
     id: TaskId
     lease_expires_at: datetime
-
-
-class StatusResponse(BaseModel):
-    """The answer to a status query."""
-
-    id: TaskId
-    status: TaskStatus
 
 
 class FinishedRequest(BaseModel):

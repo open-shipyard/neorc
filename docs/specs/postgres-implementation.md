@@ -88,9 +88,24 @@ Two consequences the rest of the system inherits:
   a single slow or dropped beat does not hand a live worker's task to another.
   Tasks that run longer than the timeout are fine as long as they keep beating.
 
+## Settled since
+
+- **Statuses and transitions** live in `neorc_core`, not in an adapter: a task
+  goes `pending` to `claimed` to `running` to `succeeded` or `failed`, and
+  `ensure_transition` is what every store calls, so no backend can invent its
+  own lifecycle. Re-reporting a start is allowed, because delivery is
+  at-least-once.
+- **Payloads live in the task row**, as `jsonb`. Addressing them elsewhere is
+  something to do when a payload is too big for a row, not before.
+- **Migrations** are a create-if-absent step, `create_schema`, exposed as
+  `neorc manager start --create-schema`. Not a migration tool: there is no
+  released version to migrate from yet, and adding one before there is would be
+  guessing at the changes.
+
 ## Open questions
 
-- Task status values and the legal transitions between them.
-- Retries and their backoff, and where a permanently failed task lands.
-- Whether payloads live in the task row or somewhere addressed by it.
-- Migrations: shipped with the package, or the user's to run.
+- Retries and their backoff. A task that fails is terminal today; only a lapsed
+  lease brings work back, and nothing distinguishes "the worker died" from "the
+  work is impossible". Where a permanently failed task lands is part of this.
+- Archiving finished tasks. The table only grows, and the partial index keeps
+  claims fast but not the table small.

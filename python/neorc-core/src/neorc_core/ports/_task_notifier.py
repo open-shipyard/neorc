@@ -6,6 +6,24 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from contextlib import AbstractAsyncContextManager
+
+
+class Subscription(ABC):
+    """A caller's standing interest in being told that work arrived.
+
+    Announcements that land between two ``wait`` calls are remembered, so a
+    caller that claims, finds nothing and then waits never sleeps through a task
+    published in that gap.
+    """
+
+    @abstractmethod
+    async def wait(self, *, timeout: float) -> bool:
+        """Wait for an announcement; return ``False`` if ``timeout`` elapsed first.
+
+        Returns immediately if one arrived since the last call.
+        """
+        raise NotImplementedError
 
 
 class TaskNotifier(ABC):
@@ -21,6 +39,6 @@ class TaskNotifier(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def wait(self, *, timeout: float) -> bool:
-        """Wait for an announcement; return ``False`` if ``timeout`` elapsed first."""
+    def subscribe(self) -> AbstractAsyncContextManager[Subscription]:
+        """Start listening for announcements for the duration of the context."""
         raise NotImplementedError
