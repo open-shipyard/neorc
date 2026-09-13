@@ -1,0 +1,89 @@
+# word_picker of docs/specs/flow_example.py, as configuration.
+#
+# Picks words from the user's text in rounds until enough rounds ran, then keeps
+# the words containing the preferred letter.
+name: word_picker
+version: 1.0.0
+
+inputs:
+  sentence: string
+  preferred_letter: string
+
+# The flow's return value, used by flows calling this one as a sub-flow.
+output: tasks.keep_matching_words
+
+steps:
+  # Not inside any loop or fan-out: consumers receive its single value.
+  compose_payload:
+    queue: default
+    handler: tasks:compose_payload
+    params:
+      sentence: inputs.sentence
+
+  rounds:
+    loop:
+      max_cycles: 10
+      exit_condition: enough_rounds
+    steps:
+      # A fan-out over a range wrapping a chain of two tasks: pick_word, then
+      # extract_word, sharing the branch index. Indexes are 1, 2 and 3.
+      picking:
+        fan_out:
+          range: 3
+        steps:
+          pick_word:
+            queue: default
+            handler: tasks:pick_word
+            params:
+              payload: tasks.compose_payload
+              index: neorc.index
+
+          extract_word:
+            queue: default
+            handler: tasks:extract_word
+            params:
+              # Same fan-out branch: this branch's value, not every branch's.
+              # Same loop: one entry per iteration so far, current one last.
+              picks: tasks.pick_word
+
+      collect_words:
+        queue: default
+        handler: tasks:collect_words
+        params:
+          # Outside the fan-out, inside the loop: a list of iterations so far,
+          # each a list of branch results ordered by index.
+          all_rounds: tasks.extract_word
+
+      # The exit condition: a task in the loop body returning a boolean.
+      enough_rounds:
+        queue: default
+        handler: tasks:enough_rounds
+        params:
+          collections: tasks.collect_words
+
+  # After the loop: every iteration's result, in order. The same handler backs
+  # final_words in word_picker_rounds.yaml.
+  latest_round:
+    queue: default
+    handler: tasks:pick_last
+    params:
+      values: tasks.collect_words
+
+  grading:
+    fan_out:
+      range: 3
+    steps:
+      score_words:
+        queue: scoring
+        handler: tasks:score_words
+        params:
+          preferred_letter: inputs.preferred_letter
+          latest_round: tasks.latest_round
+          index: neorc.index
+
+  # Outside the fan-out: every branch's result, ordered by index.
+  keep_matching_words:
+    queue: default
+    handler: tasks:keep_matching_words
+    params:
+      all_scores: tasks.score_words

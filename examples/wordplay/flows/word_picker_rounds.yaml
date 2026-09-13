@@ -1,0 +1,80 @@
+# word_picker_rounds of docs/specs/flow_example.py, as configuration, extended to
+# cover the features flow_example.py does not use: a fan-out over a list, a loop
+# nested in a fan-out, neorc metadata, fixed params and datetimes.
+name: word_picker_rounds
+version: 1.0.0
+
+inputs:
+  sentence: string
+  preferred_letter: string
+  requested_at: datetime
+
+# No output: it is optional. The run succeeds once every task has finished.
+
+steps:
+  runs:
+    loop:
+      max_cycles: 4
+      exit_condition: ran_enough
+    steps:
+      # A sub-flow: always the latest version of word_picker.
+      picker:
+        flow: word_picker
+        params:
+          sentence: inputs.sentence
+          preferred_letter: inputs.preferred_letter
+
+      ran_enough:
+        queue: default
+        handler: tasks:ran_enough
+        params:
+          loop_count: neorc.loop_count
+          # Inside the loop: the sub-flow's outputs so far, current one last.
+          picker_results: flows.picker
+
+  # After the loop: every iteration's word_picker output. Keep the last one.
+  final_words:
+    queue: default
+    handler: tasks:pick_last
+    params:
+      values: flows.picker
+
+  # A fan-out over an upstream list: one branch per word, branch i handling
+  # element i. A loop is nested inside each branch.
+  decorate:
+    fan_out:
+      over: tasks.final_words
+    steps:
+      padding:
+        loop:
+          max_cycles: 5
+          exit_condition: long_enough
+        steps:
+          pad:
+            queue: default
+            handler: tasks:pad
+            params:
+              word: neorc.item
+              loop_count: neorc.loop_count
+            fixed_params:
+              pad_char: "*"
+
+          long_enough:
+            queue: default
+            handler: tasks:long_enough
+            params:
+              pads: tasks.pad
+            fixed_params:
+              min_length: 8
+
+  report:
+    queue: default
+    handler: tasks:report
+    params:
+      # Outside the fan-out and after its loop: a list of branches ordered by
+      # index, each a list of iterations.
+      padded: tasks.pad
+      requested_at: inputs.requested_at
+      flow_run_id: neorc.flow_run_id
+      task_id: neorc.task_id
+      attempts: neorc.attempts

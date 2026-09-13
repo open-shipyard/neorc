@@ -1,0 +1,8 @@
+# A basic queue: a flow with a single task and no inputs.
+name: a
+version: 1.0.0
+
+steps:
+  a:
+    queue: default
+    handler: tasks:a

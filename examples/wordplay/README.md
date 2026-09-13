@@ -1,0 +1,56 @@
+# wordplay
+
+> **Not runnable yet.** The flow engine is not implemented. These files show
+> what [docs/specs](../../docs/specs) describe, and are a checklist for the
+> engine when it lands.
+
+[`flow_example.py`](../../docs/specs/flow_example.py) written the neorc way: the
+`while` and `for` loops move into flow files, and `tasks.py` keeps only plain
+functions.
+
+- [`flows/word_picker.yaml`](flows/word_picker.yaml): `word_picker`.
+- [`flows/word_picker_rounds.yaml`](flows/word_picker_rounds.yaml): `word_picker_rounds`,
+  extended to use the features `word_picker` does not.
+
+Started with `{"sentence": "potato tomate berry watermelon", "preferred_letter": "t", "requested_at": ...}`,
+`word_picker` returns `["potato", "tomate"]`, and `report` pads each word to 8
+characters: `["potato**", "tomate**"]`.
+
+## Features covered
+
+| Feature                                         | Where                                                                          |
+| ----------------------------------------------- | ------------------------------------------------------------------------------ |
+| Single-task flow (a basic queue)                | [`../hello`](../hello)                                                         |
+| Flow name and semver version                    | both flows                                                                     |
+| Flow inputs, with types                         | `inputs` in both flows                                                         |
+| Datetime input and result                       | `requested_at`, `report`                                                       |
+| Flow output                                     | `word_picker`: `output: tasks.keep_matching_words`                             |
+| Flow without output                             | `word_picker_rounds`                                                           |
+| Handler as import path                          | every task                                                                     |
+| Same handler behind several tasks, across flows | `pick_last`: `latest_round`, `final_words`                                     |
+| Queue per task                                  | `score_words` on `scoring`, the rest on `default`                              |
+| References to task outputs and flow inputs      | `params`                                                                       |
+| Fixed values                                    | `fixed_params` in `pad`, `long_enough`                                         |
+| neorc metadata as inputs                        | `neorc.index`, `.item`, `.loop_count`, `.task_id`, `.attempts`, `.flow_run_id` |
+| Loop, max cycles, boolean exit task             | `rounds`, `runs`, `padding`                                                    |
+| Loop results in order, consumer picks the last  | `enough_rounds`, `pick_last`, `long_enough`                                    |
+| Fan-out over a range                            | `picking`, `grading`                                                           |
+| Fan-out over an upstream list                   | `decorate`                                                                     |
+| Fan-out wrapping a chain of tasks               | `picking`: `pick_word` then `extract_word`                                     |
+| Fan-in ordered by index                         | `keep_matching_words`, `report`                                                |
+| Fan-out nested in a loop                        | `picking` in `rounds`                                                          |
+| Loop nested in a fan-out                        | `padding` in `decorate`                                                        |
+| Sub-flow, latest version                        | `picker` in `runs`                                                             |
+| Idempotent handler, the user's responsibility   | `report`                                                                       |
+
+## Resolving references, by example
+
+| Consumer              | Reference               | Receives                                                      |
+| --------------------- | ----------------------- | ------------------------------------------------------------- |
+| `pick_word`           | `tasks.compose_payload` | a string: `compose_payload` is outside every loop and fan-out |
+| `extract_word`        | `tasks.pick_word`       | its own branch's `pick_word` result per iteration so far      |
+| `collect_words`       | `tasks.extract_word`    | iterations so far, each a list of 3 branch results            |
+| `enough_rounds`       | `tasks.collect_words`   | `collect_words` results per iteration so far                  |
+| `latest_round`        | `tasks.collect_words`   | every iteration's `collect_words` result                      |
+| `keep_matching_words` | `tasks.score_words`     | 3 branch results, ordered by index                            |
+| `report`              | `tasks.pad`             | one list per word, each the `pad` result per iteration        |
