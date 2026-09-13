@@ -39,23 +39,23 @@ while not exit_condition:
 
 Taking a task output and fanout to multiple copies of it with an index is supported:
 ```python
-result_a = 5
-for i in range(1,3):
-    result_b = task_b(result_a, i)
+payload = compose_payload(sentence)
+for i in range(1, 4):
+    picked = pick_word(payload, i)
 ```
 
 also
 
 ```python
-result_a = ["red", "green", "blue"]
-for x in result_a:
-    result_b = task_b(x)
+words = ["red", "green", "blue"]
+for word in words:
+    padded = pad(word)
 ```
 
 A range always starts at 1 and its upper bound is a constant in the config. A
 list comes from an upstream task's output; instance *i* handles element *i*.
 
-A fan-out can wrap a chain of tasks, like `task_b → task_subb` in
+A fan-out can wrap a chain of tasks, like `pick_word → extract_word` in
 [flow_example.py](flow_example.py); every task in the chain shares the
 branch's index. The index reaches a handler only when the config requests it.
 
@@ -85,10 +85,10 @@ the loop, arrives as a list of iterations, each a list of branch results: the
 
 ## Sub-flows and versions
 
-A flow can call another flow as a sub-flow, like `flow2` calling `flow1` in
-[flow_example.py](flow_example.py). A sub-flow always runs the latest version
-of the called flow: only the latest version of a flow can be executed. Versions
-exist to disambiguate deployments and to query past runs.
+A flow can call another flow as a sub-flow, like `word_picker_rounds` calling
+`word_picker` in [flow_example.py](flow_example.py). A sub-flow always runs the
+latest version of the called flow: only the latest version of a flow can be
+executed. Versions exist to disambiguate deployments and to query past runs.
 
 Each run belongs to exactly one version. Uploading a new version of a flow
 (see [workers-and-manager.md](workers-and-manager.md) for re-uploads of an

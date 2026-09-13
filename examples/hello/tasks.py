@@ -3,15 +3,14 @@
 
 """Two trivial handlers, for trying neorc out locally. See README.md.
 
-Plain functions: tasks.toml maps task names to them, so nothing here imports
-neorc.
+Plain functions: each flow file in flows/ names its handler by import path, so
+nothing here imports neorc. They declare no inputs, so they take no parameters.
 """
 
 
-def a(task):
+def a():
     print("a")
-    print(task)
 
 
-def b(task):
+def b():
     print("b")

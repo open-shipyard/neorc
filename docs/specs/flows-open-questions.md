@@ -31,7 +31,7 @@ only an error. Flows need a handler's return value stored.
 
 ### 1.2 How inputs reach a function
 
-The example passes positional arguments, `task_b(task_a_output, index)`.
+The example passes positional arguments, `pick_word(payload, index)`.
 Workers can be written in any language, which suggests named JSON inputs
 declared in the flow file.
 
@@ -110,8 +110,8 @@ def my_task_handler(my_input_1, my_input_2, other_data_i_need_1, some_config):
 
 ### 2.3 Branching
 
-- Is there any branching besides a loop's exit condition? `if a2_result: break`
-  in flow2 is the exit condition. Assumed: no general if/else.
+- Is there any branching besides a loop's exit condition? `if done: break`
+  in word_picker_rounds is the exit condition. Assumed: no general if/else.
 
 > **Answer:** no other branching.
 
@@ -129,13 +129,13 @@ is no separate file mapping task names to code.
 Then it validates the handler is reachable, the handler named parameters matches the names of the config.
 - tasks definitions are local to each flow. Handlers can be references multiple times with different task_name in a same or multiple flows.
 
-flow1
+word_picker
   task1: 
     handler: my_func1
   task2:
     handler: my_func1
 
-flow2:
+word_picker_rounds:
   task1:
     handler: something_else
   task2:
@@ -149,20 +149,20 @@ Handlers are import paths, in the format of the worker runtime, e.g. `myapp.task
 
 ### 3.1 Exit condition
 
-- Is it a task inside the loop body whose result must be a boolean? In flow1
-  it is `task_d`, which runs after `task_c`; in flow2 it is `task_a2`.
+- Is it a task inside the loop body whose result must be a boolean? In word_picker
+  it is `enough_rounds`, which runs after `collect_words`; in word_picker_rounds it is `ran_enough`.
 
 > **Answer:** yes, the loop definition should contain something like:
 
   name: my_loop
   max_cyles: 5
-  exit_codition: task_c
+  exit_codition: collect_words
 
 
 ### 3.2 What the exit task receives
 
-flows.md says `(loop_count, other_tasks_results)`, but `task_d` only receives
-`task_c`'s output.
+flows.md says `(loop_count, other_tasks_results)`, but `enough_rounds` only receives
+`collect_words`'s output.
 
 - Is `loop_count` passed automatically, or only when the config asks for it?
 
@@ -171,7 +171,7 @@ flows.md says `(loop_count, other_tasks_results)`, but `task_d` only receives
 
 ### 3.3 Max cycles
 
-The example is inconsistent: flow1 checks `> 10` before incrementing, flow2
+The example is inconsistent: word_picker checks `> 10` before incrementing, word_picker_rounds
 checks `>= 5` after.
 
 - Canonical definition, e.g. "at most N complete iterations"?
@@ -182,8 +182,8 @@ checks `>= 5` after.
 
 flows.md says results accumulate in "a single list", but `all_rounds` is a
 list of lists: one entry per iteration, each holding one entry per fan-out
-index. After the loop, `task_e` uses only the last `task_c` result; inside the
-loop, `task_c` receives every iteration so far.
+index. After the loop, `score_words` uses only the last `collect_words` result; inside the
+loop, `collect_words` receives every iteration so far.
 
 - Consumers need to choose between `last` and `all`. Which is the default, and
   is the other opted into per input?
@@ -203,7 +203,7 @@ Iterations are provided to consumers in order.
 
 ### 4.1 Scope
 
-In the example a fan-out covers a chain of tasks (`b → subb` per index), not a
+In the example a fan-out covers a chain of tasks (`pick_word → extract_word` per index), not a
 single task, so a fan-out wraps a group sharing an index.
 
 - Is the index passed to every task in the group?
@@ -249,7 +249,7 @@ Fan-out over an upstream task's list output is also allowed; instance *i* handle
 
 ### 5.1 Sub-flow nodes
 
-flow2 calls flow1.
+word_picker_rounds calls word_picker.
 
 - Is a sub-flow a node referring to `name` plus `version`?
 - Is the version pinned exactly, a semver range, or always the latest?
@@ -264,7 +264,7 @@ versions in flows are only for disambiguating during deployment and for querying
 
 ### 5.2 Flow output
 
-flow1 returns `task_f`'s result. flow2 returns nothing, so `flow2_result` is
+word_picker returns `keep_matching_words`'s result. word_picker_rounds returns nothing, so `result` is
 `None`.
 
 - Is that a slip in the example, or can flows have no output?
@@ -274,7 +274,7 @@ flow1 returns `task_f`'s result. flow2 returns nothing, so `flow2_result` is
 
 ### 5.3 Flow inputs
 
-- Are flow parameters (`user_choice`, `preferred_letter`) declared in the
+- Are flow parameters (`sentence`, `preferred_letter`) declared in the
   file? With types?
 
 > **Answer:** yes, any json primitive plus datetime.

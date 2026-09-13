@@ -78,7 +78,7 @@ A datetime is encoded as an object with a single `$datetime` key holding an
 ISO 8601 string, at any depth of a value:
 
 ```python
-def task_a(order_id):
+def record_order(order_id):
     return {
         "order_id": order_id,
         "when": datetime(2026, 9, 13, 10, 0, tzinfo=timezone.utc),
