@@ -17,7 +17,13 @@ deployment; install this one to implement your own adapters.
 - `TaskStore`, `TaskNotifier` — how a manager persists tasks and wakes waiters
 - `Manager` — leasing, waiting and status transitions, with no framework
 - `Worker` — claim, execute, heartbeat, report
-- `neorc_core.local` — in-memory adapters: the whole system in one process
+- `neorc_core.flows` — flow definitions, loading and validation, and reference
+  resolution
+- `FlowManager`, `Scheduler`, `FlowWorker` — flows run by a manager, a
+  scheduler and workers, against the `Store`, `ManagerClient` and
+  `FlowQueueClient` ports
+- `neorc_core.local` — in-memory adapters, and `LocalCluster` and `run_local`:
+  the whole system in one process
 - `neorc_core.testing.contracts` — test suites every adapter of a port must
   pass, for implementing your own (needs pytest and pytest-asyncio)
 

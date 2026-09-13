@@ -13,6 +13,13 @@ Every dependency is optional, so a host installs only what its role needs:
 
 ## Running it
 
+Try a directory of flow files in one process, with nothing to deploy:
+
+    neorc run examples/wordplay --flow word_picker \
+        --inputs '{"sentence": "potato tomate", "preferred_letter": "t"}'
+
+A deployment runs the task API: a manager, and workers wherever the work is.
+
     export NEORC_DATABASE_URL=postgresql://localhost/neorc
     neorc manager start --create-schema
 

@@ -10,6 +10,8 @@ import asyncio
 import builtins
 import sys
 import threading
+import time
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -18,7 +20,8 @@ from uuid import uuid4
 import pytest
 
 from neorc import _cli
-from neorc_core import Task, TaskHandler, TaskStatus
+from neorc_core import Run, RunStatus, Task, TaskHandler, TaskStatus
+from neorc_core.flows import Version
 
 
 def _write_tasks(tmp_path: Path, tasks: str, module: str = "") -> Path:
@@ -261,3 +264,235 @@ def test_an_install_command_names_every_extra_it_needs() -> None:
         _cli._needs("manager", "postgres"),
     ):
         raise ImportError("No module named 'fastapi'")
+
+
+_EXAMPLES = Path(__file__).parents[3] / "examples"
+
+
+@pytest.fixture
+def own_tasks_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """The examples each have a ``tasks`` module: import the right one."""
+    monkeypatch.setattr(sys, "path", list(sys.path))
+    monkeypatch.delitem(sys.modules, "tasks", raising=False)
+    yield
+    sys.modules.pop("tasks", None)
+
+
+@pytest.mark.usefixtures("own_tasks_module")
+def test_run_runs_a_flow_and_prints_its_output(
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = _cli.main(
+        [
+            "--log-level",
+            "warning",
+            "run",
+            str(_EXAMPLES / "wordplay"),
+            "--flow",
+            "word_picker",
+            "--inputs",
+            '{"sentence": "potato tomate berry watermelon", "preferred_letter": "t"}',
+        ]
+    )
+
+    assert exit_code == 0
+    assert capfd.readouterr().out.splitlines()[-1] == '["potato", "tomate"]'
+
+
+def test_run_passes_its_arguments_to_run_local(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "elsewhere").mkdir()
+    calls: list[tuple[Any, ...]] = []
+
+    async def fake_run_local(
+        flows_dir: Path, flow: str, inputs: Any, **kwargs: Any
+    ) -> Any:
+        calls.append((flows_dir, flow, inputs, kwargs))
+        return _run(RunStatus.SUCCEEDED, output={"when": {"$datetime": "x"}})
+
+    monkeypatch.setattr(_cli, "run_local", fake_run_local)
+
+    exit_code = _cli.main(
+        [
+            "run",
+            str(tmp_path),
+            "--flow",
+            "f",
+            "--inputs",
+            '{"n": 1}',
+            "--flows-dir",
+            str(tmp_path / "elsewhere"),
+            "--timeout",
+            "3",
+        ]
+    )
+
+    assert exit_code == 0
+    assert calls == [
+        (
+            tmp_path / "elsewhere",
+            "f",
+            {"n": 1},
+            {"code_location": tmp_path, "timeout": 3.0},
+        )
+    ]
+    assert capsys.readouterr().out == '{"when": {"$datetime": "x"}}\n'
+
+
+@pytest.mark.parametrize("status", [RunStatus.FAILED, RunStatus.CANCELLED])
+def test_run_exits_1_with_the_reason_when_the_run_does_not_succeed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    status: RunStatus,
+) -> None:
+    (tmp_path / "flows").mkdir()
+
+    async def fake_run_local(*args: Any, **kwargs: Any) -> Any:
+        return _run(status, reason="work failed")
+
+    monkeypatch.setattr(_cli, "run_local", fake_run_local)
+
+    exit_code = _cli.main(["run", str(tmp_path), "--flow", "f"])
+
+    assert exit_code == 1
+    assert f"{status.value}: work failed" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("inputs", "message"),
+    [("{", "not valid JSON"), ("[1]", "must be a JSON object")],
+)
+def test_run_refuses_inputs_that_are_not_a_json_object(
+    tmp_path: Path, inputs: str, message: str
+) -> None:
+    (tmp_path / "flows").mkdir()
+
+    with pytest.raises(SystemExit, match=message):
+        _cli.main(["run", str(tmp_path), "--flow", "f", "--inputs", inputs])
+
+
+def test_run_needs_a_flows_directory(tmp_path: Path) -> None:
+    with pytest.raises(SystemExit, match="no flows directory"):
+        _cli.main(["run", str(tmp_path), "--flow", "f"])
+
+
+@pytest.mark.usefixtures("own_tasks_module")
+def test_run_reports_a_flow_it_cannot_run(capsys: pytest.CaptureFixture[str]) -> None:
+    exit_code = _cli.main(["run", str(_EXAMPLES / "hello"), "--flow", "nothing"])
+
+    assert exit_code == 1
+    assert "cannot run 'nothing'" in capsys.readouterr().err
+
+
+def _run(status: RunStatus, output: Any = None, reason: str | None = None) -> Any:
+    run_id = uuid4()
+    return Run(
+        id=run_id,
+        flow="f",
+        version=Version(1, 0, 0),
+        inputs={},
+        status=status,
+        root_id=run_id,
+        output=output,
+        reason=reason,
+    )
+
+
+def test_run_times_out_without_waiting_for_a_blocking_handler(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(sys, "path", list(sys.path))
+    module = f"blocking_{uuid4().hex}"
+    (tmp_path / f"{module}.py").write_text(
+        "import time\n\ndef stuck():\n    time.sleep(4)\n"
+    )
+    (tmp_path / "flows").mkdir()
+    (tmp_path / "flows" / "slow.yaml").write_text(
+        f"name: slow\nversion: 1.0.0\nsteps:\n  stuck: {{handler: {module}:stuck}}\n"
+    )
+    exits: list[int] = []
+
+    def exit_now(code: int) -> None:
+        exits.append(code)
+
+    monkeypatch.setattr(_cli, "_exit_now", exit_now)
+    started = time.monotonic()
+
+    exit_code = _cli.main(["run", str(tmp_path), "--flow", "slow", "--timeout", "0.5"])
+
+    assert time.monotonic() - started < 3
+    assert exit_code == 1
+    assert exits == [1]  # the handler's thread was still busy: exit at once
+    assert "did not finish within 0.5 seconds" in capsys.readouterr().err
+
+
+def test_a_failed_run_does_not_wait_for_a_handler_busy_elsewhere(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """One queue's task fails the run while another queue's handler is stuck."""
+    monkeypatch.setattr(sys, "path", list(sys.path))
+    module = f"mixed_{uuid4().hex}"
+    (tmp_path / f"{module}.py").write_text(
+        "import time\n\n"
+        "def stuck():\n    time.sleep(4)\n\n"
+        "def boom():\n    time.sleep(0.2)\n    raise RuntimeError('boom')\n"
+    )
+    (tmp_path / "flows").mkdir()
+    (tmp_path / "flows" / "mixed.yaml").write_text(
+        "name: mixed\nversion: 1.0.0\nsteps:\n"
+        f"  stuck: {{queue: slow, handler: {module}:stuck}}\n"
+        f"  boom: {{handler: {module}:boom}}\n"
+    )
+    exits: list[int] = []
+    monkeypatch.setattr(_cli, "_exit_now", exits.append)
+    started = time.monotonic()
+
+    exit_code = _cli.main(["run", str(tmp_path), "--flow", "mixed", "--timeout", "30"])
+
+    assert time.monotonic() - started < 3
+    assert exit_code == 1
+    assert exits == [1]
+    assert "failed: boom failed" in capsys.readouterr().err
+
+
+def test_a_flow_file_that_cannot_be_read_is_reported(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "flows" / "old.yaml").mkdir(parents=True)
+
+    exit_code = _cli.main(["run", str(tmp_path), "--flow", "old"])
+
+    assert exit_code == 1
+    assert "cannot run 'old'" in capsys.readouterr().err
+
+
+def test_a_crash_while_running_is_reported_and_shut_down(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    (tmp_path / "flows").mkdir()
+    finished: list[int] = []
+
+    async def crashing(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("a worker loop died")
+
+    def finish(loop: Any, executor: Any, threads: str, exit_code: int) -> int:
+        finished.append(exit_code)
+        return original_finish(loop, executor, threads, exit_code)
+
+    original_finish = _cli._finish
+    monkeypatch.setattr(_cli, "run_local", crashing)
+    monkeypatch.setattr(_cli, "_finish", finish)
+
+    exit_code = _cli.main(["run", str(tmp_path), "--flow", "f"])
+
+    assert exit_code == 1
+    assert finished == [1]
+    assert "RuntimeError: a worker loop died" in capsys.readouterr().err

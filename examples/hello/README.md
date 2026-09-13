@@ -1,8 +1,19 @@
 # hello
 
-> **Not runnable yet.** This example follows the flow specs in
-> [docs/specs](../../docs/specs); the flow engine, the scheduler and the
-> commands below that mention them are not implemented.
+Run a flow in one process, with nothing to deploy, from the repository root
+after `uv sync`:
+
+    uv run neorc run examples/hello --flow a
+
+The worker prints `a`, and the command prints the run's output, `null`: these
+flows have none. `--flow b` prints `b`.
+
+## Deployed
+
+> **Not runnable yet.** The steps below follow the flow specs in
+> [docs/specs](../../docs/specs). The manager's HTTP routes for flows, the
+> scheduler and worker commands, and `neorc flows upload` are not implemented;
+> `neorc run` above runs the same flows today.
 
 A manager, a scheduler, a worker with two handlers (`a` prints `a`, `b` prints
 `b`), and flow runs started on demand with `curl`. Every task belongs to a
