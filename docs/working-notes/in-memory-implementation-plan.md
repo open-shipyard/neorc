@@ -19,7 +19,7 @@ new ports and runs the contract suites against them.
 | 1  | Values and flow definitions                 | done   |
 | 2  | `local` package and contract suite scaffold | done   |
 | 3  | Reference resolution and run state          | done   |
-| 4  | Planner: tasks, loops, fan-outs             | todo   |
+| 4  | Planner: tasks, loops, fan-outs             | done   |
 | 5  | Planner: sub-flows, output, failures        | todo   |
 | 6  | Store port and memory store                 | todo   |
 | 7  | Manager: flows, runs, run trees             | todo   |
@@ -75,7 +75,7 @@ Pure code.
 
 ### 4. Planner: tasks, loops, fan-outs
 
-Pure code: `plan(definition, run_state, event) -> list[Action]`.
+Pure code: `plan(definition, run_state) -> list[Action]`.
 
 - Actions as data: `PublishTask`, `StartSubRun`, `SucceedRun`, `FailRun`.
 - Readiness from the per-scope dependency graph of step 1.
@@ -176,3 +176,8 @@ Open in the specs, decided here to make progress. Revisit if they are wrong.
 - YAML timestamps are not converted: a datetime in a flow file is written as
   `{"$datetime": ...}`, so a YAML file and its JSON upload are the same structure.
 - Flow versions are `MAJOR.MINOR.PATCH`, with no pre-release or build suffix.
+- The planner takes no event: it plans from the run's whole state, publishing
+  every ready step instance not started yet. The event only tells the scheduler
+  which run to look at, and a redelivered one cannot plan anything different.
+- A loop starts its next iteration once every step of the current one has
+  finished, not only its exit condition.
