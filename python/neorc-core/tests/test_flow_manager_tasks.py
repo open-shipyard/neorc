@@ -361,3 +361,26 @@ async def test_size_is_counted_in_utf_8_bytes_as_the_value_travels(
     task_id = await finish(flows, "default", wide)
 
     assert (await flows.get_task(task_id)).status is TaskStatus.SUCCEEDED
+
+
+async def test_a_version_uploaded_while_a_sub_run_starts_is_used_instead(
+    flows: FlowManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run_id = await started(flows)
+    store = flows._store  # the race needs a hand inside the manager
+    original = store.start_run
+    uploaded: list[bool] = []
+
+    async def upload_first(*args: object, **kwargs: object) -> object:
+        if not uploaded:
+            assert isinstance(CALLED, dict)
+            uploaded.extend(await flows.upload_flows([{**CALLED, "version": "1.1.0"}]))
+        return await original(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(store, "start_run", upload_first)
+
+    sub_run = await flows.start_sub_run(run_id, Address("call"))
+
+    assert uploaded == [True]
+    assert str(sub_run.version) == "1.1.0"
+    assert (await flows.get_run(run_id)).status is RunStatus.ACTIVE
