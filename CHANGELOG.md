@@ -30,6 +30,9 @@ one version, cut from a single tag on `main`.
   that publishes every ready task instance and moves loops and fan-outs on,
   starts sub-flow runs, succeeds a run with its output once every step
   finished, and fails it when a task or sub-flow run fails.
+- `neorc-core`: the `Store` port for flow versions, runs, their tasks and events,
+  one method per atomic operation; `MemoryStore`; and `StoreContract`, the
+  test suite every store must pass.
 - Claims are leases: workers heartbeat to hold a task, and a task whose lease
   lapses returns to the queue. Chosen so the queue can move to SQS unchanged.
 - `neorc.postgres`: the task store, claiming with `FOR UPDATE SKIP LOCKED`, and

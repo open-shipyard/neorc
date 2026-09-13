@@ -1,0 +1,294 @@
+# Copyright 2026 The neorc Authors
+# SPDX-License-Identifier: Apache-2.0
+
+"""The store for flows, runs and tasks, in dictionaries."""
+
+from __future__ import annotations
+
+import asyncio
+import uuid
+from collections.abc import Mapping
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
+
+from neorc_core._errors import (
+    FlowNotFoundError,
+    FlowVersionError,
+    RunNotFoundError,
+    TaskNotFoundError,
+    TaskStateError,
+)
+from neorc_core._runs import (
+    Event,
+    EventKind,
+    FlowTask,
+    Run,
+    RunId,
+    RunStatus,
+    StoredFlow,
+    check_upload,
+    ensure_active,
+    run_state_of,
+    sub_run_id_for,
+    task_id_for,
+)
+from neorc_core._task import LEASED_STATUSES, TaskId, TaskStatus, ensure_transition
+from neorc_core._values import JsonValue
+from neorc_core.flows import Address, FlowDefinition, Reference, RunState, Version
+from neorc_core.ports._queue_client import DEFAULT_LEASE_SECONDS
+from neorc_core.ports._store import Store
+
+
+class MemoryStore(Store):
+    """Flows, runs and tasks in dictionaries: one lock per operation.
+
+    Applies the same rules, transitions and lease expiry as a deployed store.
+    """
+
+    def __init__(self) -> None:
+        self._lock = asyncio.Lock()
+        self._flows: dict[str, dict[Version, StoredFlow]] = {}
+        self._runs: dict[RunId, Run] = {}
+        self._tasks: dict[TaskId, FlowTask] = {}
+        self._events: list[Event] = []
+
+    async def store_flow(self, definition: FlowDefinition, content: JsonValue) -> bool:
+        async with self._lock:
+            versions = self._flows.setdefault(definition.name, {})
+            if not check_upload(versions.values(), definition, content):
+                return False
+            versions[definition.version] = StoredFlow(definition, content)
+            reason = f"{definition.name} {definition.version} was uploaded"
+            roots = {
+                run.root_id
+                for run in self._runs.values()
+                if run.flow == definition.name and run.status is RunStatus.ACTIVE
+            }
+            for root_id in sorted(roots):
+                self._finish_tree(root_id, RunStatus.CANCELLED, reason)
+            return True
+
+    async def get_flow(self, name: str, version: Version | None = None) -> StoredFlow:
+        async with self._lock:
+            return self._flow(name, version)
+
+    async def latest_flows(self) -> list[StoredFlow]:
+        async with self._lock:
+            return [
+                versions[max(versions)]
+                for _, versions in sorted(self._flows.items())
+                if versions
+            ]
+
+    async def start_run(
+        self,
+        flow: str,
+        version: Version,
+        inputs: Mapping[str, JsonValue],
+        *,
+        parent_id: RunId | None = None,
+        parent_address: Address | None = None,
+    ) -> Run:
+        if (parent_id is None) != (parent_address is None):
+            raise ValueError("a sub-flow run names both its parent and its address")
+        async with self._lock:
+            latest = self._flow(flow, None).version
+            if version != latest:
+                raise FlowVersionError(
+                    f"{flow} {version} is not the latest version, {latest}"
+                )
+            if parent_id is None:
+                run_id = uuid.uuid4()
+                root_id = run_id
+            else:
+                assert parent_address is not None
+                parent = self._run(parent_id)
+                ensure_active(parent)
+                run_id = sub_run_id_for(parent_id, parent_address)
+                existing = self._runs.get(run_id)
+                if existing is not None:
+                    return existing
+                root_id = parent.root_id
+            run = Run(
+                id=run_id,
+                flow=flow,
+                version=version,
+                inputs=dict(inputs),
+                status=RunStatus.ACTIVE,
+                root_id=root_id,
+                parent_id=parent_id,
+                parent_address=parent_address,
+            )
+            self._runs[run_id] = run
+            self._append(run_id, EventKind.RUN_STARTED)
+            return run
+
+    async def get_run(self, run_id: RunId) -> Run:
+        async with self._lock:
+            return self._run(run_id)
+
+    async def run_state(self, run_id: RunId) -> RunState:
+        async with self._lock:
+            run = self._run(run_id)
+            tasks = [task for task in self._tasks.values() if task.run_id == run_id]
+            sub_runs = [r for r in self._runs.values() if r.parent_id == run_id]
+            return run_state_of(run, tasks, sub_runs)
+
+    async def succeed_run(self, run_id: RunId, output: JsonValue) -> Run:
+        async with self._lock:
+            run = self._run(run_id)
+            ensure_active(run)
+            succeeded = replace(run, status=RunStatus.SUCCEEDED, output=output)
+            self._runs[run_id] = succeeded
+            self._append(run_id, EventKind.RUN_FINISHED)
+            return succeeded
+
+    async def fail_run_tree(self, run_id: RunId, reason: str) -> None:
+        async with self._lock:
+            self._finish_tree(self._run(run_id).root_id, RunStatus.FAILED, reason)
+
+    async def cancel_run_tree(self, run_id: RunId, reason: str) -> None:
+        async with self._lock:
+            self._finish_tree(self._run(run_id).root_id, RunStatus.CANCELLED, reason)
+
+    async def publish_task(
+        self,
+        run_id: RunId,
+        address: Address,
+        *,
+        queue: str,
+        handler: str,
+        params: Mapping[str, Reference],
+        fixed_params: Mapping[str, JsonValue],
+    ) -> FlowTask:
+        async with self._lock:
+            ensure_active(self._run(run_id))
+            task_id = task_id_for(run_id, address)
+            existing = self._tasks.get(task_id)
+            if existing is not None:
+                return existing
+            task = FlowTask(
+                id=task_id,
+                run_id=run_id,
+                address=address,
+                queue=queue,
+                handler=handler,
+                params=dict(params),
+                fixed_params=dict(fixed_params),
+            )
+            self._tasks[task_id] = task
+            return task
+
+    async def claim_task(
+        self, queue: str, *, lease_seconds: float = DEFAULT_LEASE_SECONDS
+    ) -> FlowTask | None:
+        now = datetime.now(UTC)
+        async with self._lock:
+            for task in self._tasks.values():  # in publishing order: oldest first
+                if task.queue == queue and _is_claimable(task, now):
+                    claimed = replace(
+                        task,
+                        status=TaskStatus.CLAIMED,
+                        attempts=task.attempts + 1,
+                        lease_expires_at=now + timedelta(seconds=lease_seconds),
+                    )
+                    self._tasks[task.id] = claimed
+                    return claimed
+            return None
+
+    async def start_task(self, task_id: TaskId) -> FlowTask:
+        async with self._lock:
+            task = self._task(task_id)
+            ensure_transition(task.status, TaskStatus.RUNNING)
+            run = self._run(task.run_id)
+            if run.status is not RunStatus.ACTIVE:
+                self._tasks[task_id] = replace(
+                    task,
+                    status=TaskStatus.FAILED,
+                    error=f"run {run.id} is {run.status.value}",
+                    lease_expires_at=None,
+                )
+                ensure_active(run)
+            started = replace(task, status=TaskStatus.RUNNING)
+            self._tasks[task_id] = started
+            return started
+
+    async def extend_task_lease(
+        self, task_id: TaskId, *, lease_seconds: float = DEFAULT_LEASE_SECONDS
+    ) -> datetime:
+        async with self._lock:
+            task = self._task(task_id)
+            if task.status not in LEASED_STATUSES:
+                raise TaskStateError(
+                    f"a {task.status.value} task holds no lease to extend"
+                )
+            expires_at = datetime.now(UTC) + timedelta(seconds=lease_seconds)
+            self._tasks[task_id] = replace(task, lease_expires_at=expires_at)
+            return expires_at
+
+    async def finish_task(
+        self, task_id: TaskId, *, result: JsonValue = None, error: str | None = None
+    ) -> FlowTask:
+        status = TaskStatus.FAILED if error is not None else TaskStatus.SUCCEEDED
+        async with self._lock:
+            task = self._task(task_id)
+            ensure_transition(task.status, status)
+            finished = replace(
+                task,
+                status=status,
+                result=result if error is None else None,
+                error=error,
+                lease_expires_at=None,
+            )
+            self._tasks[task_id] = finished
+            self._append(task.run_id, EventKind.TASK_FINISHED)
+            return finished
+
+    async def get_task(self, task_id: TaskId) -> FlowTask:
+        async with self._lock:
+            return self._task(task_id)
+
+    async def events_after(self, sequence: int, *, limit: int = 100) -> list[Event]:
+        async with self._lock:
+            # Sequences are 1, 2, 3...: the event after ``sequence`` is at its index.
+            return self._events[max(sequence, 0) : max(sequence, 0) + limit]
+
+    def _flow(self, name: str, version: Version | None) -> StoredFlow:
+        versions = self._flows.get(name)
+        if not versions:
+            raise FlowNotFoundError(f"no flow {name!r}")
+        stored = versions.get(max(versions) if version is None else version)
+        if stored is None:
+            raise FlowNotFoundError(f"no version {version} of flow {name!r}")
+        return stored
+
+    def _run(self, run_id: RunId) -> Run:
+        run = self._runs.get(run_id)
+        if run is None:
+            raise RunNotFoundError(str(run_id))
+        return run
+
+    def _task(self, task_id: TaskId) -> FlowTask:
+        task = self._tasks.get(task_id)
+        if task is None:
+            raise TaskNotFoundError(str(task_id))
+        return task
+
+    def _append(self, run_id: RunId, kind: EventKind) -> None:
+        self._events.append(Event(len(self._events) + 1, run_id, kind))
+
+    def _finish_tree(self, root_id: RunId, status: RunStatus, reason: str) -> None:
+        for run in list(self._runs.values()):
+            if run.root_id == root_id and run.status is RunStatus.ACTIVE:
+                self._runs[run.id] = replace(run, status=status, reason=reason)
+                self._append(run.id, EventKind.RUN_FINISHED)
+
+
+def _is_claimable(task: FlowTask, now: datetime) -> bool:
+    if task.status is TaskStatus.PENDING:
+        return True
+    return (
+        task.status in LEASED_STATUSES
+        and task.lease_expires_at is not None
+        and task.lease_expires_at <= now
+    )

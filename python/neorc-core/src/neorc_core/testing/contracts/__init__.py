@@ -20,6 +20,7 @@ messages.
 """
 
 from neorc_core.testing.contracts._queue_client import QueueClientContract
+from neorc_core.testing.contracts._store import StoreContract
 from neorc_core.testing.contracts._task_store import TaskStoreContract
 
-__all__ = ["QueueClientContract", "TaskStoreContract"]
+__all__ = ["QueueClientContract", "StoreContract", "TaskStoreContract"]

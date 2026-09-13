@@ -21,7 +21,7 @@ new ports and runs the contract suites against them.
 | 3  | Reference resolution and run state          | done   |
 | 4  | Planner: tasks, loops, fan-outs             | done   |
 | 5  | Planner: sub-flows, output, failures        | done   |
-| 6  | Store port and memory store                 | todo   |
+| 6  | Store port and memory store                 | done   |
 | 7  | Manager: flows, runs, run trees             | todo   |
 | 8  | Manager: tasks, payloads, events            | todo   |
 | 9  | Client ports and direct clients             | todo   |
@@ -181,3 +181,13 @@ Open in the specs, decided here to make progress. Revisit if they are wrong.
   which run to look at, and a redelivered one cannot plan anything different.
 - A loop starts its next iteration once every step of the current one has
   finished, not only its exit condition.
+- Flows get their own port, manager, clients and worker next to the task API's
+  `TaskStore`, `Manager`, `QueueClient` and `Worker`, which Postgres and HTTP
+  keep serving unchanged. The follow-up plan moves those adapters to the flow
+  classes and removes the task API.
+- Task and sub-flow run ids derive from the run and the step address, so a
+  publish or a sub-run start repeated after a redelivered event is a no-op.
+- A worker told its task's run is no longer active drops it, and the store fails
+  that task in the same operation, so its lease lapsing never hands it out again.
+- Every run that finishes, in any status, records a "run finished" event with its
+  own id; the scheduler looks at the parent from there.

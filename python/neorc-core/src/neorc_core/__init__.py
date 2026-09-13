@@ -7,15 +7,28 @@ from importlib.metadata import PackageNotFoundError, version
 
 from neorc_core._errors import (
     FlowDefinitionError,
+    FlowNotFoundError,
+    FlowVersionError,
     InvalidValueError,
     ManagerUnavailableError,
     NeorcError,
     PayloadTooLargeError,
     ResolutionError,
+    RunNotFoundError,
+    RunStateError,
     TaskNotFoundError,
     TaskStateError,
 )
 from neorc_core._manager import Manager
+from neorc_core._runs import (
+    Event,
+    EventKind,
+    FlowTask,
+    Run,
+    RunId,
+    RunStatus,
+    StoredFlow,
+)
 from neorc_core._task import (
     LEASED_STATUSES,
     TERMINAL_STATUSES,
@@ -26,7 +39,7 @@ from neorc_core._task import (
     ensure_transition,
 )
 from neorc_core._worker import TaskHandler, Worker
-from neorc_core.ports import QueueClient, Subscription, TaskNotifier, TaskStore
+from neorc_core.ports import QueueClient, Store, Subscription, TaskNotifier, TaskStore
 
 try:
     __version__ = version("neorc-core")
@@ -36,7 +49,12 @@ except PackageNotFoundError:  # a source checkout on sys.path, not installed
 __all__ = [
     "LEASED_STATUSES",
     "TERMINAL_STATUSES",
+    "Event",
+    "EventKind",
     "FlowDefinitionError",
+    "FlowNotFoundError",
+    "FlowTask",
+    "FlowVersionError",
     "InvalidValueError",
     "Manager",
     "ManagerUnavailableError",
@@ -45,6 +63,13 @@ __all__ = [
     "PayloadTooLargeError",
     "QueueClient",
     "ResolutionError",
+    "Run",
+    "RunId",
+    "RunNotFoundError",
+    "RunStateError",
+    "RunStatus",
+    "Store",
+    "StoredFlow",
     "Subscription",
     "Task",
     "TaskHandler",
