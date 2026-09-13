@@ -20,6 +20,7 @@ dev = [
     # server instead, as CI does, or those tests skip.
     "pgserver>=0.1.4; sys_platform != 'win32' and python_version < '3.13'",
     "ruff>=0.16",
+    "types-pyyaml>=6.0",
 ]
 
 [tool.ruff]

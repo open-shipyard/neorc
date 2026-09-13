@@ -6,8 +6,11 @@
 from importlib.metadata import PackageNotFoundError, version
 
 from neorc_core._errors import (
+    FlowDefinitionError,
+    InvalidValueError,
     ManagerUnavailableError,
     NeorcError,
+    PayloadTooLargeError,
     TaskNotFoundError,
     TaskStateError,
 )
@@ -32,10 +35,13 @@ except PackageNotFoundError:  # a source checkout on sys.path, not installed
 __all__ = [
     "LEASED_STATUSES",
     "TERMINAL_STATUSES",
+    "FlowDefinitionError",
+    "InvalidValueError",
     "Manager",
     "ManagerUnavailableError",
     "NeorcError",
     "Payload",
+    "PayloadTooLargeError",
     "QueueClient",
     "Subscription",
     "Task",

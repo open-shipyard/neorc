@@ -18,3 +18,19 @@ class TaskStateError(NeorcError):
 
 class ManagerUnavailableError(NeorcError):
     """The manager service could not be reached, or answered with an error."""
+
+
+class InvalidValueError(NeorcError, ValueError):
+    """A value cannot travel between tasks: a type, key or datetime neorc rejects."""
+
+
+class PayloadTooLargeError(InvalidValueError):
+    """An encoded payload is over the size limit."""
+
+
+class FlowDefinitionError(NeorcError):
+    """A flow definition is invalid. ``problems`` lists every problem found."""
+
+    def __init__(self, problems: list[str]) -> None:
+        self.problems = problems
+        super().__init__("invalid flow definition:\n" + "\n".join(problems))
