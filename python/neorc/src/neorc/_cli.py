@@ -3,6 +3,7 @@
 
 """The ``neorc`` command.
 
+    neorc run examples/hello --flow a
     neorc manager start
     neorc worker start --tasks tasks.toml
 
@@ -15,17 +16,23 @@ from __future__ import annotations
 import argparse
 import asyncio
 import inspect
+import json
 import logging
 import os
 import signal
+import sys
+import threading
 import tomllib
+import uuid
 from collections.abc import Callable, Iterator, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from neorc_core import Task, TaskHandler, Worker
+from neorc_core import NeorcError, RunStatus, Task, TaskHandler, Worker, _values
 from neorc_core._handlers import resolve_handler
+from neorc_core.local import run_local
 
 MANAGER_ADDRESS_ENV = "NEORC_MANAGER_ADDRESS"
 TASKS_FILE_ENV = "NEORC_WORKER_TASKS"
@@ -83,7 +90,121 @@ def build_parser() -> argparse.ArgumentParser:
     worker_start.add_argument("--lease-seconds", type=float, default=60.0)
     worker_start.set_defaults(handler=worker_start_command)
 
+    run = commands.add_parser(
+        "run", help="run a flow to its end in this process, with nothing to deploy"
+    )
+    run.add_argument(
+        "directory",
+        type=Path,
+        help="the handlers' code, with the flow files in its flows/ directory",
+    )
+    run.add_argument("--flow", required=True, help="the flow to run")
+    run.add_argument(
+        "--inputs",
+        default="{}",
+        help='the run\'s inputs, a JSON object; datetimes as {"$datetime": "..."}',
+    )
+    run.add_argument(
+        "--flows-dir",
+        type=Path,
+        default=None,
+        help="where the flow files are; defaults to DIRECTORY/flows",
+    )
+    run.add_argument(
+        "--timeout", type=float, default=None, help="give up after this many seconds"
+    )
+    run.set_defaults(handler=run_command)
+
     return parser
+
+
+def run_command(args: argparse.Namespace) -> int:
+    """Run a flow on ``LocalCluster`` and print its output as JSON.
+
+    Exits 0 when the run succeeds, and 1, saying why, when it fails, is
+    cancelled, cannot start or times out; 130 on Ctrl-C.
+    """
+    try:
+        _values.ensure_json_depth(args.inputs)
+        inputs = json.loads(args.inputs)
+    except ValueError as exc:
+        raise SystemExit(f"--inputs is not valid JSON: {exc}") from exc
+    if not isinstance(inputs, dict):
+        raise SystemExit("--inputs must be a JSON object of input names to values")
+    flows_dir: Path = args.flows_dir or args.directory / "flows"
+    if not flows_dir.is_dir():
+        raise SystemExit(f"no flows directory at {str(flows_dir)!r}")
+
+    # A loop and thread pool of our own: however the run ends, a plain handler
+    # still running in a thread must not hold the command, as asyncio.run would.
+    threads = f"{_HANDLER_THREADS}-{uuid.uuid4().hex[:8]}"  # this run's only
+    executor = ThreadPoolExecutor(thread_name_prefix=threads)
+    loop = asyncio.new_event_loop()
+    loop.set_default_executor(executor)
+    try:
+        run = loop.run_until_complete(
+            run_local(
+                flows_dir,
+                args.flow,
+                inputs,
+                code_location=args.directory,
+                timeout=args.timeout,
+            )
+        )
+    except TimeoutError:  # before OSError, which it is a kind of
+        print(
+            f"{args.flow!r} did not finish within {args.timeout} seconds",
+            file=sys.stderr,
+        )
+        return _finish(loop, executor, threads, 1)
+    except (NeorcError, ValueError, OSError) as exc:
+        print(f"cannot run {args.flow!r}: {exc}", file=sys.stderr)
+        return _finish(loop, executor, threads, 1)
+    except KeyboardInterrupt:
+        return _finish(loop, executor, threads, 130)
+    except Exception as exc:  # a crashed loop: still never wait on a handler
+        _log.exception("running %r crashed", args.flow)
+        print(f"cannot run {args.flow!r}: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return _finish(loop, executor, threads, 1)
+
+    if run.status is RunStatus.SUCCEEDED:
+        print(json.dumps(run.output))
+        return _finish(loop, executor, threads, 0)
+    print(f"run {run.id} {run.status.value}: {run.reason}", file=sys.stderr)
+    return _finish(loop, executor, threads, 1)
+
+
+_HANDLER_THREADS = "neorc-handler"
+
+
+def _finish(
+    loop: asyncio.AbstractEventLoop,
+    executor: ThreadPoolExecutor,
+    threads: str,
+    exit_code: int,
+) -> int:
+    """Close the loop without waiting for handlers still running in a thread.
+
+    Python joins those threads on its way out, so if one is still busy the
+    process exits here and now instead, with ``exit_code``.
+    """
+    loop.run_until_complete(loop.shutdown_asyncgens())
+    loop.close()
+    executor.shutdown(wait=False, cancel_futures=True)
+    busy = False
+    for thread in threading.enumerate():
+        if thread.name.startswith(threads):
+            thread.join(timeout=0.1)  # idle threads leave as the pool shuts down
+            busy = busy or thread.is_alive()
+    if busy:
+        sys.stdout.flush()
+        sys.stderr.flush()
+        _exit_now(exit_code)
+    return exit_code
+
+
+def _exit_now(exit_code: int) -> None:
+    os._exit(exit_code)
 
 
 def manager_start_command(args: argparse.Namespace) -> int:

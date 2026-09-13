@@ -51,6 +51,9 @@ one version, cut from a single tag on `main`.
   concern and applies the actions, failing a run whose request is rejected; and
   `LocalCluster` and `run_local`, a manager, scheduler and one worker per queue
   in one process.
+- `neorc run <dir> --flow <name> --inputs <json>`: run a flow to its end in
+  one process, with nothing to deploy. `examples/hello` and `examples/wordplay`
+  run with it, and their outputs are asserted in the tests.
 - Claims are leases: workers heartbeat to hold a task, and a task whose lease
   lapses returns to the queue. Chosen so the queue can move to SQS unchanged.
 - `neorc.postgres`: the task store, claiming with `FOR UPDATE SKIP LOCKED`, and

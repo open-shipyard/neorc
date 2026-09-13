@@ -1,8 +1,20 @@
 # wordplay
 
-> **Not runnable yet.** The flow engine is not implemented. These files show
-> what [docs/specs](../../docs/specs) describe, and are a checklist for the
-> engine when it lands.
+Run it in one process, with nothing to deploy, from the repository root after
+`uv sync`:
+
+    uv run neorc run examples/wordplay --flow word_picker \
+        --inputs '{"sentence": "potato tomate berry watermelon", "preferred_letter": "t"}'
+
+It prints `["potato", "tomate"]`. `word_picker_rounds` also takes a datetime,
+written as a tagged value, and has no output, so it prints `null`:
+
+    uv run neorc run examples/wordplay --flow word_picker_rounds \
+        --inputs '{"sentence": "potato tomate berry watermelon", "preferred_letter": "t",
+                   "requested_at": {"$datetime": "2026-09-13T10:00:00+00:00"}}'
+
+[python/neorc-core/tests/test_examples.py](../../python/neorc-core/tests/test_examples.py)
+runs both flows and asserts what they produce.
 
 [`flow_example.py`](../../docs/specs/flow_example.py) written the neorc way: the
 `while` and `for` loops move into flow files, and `tasks.py` keeps only plain

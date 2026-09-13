@@ -213,10 +213,17 @@ async def run_local(
     """Upload the flows in ``flows_dir``, run ``flow`` to its end, and return the run.
 
     ``inputs`` are in their JSON form, datetimes tagged. Handlers import from
-    ``code_location``, by default the directory ``flows_dir`` is in.
+    ``code_location``, by default the directory ``flows_dir`` is in. A task
+    still in flight when the run finishes, as when a run fails while another
+    branch is busy, is not waited for.
     """
     location = code_location if code_location is not None else flows_dir.parent
-    async with LocalCluster(code_location=location) as cluster:
+    cluster = LocalCluster(code_location=location)
+    try:
         await cluster.upload(flows_dir)
         await cluster.start()
         return await cluster.run(flow, inputs, timeout=timeout)
+    finally:
+        # Once the run has finished, nothing a task still in flight produces
+        # can matter: do not wait for its handler.
+        await cluster.close(cancel=True)
