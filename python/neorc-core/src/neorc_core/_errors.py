@@ -38,3 +38,19 @@ class FlowDefinitionError(NeorcError):
 
 class ResolutionError(NeorcError):
     """A reference cannot be resolved: a fan-out's ``over`` value is not a list."""
+
+
+class FlowNotFoundError(NeorcError):
+    """No flow, or no version of a flow, exists with the given name."""
+
+
+class FlowVersionError(NeorcError, ValueError):
+    """An upload breaks the version rules, or a run names a version not the latest."""
+
+
+class RunNotFoundError(NeorcError):
+    """No run exists with the given id."""
+
+
+class RunStateError(NeorcError):
+    """A run cannot take the request: it is no longer active, or already finished."""
