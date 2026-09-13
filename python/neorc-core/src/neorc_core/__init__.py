@@ -20,6 +20,7 @@ from neorc_core._errors import (
     TaskStateError,
 )
 from neorc_core._flow_manager import FlowManager
+from neorc_core._flow_worker import FlowWorker, HandlerError
 from neorc_core._manager import Manager
 from neorc_core._runs import (
     Event,
@@ -67,6 +68,8 @@ __all__ = [
     "FlowQueueClient",
     "FlowTask",
     "FlowVersionError",
+    "FlowWorker",
+    "HandlerError",
     "InvalidValueError",
     "Manager",
     "ManagerClient",

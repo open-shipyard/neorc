@@ -43,6 +43,10 @@ one version, cut from a single tag on `main`.
 - `neorc-core`: the `FlowQueueClient` and `ManagerClient` ports, the direct
   clients that reach a manager in the same process through JSON, as HTTP would,
   and `FlowQueueClientContract` and `ManagerClientContract`.
+- `neorc-core`: `FlowWorker`, which checks at startup that every handler on its
+  queue imports and takes exactly its task's inputs, then runs handlers with
+  their inputs as keyword arguments, plain functions in a thread. Handler
+  resolution by import path moves from the `neorc` command to `neorc-core`.
 - Claims are leases: workers heartbeat to hold a task, and a task whose lease
   lapses returns to the queue. Chosen so the queue can move to SQS unchanged.
 - `neorc.postgres`: the task store, claiming with `FOR UPDATE SKIP LOCKED`, and
