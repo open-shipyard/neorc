@@ -163,6 +163,17 @@ class FlowDefinition:
         """The loops and fan-outs around step ``name``, outermost first."""
         return self._index[name][1]
 
+    def waits_on(self, name: str) -> frozenset[str]:
+        """The steps that must finish before step ``name`` can start.
+
+        All of them are siblings of ``name``, in the scope the two share. A step
+        referring to one inside a loop or fan-out it is not part of waits for
+        that whole container; a loop or fan-out waits for whatever the steps
+        inside it refer to outside it. References that name no step are left
+        out: validation reports them.
+        """
+        return self._dependencies.get(name, frozenset())
+
     def tasks(self) -> Iterator[TaskStep]:
         """Every task step, at any depth."""
         for step, _ in self.walk():
@@ -170,8 +181,41 @@ class FlowDefinition:
                 yield step
 
     @cached_property
+    def _dependencies(self) -> dict[str, frozenset[str]]:
+        edges: dict[str, set[str]] = {}
+        for consumer, enclosing in self.walk():
+            consumer_chain = [c.name for c in enclosing] + [consumer.name]
+            for _, reference in step_references(consumer):
+                if reference.namespace not in (Namespace.TASKS, Namespace.FLOWS):
+                    continue
+                if reference.name not in self._index:
+                    continue
+                target_enclosing = self._index[reference.name][1]
+                target_chain = [c.name for c in target_enclosing] + [reference.name]
+                shared = 0
+                while (
+                    shared < min(len(consumer_chain), len(target_chain))
+                    and consumer_chain[shared] == target_chain[shared]
+                ):
+                    shared += 1
+                if shared in (len(consumer_chain), len(target_chain)):
+                    continue  # itself, or containment: validation reports both
+                waiting = edges.setdefault(consumer_chain[shared], set())
+                waiting.add(target_chain[shared])
+        return {name: frozenset(targets) for name, targets in edges.items()}
+
+    @cached_property
     def _index(self) -> dict[str, tuple[Step, tuple[Container, ...]]]:
         return {step.name: (step, enclosing) for step, enclosing in self.walk()}
+
+
+def step_references(step: Step) -> Iterator[tuple[str, Reference]]:
+    """Every reference a step makes, with where in the file it is."""
+    if isinstance(step, TaskStep | SubFlowStep):
+        for name, reference in step.params.items():
+            yield f"{step.name}.params.{name}", reference
+    if isinstance(step, FanOutStep) and step.over is not None:
+        yield f"{step.name}.fan_out.over", step.over
 
 
 def _walk(

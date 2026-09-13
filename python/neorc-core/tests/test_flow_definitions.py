@@ -480,3 +480,20 @@ def test_flow_set_problems() -> None:
     twice = load_flow_yaml("name: a\nversion: 1.0.0\nsteps: {t: {handler: m:f}}")
     with pytest.raises(FlowDefinitionError, match="more than once"):
         validate_flow_set([twice, twice])
+
+
+def test_steps_wait_on_siblings_in_the_scope_they_share() -> None:
+    picker = {f.name: f for f in load_flows(EXAMPLES / "wordplay" / "flows")}[
+        "word_picker"
+    ]
+
+    assert picker.waits_on("compose_payload") == frozenset()
+    # Inside the loop, pick_word refers out to compose_payload: the loop waits.
+    assert picker.waits_on("rounds") == {"compose_payload"}
+    assert picker.waits_on("pick_word") == frozenset()
+    assert picker.waits_on("extract_word") == {"pick_word"}
+    # Referring into a fan-out waits for the whole fan-out.
+    assert picker.waits_on("collect_words") == {"picking"}
+    assert picker.waits_on("latest_round") == {"rounds"}
+    assert picker.waits_on("grading") == {"latest_round"}
+    assert picker.waits_on("keep_matching_words") == {"grading"}

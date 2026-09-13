@@ -9,8 +9,6 @@ several mistakes reports all of them.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-
 from neorc_core.flows._definition import (
     NEORC_METADATA,
     Container,
@@ -22,6 +20,7 @@ from neorc_core.flows._definition import (
     Step,
     SubFlowStep,
     TaskStep,
+    step_references,
 )
 
 _ROOT = "the flow"
@@ -38,7 +37,7 @@ def check_flow(definition: FlowDefinition) -> list[str]:
                 )
         if isinstance(step, LoopStep):
             problems.extend(_check_exit_condition(step))
-        for where, reference in _references(step):
+        for where, reference in step_references(step):
             problems.extend(
                 _check_reference(definition, step, enclosing, where, reference)
             )
@@ -81,14 +80,6 @@ def check_flow_set(definitions: list[FlowDefinition]) -> list[str]:
     for cycle in _cycles(calls):
         problems.append("flows call each other in a cycle: " + " -> ".join(cycle))
     return problems
-
-
-def _references(step: Step) -> Iterator[tuple[str, Reference]]:
-    if isinstance(step, TaskStep | SubFlowStep):
-        for name, reference in step.params.items():
-            yield f"{step.name}.params.{name}", reference
-    if isinstance(step, FanOutStep) and step.over is not None:
-        yield f"{step.name}.fan_out.over", step.over
 
 
 def _check_exit_condition(loop: LoopStep) -> list[str]:
@@ -162,34 +153,13 @@ def _check_metadata(
 
 
 def _check_cycles(definition: FlowDefinition) -> list[str]:
-    """Steps that wait on each other, compared within the scope they share.
-
-    A step referring to a step inside a loop or fan-out it is not part of waits
-    for that whole container, so each dependency is recorded between the two
-    steps' ancestors that are siblings in their innermost shared scope.
-    """
+    """Steps that wait on each other, within the scope they share."""
     graphs: dict[str, dict[str, set[str]]] = {}
-    for consumer, enclosing in definition.walk():
-        consumer_chain = [c.name for c in enclosing] + [consumer.name]
-        for _, reference in _references(consumer):
-            if reference.namespace not in (Namespace.TASKS, Namespace.FLOWS):
-                continue
-            try:
-                target_enclosing = definition.enclosing(reference.name)
-            except KeyError:
-                continue  # reported by the reference check
-            target_chain = [c.name for c in target_enclosing] + [reference.name]
-            shared = 0
-            while (
-                shared < min(len(consumer_chain), len(target_chain))
-                and consumer_chain[shared] == target_chain[shared]
-            ):
-                shared += 1
-            if shared == len(consumer_chain) or shared == len(target_chain):
-                continue  # self or containment, reported by the reference check
-            scope = consumer_chain[shared - 1] if shared else _ROOT
-            edges = graphs.setdefault(scope, {})
-            edges.setdefault(consumer_chain[shared], set()).add(target_chain[shared])
+    for step, enclosing in definition.walk():
+        waits_on = definition.waits_on(step.name)
+        if waits_on:
+            scope = enclosing[-1].name if enclosing else _ROOT
+            graphs.setdefault(scope, {})[step.name] = set(waits_on)
 
     problems = []
     for scope, edges in graphs.items():

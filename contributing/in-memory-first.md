@@ -60,10 +60,11 @@ it too.
 
 ### 3. The planner has no I/O
 
-`plan(definition, run_state, event) -> actions` is a pure function: no asyncio,
-no clients, no clock reads, no randomness. It is deterministic, so a redelivered
-event plans the same actions. Flow semantics are tested by calling it with plain
-data and asserting on the actions it returns.
+`plan(definition, run_state) -> actions` is a pure function: no asyncio, no
+clients, no clock reads, no randomness. It decides from the run's state, not
+from the event that woke the scheduler, so a redelivered event plans the same
+actions. Flow semantics are tested by calling it with plain data and asserting
+on the actions it returns.
 
 The scheduler around it only gathers input, calls `plan` and applies the
 actions.
