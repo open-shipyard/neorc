@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from datetime import datetime
+from itertools import accumulate
 from typing import Any
 
 from neorc_core._errors import InvalidValueError, PayloadTooLargeError
@@ -23,6 +25,9 @@ JsonValue = None | bool | int | float | str | list["JsonValue"] | dict[str, "Jso
 
 MAX_PAYLOAD_BYTES = 1024 * 1024
 """The largest encoded payload, in bytes of UTF-8: the SQS message limit."""
+
+MAX_JSON_DEPTH = 200
+"""The deepest nesting of arrays and objects that JSON text may have."""
 
 DATETIME_TAG = "$datetime"
 RESERVED_PREFIX = "$"
@@ -53,7 +58,22 @@ def dumps(value: Any) -> str:
 
 def loads(text: str) -> Any:
     """Parse JSON and decode it into a user value."""
+    ensure_json_depth(text)
     return decode(json.loads(text))
+
+
+def ensure_json_depth(text: str, *, limit: int = MAX_JSON_DEPTH) -> None:
+    """Raise ``InvalidValueError`` if JSON text nests deeper than ``limit``.
+
+    Call before ``json.loads`` on untrusted text: on some Pythons its C parser
+    exhausts the thread's stack and crashes the process on deep nesting, before
+    it can raise ``RecursionError``.
+    """
+    brackets = _BRACKET.findall(_STRING.sub("", text))
+    steps = (1 if bracket in "[{" else -1 for bracket in brackets)
+    depth = max(accumulate(steps), default=0)
+    if depth > limit:
+        raise InvalidValueError(f"JSON nests deeper than {limit} levels")
 
 
 def ensure_fits(encoded: str, *, limit: int = MAX_PAYLOAD_BYTES) -> None:
@@ -61,6 +81,10 @@ def ensure_fits(encoded: str, *, limit: int = MAX_PAYLOAD_BYTES) -> None:
     size = len(encoded.encode("utf-8"))
     if size > limit:
         raise PayloadTooLargeError(f"payload is {size} bytes, over the {limit} limit")
+
+
+_STRING = re.compile(r'"(?:[^"\\]|\\.)*"')
+_BRACKET = re.compile(r"[\[\]{}]")
 
 
 def _encode(value: Any, path: str) -> JsonValue:
