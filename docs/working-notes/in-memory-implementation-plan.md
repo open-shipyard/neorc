@@ -20,7 +20,7 @@ new ports and runs the contract suites against them.
 | 2  | `local` package and contract suite scaffold | done   |
 | 3  | Reference resolution and run state          | done   |
 | 4  | Planner: tasks, loops, fan-outs             | done   |
-| 5  | Planner: sub-flows, output, failures        | todo   |
+| 5  | Planner: sub-flows, output, failures        | done   |
 | 6  | Store port and memory store                 | todo   |
 | 7  | Manager: flows, runs, run trees             | todo   |
 | 8  | Manager: tasks, payloads, events            | todo   |

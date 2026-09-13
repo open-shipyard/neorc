@@ -81,12 +81,23 @@ Action = PublishTask | StartSubRun | SucceedRun | FailRun
 def plan(definition: FlowDefinition, state: RunState) -> list[Action]:
     """The actions that move a run forward from ``state``.
 
-    Every step instance that is ready and not started yet is published, in file
-    order, branches and iterations in increasing order. A run that can go no
-    further gets a single ``FailRun`` instead of anything else.
+    Every task and sub-flow instance that is ready and not started yet is
+    published or started, in file order, branches and iterations in increasing
+    order. Once every step has finished, the run succeeds. A run that can go no
+    further, because a task or sub-flow run failed or the flow cannot carry on,
+    gets a single ``FailRun`` instead of anything else.
     """
+    failed = sorted(
+        address
+        for address, result in state.steps.items()
+        if result.outcome is Outcome.FAILED
+    )
+    if failed:
+        return [FailRun(f"{failed[0]} failed")]
     planner = _Planner(definition, state)
     try:
+        if all(planner.finished(step, ()) for step in definition.steps):
+            return [SucceedRun(definition.output)]
         planner.scope(definition.steps, ())
     except _RunFailed as failure:
         return [FailRun(failure.reason)]
@@ -147,8 +158,8 @@ class _Planner:
 
     def advance(self, step: Step, scope: Scope) -> None:
         """Move a ready, unfinished step instance forward."""
-        if isinstance(step, TaskStep):
-            self.publish(step, Address(step.name, scope))
+        if isinstance(step, TaskStep | SubFlowStep):
+            self.start(step, Address(step.name, scope))
         elif isinstance(step, LoopStep):
             self.advance_loop(step, scope)
         elif isinstance(step, FanOutStep):
@@ -180,10 +191,11 @@ class _Planner:
             )
         self.scope(loop.steps, (*scope, (loop.name, last + 1)))
 
-    def publish(self, task: TaskStep, address: Address) -> None:
+    def start(self, step: TaskStep | SubFlowStep, address: Address) -> None:
+        """Publish a task, or start a sub-flow run, once its inputs resolve."""
         if self.state.get(address) is not None:
-            return  # already published: running, or finished
-        for reference in task.params.values():
+            return  # already started: running, or finished
+        for reference in step.params.values():
             if (
                 reference.namespace is Namespace.NEORC
                 and reference.name in _FILLED_IN_LATER
@@ -191,12 +203,22 @@ class _Planner:
                 continue
             if resolve(self.definition, self.state, address, reference) is None:
                 return
+        if isinstance(step, SubFlowStep):
+            self.actions.append(
+                StartSubRun(
+                    address,
+                    flow=step.flow,
+                    params=step.params,
+                    fixed_params=step.fixed_params,
+                )
+            )
+            return
         self.actions.append(
             PublishTask(
                 address,
-                queue=task.queue,
-                handler=task.handler,
-                params=task.params,
-                fixed_params=task.fixed_params,
+                queue=step.queue,
+                handler=step.handler,
+                params=step.params,
+                fixed_params=step.fixed_params,
             )
         )
