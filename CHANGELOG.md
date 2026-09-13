@@ -27,7 +27,9 @@ one version, cut from a single tag on `main`.
   iteration and fan-out index, and `resolve`, which gives a reference's value
   for a consumer as the "Resolving references" table of the flows spec does.
 - `neorc-core`: the planner, `plan(definition, run_state)`, a pure function
-  that publishes every ready task instance and moves loops and fan-outs on.
+  that publishes every ready task instance and moves loops and fan-outs on,
+  starts sub-flow runs, succeeds a run with its output once every step
+  finished, and fails it when a task or sub-flow run fails.
 - Claims are leases: workers heartbeat to hold a task, and a task whose lease
   lapses returns to the queue. Chosen so the queue can move to SQS unchanged.
 - `neorc.postgres`: the task store, claiming with `FOR UPDATE SKIP LOCKED`, and
