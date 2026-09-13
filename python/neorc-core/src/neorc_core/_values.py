@@ -15,7 +15,6 @@ import json
 import math
 import re
 from datetime import datetime
-from itertools import accumulate
 from typing import Any
 
 from neorc_core._errors import InvalidValueError, PayloadTooLargeError
@@ -69,11 +68,15 @@ def ensure_json_depth(text: str, *, limit: int = MAX_JSON_DEPTH) -> None:
     exhausts the thread's stack and crashes the process on deep nesting, before
     it can raise ``RecursionError``.
     """
-    brackets = _BRACKET.findall(_STRING.sub("", text))
-    steps = (1 if bracket in "[{" else -1 for bracket in brackets)
-    depth = max(accumulate(steps), default=0)
-    if depth > limit:
-        raise InvalidValueError(f"JSON nests deeper than {limit} levels")
+    depth = 0
+    for token in _JSON_TOKEN.finditer(text):
+        bracket = token.group()
+        if bracket in "[{":
+            depth += 1
+            if depth > limit:
+                raise InvalidValueError(f"JSON nests deeper than {limit} levels")
+        elif bracket in "]}":
+            depth -= 1
 
 
 def ensure_fits(encoded: str, *, limit: int = MAX_PAYLOAD_BYTES) -> None:
@@ -83,8 +86,12 @@ def ensure_fits(encoded: str, *, limit: int = MAX_PAYLOAD_BYTES) -> None:
         raise PayloadTooLargeError(f"payload is {size} bytes, over the {limit} limit")
 
 
-_STRING = re.compile(r'"(?:[^"\\]|\\.)*"')
-_BRACKET = re.compile(r"[\[\]{}]")
+_JSON_TOKEN = re.compile(r'"(?:[^"\\]|\\.)*"?|[\[\]{}]')
+"""A string, whose brackets do not nest, or a bracket.
+
+The closing quote is optional so an unterminated string ends the scan in one
+pass rather than being retried from every later quote, which is quadratic.
+"""
 
 
 def _encode(value: Any, path: str) -> JsonValue:
