@@ -4,7 +4,7 @@
 """The ``neorc`` command.
 
     neorc manager start
-    neorc worker start
+    neorc worker start --tasks tasks.toml
 
 Adapters are imported inside the handlers, so a host that installed only the
 extras it needs can still run the CLI.
@@ -15,16 +15,21 @@ from __future__ import annotations
 import argparse
 import asyncio
 import importlib
+import inspect
 import logging
 import os
 import signal
+import sys
+import tomllib
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
+from pathlib import Path
+from typing import Any
 
-from neorc_core import Worker
+from neorc_core import Task, TaskHandler, Worker
 
 MANAGER_ADDRESS_ENV = "NEORC_MANAGER_ADDRESS"
-HANDLERS_ENV = "NEORC_WORKER_HANDLERS"
+TASKS_FILE_ENV = "NEORC_WORKER_TASKS"
 
 DEFAULT_HOST = "0.0.0.0"  # a manager serves workers on other hosts
 DEFAULT_PORT = 8420
@@ -68,11 +73,11 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"defaults to ${MANAGER_ADDRESS_ENV}",
     )
     worker_start.add_argument(
-        "--handlers",
+        "--tasks",
         default=None,
         help=(
-            "module:function that registers this worker's handlers, called with "
-            f"the worker; defaults to ${HANDLERS_ENV}"
+            "TOML file mapping task names to module:function handlers; "
+            f"defaults to ${TASKS_FILE_ENV}"
         ),
     )
     worker_start.add_argument("--poll-timeout", type=float, default=30.0)
@@ -84,7 +89,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def manager_start_command(args: argparse.Namespace) -> int:
     """Run the manager service. Needs the ``manager`` extra."""
-    with _needs("manager", "and postgres"):
+    with _needs("manager", "postgres"):
         from neorc.manager import run
 
     run(
@@ -108,7 +113,10 @@ def worker_start_command(args: argparse.Namespace) -> int:
             f"${MANAGER_ADDRESS_ENV}"
         )
 
-    register_handlers = _load_handlers(args.handlers or os.environ.get(HANDLERS_ENV))
+    tasks_file = args.tasks or os.environ.get(TASKS_FILE_ENV)
+    if not tasks_file:
+        raise SystemExit(f"no tasks to run: pass --tasks or set ${TASKS_FILE_ENV}")
+    handlers = load_tasks(Path(tasks_file))
 
     async def serve() -> None:
         async with HttpQueueClient(address, poll_timeout=args.poll_timeout) as client:
@@ -118,7 +126,8 @@ def worker_start_command(args: argparse.Namespace) -> int:
                 poll_timeout=args.poll_timeout,
                 lease_seconds=args.lease_seconds,
             )
-            register_handlers(worker)
+            for name, handler in handlers.items():
+                worker.register(name, handler)
             _stop_on_signals(worker.stop)
             await worker.run()
 
@@ -141,7 +150,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 @contextmanager
-def _needs(extra: str, also: str = "") -> Iterator[None]:
+def _needs(*extras: str) -> Iterator[None]:
     """Turn a missing optional dependency into the install command that fixes it.
 
     Nothing is installed by default, so this is the first thing a new deployment
@@ -150,42 +159,70 @@ def _needs(extra: str, also: str = "") -> Iterator[None]:
     try:
         yield
     except ImportError as exc:
-        extras = f"{extra}{',' + also.removeprefix('and ') if also else ''}"
         raise SystemExit(
-            f"this command needs the {extra!r} extra, which is not installed "
-            f"({exc}). Install it with: pip install 'neorc[{extras}]'"
+            f"this command needs the {' and '.join(map(repr, extras))} extra, which "
+            f"is not installed ({exc}). Install it with: "
+            f"pip install 'neorc[{','.join(extras)}]'"
         ) from exc
 
 
-def _load_handlers(target: str | None) -> Callable[[Worker], None]:
-    """Resolve ``module:function``, the hook a deployment registers its work in."""
-    if not target:
-        _log.warning(
-            "no handlers given: every task this worker claims will fail. "
-            "Pass --handlers module:function or set $%s",
-            HANDLERS_ENV,
-        )
-        return _register_nothing
+def load_tasks(path: Path) -> dict[str, TaskHandler]:
+    """Read a tasks file: a ``[tasks]`` table of name = "module:function".
 
+    Modules resolve relative to the file's directory first, so a file can sit
+    next to the code it names. Every entry is imported up front and every
+    problem reported at once, so a bad file stops the worker at startup rather
+    than failing tasks later.
+    """
+    try:
+        config = tomllib.loads(path.read_text())
+    except OSError as exc:
+        raise SystemExit(f"cannot read tasks file {str(path)!r}: {exc}") from exc
+    except tomllib.TOMLDecodeError as exc:
+        raise SystemExit(f"{str(path)!r} is not valid TOML: {exc}") from exc
+
+    tasks = config.get("tasks")
+    if not isinstance(tasks, dict) or not tasks:
+        raise SystemExit(f"{str(path)!r} has no [tasks] table")
+
+    sys.path.insert(0, str(path.resolve().parent))
+    handlers: dict[str, TaskHandler] = {}
+    problems: list[str] = []
+    for name, target in tasks.items():
+        try:
+            handlers[name] = _as_handler(_resolve(target))
+        except ValueError as exc:
+            problems.append(f"  {name}: {exc}")
+    if problems:
+        raise SystemExit(f"bad tasks in {str(path)!r}:\n" + "\n".join(problems))
+    return handlers
+
+
+def _resolve(target: Any) -> Callable[..., Any]:
+    """The callable ``module:function`` names."""
+    if not isinstance(target, str) or ":" not in target:
+        raise ValueError(f'wants "module:function", not {target!r}')
     module_name, _, attribute = target.partition(":")
-    if not attribute:
-        raise SystemExit(f"--handlers wants module:function, not {target!r}")
     try:
         module = importlib.import_module(module_name)
     except ImportError as exc:
-        raise SystemExit(f"cannot import {module_name!r}: {exc}") from exc
-    try:
-        register = getattr(module, attribute)
-    except AttributeError as exc:
-        raise SystemExit(f"{module_name!r} has no {attribute!r}") from exc
-    if not callable(register):
-        raise SystemExit(f"{target!r} is not callable")
-    resolved: Callable[[Worker], None] = register
-    return resolved
+        raise ValueError(f"cannot import {module_name!r}: {exc}") from exc
+    function: object = getattr(module, attribute, None)
+    if not callable(function):
+        raise ValueError(f"{module_name!r} has no function {attribute!r}")
+    return function
 
 
-def _register_nothing(worker: Worker) -> None:
-    """The default hook: a worker with no handlers, which fails what it claims."""
+def _as_handler(function: Callable[..., Any]) -> TaskHandler:
+    """Run plain functions in a thread, so a handler need not be ``async``."""
+    if inspect.iscoroutinefunction(function):
+        handler: TaskHandler = function
+        return handler
+
+    async def in_thread(task: Task) -> None:
+        await asyncio.to_thread(function, task)
+
+    return in_thread
 
 
 def _stop_on_signals(stop: Callable[[], None]) -> None:

@@ -28,6 +28,9 @@ one version, cut from a single tag on `main`.
   `NEORC_DATABASE_URL`.
 - `neorc.http`: `HttpQueueClient`, the long-polling client publishers and
   workers use.
+- `neorc worker start --tasks tasks.toml` (or `$NEORC_WORKER_TASKS`): a
+  `[tasks]` table maps task names to `module:function` handlers, which need not
+  import neorc and may be plain functions. Every entry is checked at startup.
 - `neorc`: the console script — `neorc manager start` and `neorc worker start`.
   A command whose extra is missing says which one to install rather than
   raising `ModuleNotFoundError`.

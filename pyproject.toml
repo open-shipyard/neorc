@@ -24,6 +24,8 @@ dev = [
 
 [tool.ruff]
 line-length = 88
+# The packages need 3.11; this root has no [project] for ruff to read it from.
+target-version = "py311"
 # Every package keeps its importable code in python/<name>/src, so isort can
 # tell first-party imports from third-party ones.
 src = ["python/*/src"]

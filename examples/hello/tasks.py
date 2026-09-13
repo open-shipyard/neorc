@@ -1,21 +1,17 @@
 # Copyright 2026 The neorc Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""Two trivial handlers, for trying neorc out locally. See README.md."""
+"""Two trivial handlers, for trying neorc out locally. See README.md.
 
-from __future__ import annotations
+Plain functions: tasks.toml maps task names to them, so nothing here imports
+neorc.
+"""
 
-from neorc import Task, Worker
 
-
-async def a(task: Task) -> None:
+def a(task):
     print("a")
+    print(task)
 
 
-async def b(task: Task) -> None:
+def b(task):
     print("b")
-
-
-def setup(worker: Worker) -> None:
-    worker.register("a", a)
-    worker.register("b", b)

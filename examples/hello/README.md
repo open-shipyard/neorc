@@ -1,7 +1,8 @@
 # hello
 
 A manager, a worker with two handlers (`a` prints `a`, `b` prints `b`), and
-tasks submitted on demand with `curl`. Run each step from the repository root
+tasks submitted on demand with `curl`. `tasks.toml` maps each task name to its
+function in `tasks.py`, which does not import neorc. Run each step from the repository root
 in its own terminal, after `uv sync`.
 
 1. Postgres (skip if you have one; set `NEORC_DATABASE_URL` to it instead):
@@ -17,8 +18,8 @@ in its own terminal, after `uv sync`.
 
 3. The worker:
 
-       PYTHONPATH=examples/hello uv run neorc worker start \
-           --manager-address 127.0.0.1:8420 --handlers tasks:setup
+       uv run neorc worker start --manager-address 127.0.0.1:8420 \
+           --tasks examples/hello/tasks.toml
 
 4. Submit tasks, as often as you like. The worker prints `a` or `b`:
 

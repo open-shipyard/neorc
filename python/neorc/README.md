@@ -17,21 +17,24 @@ Every dependency is optional, so a host installs only what its role needs:
     neorc manager start --create-schema
 
     export NEORC_MANAGER_ADDRESS=manager.internal:8420
-    neorc worker start --handlers myapp.tasks:setup
+    neorc worker start --tasks tasks.toml
 
-Where `myapp.tasks:setup` is a function that registers the handlers:
+Where `tasks.toml` maps each task name to the function that runs it:
+
+```toml
+# tasks.toml
+[tasks]
+greet = "myapp.tasks:greet"
+```
 
 ```python
-from neorc import Task, Worker
-
-
-async def greet(task: Task) -> None:
+# myapp/tasks.py
+def greet(task):
     print(f"hello {task.payload['name']}")
-
-
-def setup(worker: Worker) -> None:
-    worker.register("greet", greet)
 ```
+
+Modules resolve from the file's directory, then the usual import path.
+Handlers can be plain or `async` functions; plain ones run in a thread.
 
 ## What is in it
 

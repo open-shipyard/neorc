@@ -35,24 +35,28 @@ Start the manager:
     export NEORC_DATABASE_URL=postgresql://localhost/neorc
     neorc manager start --create-schema
 
-Write the work, in a module your workers can import:
+Write the work, as plain functions that need not import neorc:
 
 ```python
-from neorc import Task, Worker
-
-
-async def greet(task: Task) -> None:
+# myapp/tasks.py
+def greet(task):
     print(f"hello {task.payload['name']}")
+```
 
+Name each task in a TOML file. Modules resolve from the file's directory, then
+the usual import path. Handlers can be plain or `async` functions; plain ones
+run in a thread.
 
-def setup(worker: Worker) -> None:
-    worker.register("greet", greet)
+```toml
+# tasks.toml
+[tasks]
+greet = "myapp.tasks:greet"
 ```
 
 Start a worker, on any host that can reach the manager:
 
     export NEORC_MANAGER_ADDRESS=manager.internal:8420
-    neorc worker start --handlers myapp.tasks:setup
+    neorc worker start --tasks tasks.toml
 
 Publish from anywhere:
 
