@@ -81,8 +81,9 @@ Two consequences the rest of the system inherits:
 
 - **Delivery is at-least-once.** A worker can finish its work and die before
   reporting it, and the task will be handed to someone else. Handlers have to be
-  idempotent; the attempt count travels with the task so a handler can tell a
-  retry from a first run.
+  idempotent, and that is the user's responsibility: neorc does not detect or
+  suppress duplicate runs. How a handler achieves it is up to the user — a
+  unique id or hash of the work, an upsert, a check before a side effect.
 - **The timeout has to outlast a missed heartbeat.** Heartbeat on an interval
   well under the visibility timeout — a third of it is a reasonable default — so
   a single slow or dropped beat does not hand a live worker's task to another.
@@ -95,8 +96,10 @@ Two consequences the rest of the system inherits:
   `ensure_transition` is what every store calls, so no backend can invent its
   own lifecycle. Re-reporting a start is allowed, because delivery is
   at-least-once.
-- **Payloads live in the task row**, as `jsonb`. Addressing them elsewhere is
-  something to do when a payload is too big for a row, not before.
+- **Payloads live in the task row**, as `jsonb`: fixed values and references
+  to upstream results, filled in when a worker fetches the task (see
+  [core.md](core.md), "Task payloads"). Addressing them elsewhere is something
+  to do when a payload is too big for a row, not before.
 - **Migrations** are a create-if-absent step, `create_schema`, exposed as
   `neorc manager start --create-schema`. Not a migration tool: there is no
   released version to migrate from yet, and adding one before there is would be
