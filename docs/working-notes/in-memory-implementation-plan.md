@@ -22,7 +22,7 @@ new ports and runs the contract suites against them.
 | 4  | Planner: tasks, loops, fan-outs             | done   |
 | 5  | Planner: sub-flows, output, failures        | done   |
 | 6  | Store port and memory store                 | done   |
-| 7  | Manager: flows, runs, run trees             | todo   |
+| 7  | Manager: flows, runs, run trees             | done   |
 | 8  | Manager: tasks, payloads, events            | todo   |
 | 9  | Client ports and direct clients             | todo   |
 | 10 | Worker for flows                            | todo   |

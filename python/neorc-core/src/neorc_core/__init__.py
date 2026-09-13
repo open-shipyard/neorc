@@ -19,6 +19,7 @@ from neorc_core._errors import (
     TaskNotFoundError,
     TaskStateError,
 )
+from neorc_core._flow_manager import FlowManager
 from neorc_core._manager import Manager
 from neorc_core._runs import (
     Event,
@@ -52,6 +53,7 @@ __all__ = [
     "Event",
     "EventKind",
     "FlowDefinitionError",
+    "FlowManager",
     "FlowNotFoundError",
     "FlowTask",
     "FlowVersionError",

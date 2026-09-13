@@ -12,12 +12,12 @@ from __future__ import annotations
 
 import json
 import uuid
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 
-from neorc_core._errors import FlowVersionError, RunStateError
+from neorc_core._errors import FlowDefinitionError, FlowVersionError, RunStateError
 from neorc_core._task import TaskId, TaskStatus
 from neorc_core._values import JsonValue
 from neorc_core.flows import (
@@ -28,6 +28,7 @@ from neorc_core.flows import (
     RunState,
     StepResult,
     Version,
+    validate_flow_set,
 )
 
 RunId = uuid.UUID
@@ -159,6 +160,39 @@ def _canonical(content: JsonValue) -> str:
     Python's ``==`` holds ``1``, ``1.0`` and ``True`` equal; JSON does not.
     """
     return json.dumps(content, sort_keys=True, separators=(",", ":"))
+
+
+def check_uploads(
+    stored: Mapping[str, Iterable[StoredFlow]], uploads: Sequence[StoredFlow]
+) -> list[bool]:
+    """Which uploads, deployed together, are new versions to store.
+
+    ``stored`` holds every stored version, by flow name. Each upload must pass
+    ``check_upload``; then the flows that will be latest once the new versions
+    are stored must be valid as a set, so no sub-flow call is left pointing at a
+    flow or an input that is not there. Raises ``FlowVersionError`` or
+    ``FlowDefinitionError``, and then nothing may be stored.
+    """
+    results = [
+        check_upload(stored.get(upload.name, ()), upload.definition, upload.content)
+        for upload in uploads
+    ]
+    latest: dict[str, FlowDefinition] = {}
+    for name, versions in stored.items():
+        highest = max(versions, key=lambda flow: flow.version, default=None)
+        if highest is not None:
+            latest[name] = highest.definition
+    for upload, is_new in zip(uploads, results, strict=True):
+        if is_new:
+            latest[upload.name] = upload.definition
+    names = [upload.name for upload in uploads]
+    repeated = sorted({name for name in names if names.count(name) > 1})
+    if repeated:
+        raise FlowDefinitionError(
+            [f"flow {name!r} is uploaded more than once" for name in repeated]
+        )
+    validate_flow_set(latest.values())
+    return results
 
 
 def ensure_active(run: Run) -> None:

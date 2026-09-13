@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
@@ -26,7 +26,7 @@ from neorc_core._runs import (
     RunId,
     RunStatus,
     StoredFlow,
-    check_upload,
+    check_uploads,
     ensure_active,
     run_state_of,
     sub_run_id_for,
@@ -34,7 +34,7 @@ from neorc_core._runs import (
 )
 from neorc_core._task import LEASED_STATUSES, TaskId, TaskStatus, ensure_transition
 from neorc_core._values import JsonValue
-from neorc_core.flows import Address, FlowDefinition, Reference, RunState, Version
+from neorc_core.flows import Address, Reference, RunState, Version
 from neorc_core.ports._queue_client import DEFAULT_LEASE_SECONDS
 from neorc_core.ports._store import Store
 
@@ -52,21 +52,25 @@ class MemoryStore(Store):
         self._tasks: dict[TaskId, FlowTask] = {}
         self._events: list[Event] = []
 
-    async def store_flow(self, definition: FlowDefinition, content: JsonValue) -> bool:
+    async def store_flows(self, uploads: Sequence[StoredFlow]) -> list[bool]:
         async with self._lock:
-            versions = self._flows.setdefault(definition.name, {})
-            if not check_upload(versions.values(), definition, content):
-                return False
-            versions[definition.version] = StoredFlow(definition, content)
-            reason = f"{definition.name} {definition.version} was uploaded"
-            roots = {
-                run.root_id
-                for run in self._runs.values()
-                if run.flow == definition.name and run.status is RunStatus.ACTIVE
+            stored = {
+                name: list(versions.values()) for name, versions in self._flows.items()
             }
-            for root_id in sorted(roots):
-                self._finish_tree(root_id, RunStatus.CANCELLED, reason)
-            return True
+            results = check_uploads(stored, uploads)
+            for upload, is_new in zip(uploads, results, strict=True):
+                if not is_new:
+                    continue
+                self._flows.setdefault(upload.name, {})[upload.version] = upload
+                reason = f"{upload.name} {upload.version} was uploaded"
+                roots = {
+                    run.root_id
+                    for run in self._runs.values()
+                    if run.flow == upload.name and run.status is RunStatus.ACTIVE
+                }
+                for root_id in sorted(roots):
+                    self._finish_tree(root_id, RunStatus.CANCELLED, reason)
+            return results
 
     async def get_flow(self, name: str, version: Version | None = None) -> StoredFlow:
         async with self._lock:
