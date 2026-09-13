@@ -14,12 +14,10 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import importlib
 import inspect
 import logging
 import os
 import signal
-import sys
 import tomllib
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
@@ -27,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from neorc_core import Task, TaskHandler, Worker
+from neorc_core._handlers import resolve_handler
 
 MANAGER_ADDRESS_ENV = "NEORC_MANAGER_ADDRESS"
 TASKS_FILE_ENV = "NEORC_WORKER_TASKS"
@@ -185,32 +184,17 @@ def load_tasks(path: Path) -> dict[str, TaskHandler]:
     if not isinstance(tasks, dict) or not tasks:
         raise SystemExit(f"{str(path)!r} has no [tasks] table")
 
-    sys.path.insert(0, str(path.resolve().parent))
+    code_location = path.resolve().parent
     handlers: dict[str, TaskHandler] = {}
     problems: list[str] = []
     for name, target in tasks.items():
         try:
-            handlers[name] = _as_handler(_resolve(target))
+            handlers[name] = _as_handler(resolve_handler(target, code_location))
         except ValueError as exc:
             problems.append(f"  {name}: {exc}")
     if problems:
         raise SystemExit(f"bad tasks in {str(path)!r}:\n" + "\n".join(problems))
     return handlers
-
-
-def _resolve(target: Any) -> Callable[..., Any]:
-    """The callable ``module:function`` names."""
-    if not isinstance(target, str) or ":" not in target:
-        raise ValueError(f'wants "module:function", not {target!r}')
-    module_name, _, attribute = target.partition(":")
-    try:
-        module = importlib.import_module(module_name)
-    except ImportError as exc:
-        raise ValueError(f"cannot import {module_name!r}: {exc}") from exc
-    function: object = getattr(module, attribute, None)
-    if not callable(function):
-        raise ValueError(f"{module_name!r} has no function {attribute!r}")
-    return function
 
 
 def _as_handler(function: Callable[..., Any]) -> TaskHandler:

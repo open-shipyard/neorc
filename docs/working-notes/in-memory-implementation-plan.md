@@ -25,7 +25,7 @@ new ports and runs the contract suites against them.
 | 7  | Manager: flows, runs, run trees             | done   |
 | 8  | Manager: tasks, payloads, events            | done   |
 | 9  | Client ports and direct clients             | done   |
-| 10 | Worker for flows                            | todo   |
+| 10 | Worker for flows                            | done   |
 | 11 | Scheduler and LocalCluster                  | todo   |
 | 12 | `neorc run` and the examples as tests       | todo   |
 
