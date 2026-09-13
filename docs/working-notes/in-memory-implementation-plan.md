@@ -18,7 +18,7 @@ new ports and runs the contract suites against them.
 | -- | ------------------------------------------- | ------ |
 | 1  | Values and flow definitions                 | done   |
 | 2  | `local` package and contract suite scaffold | done   |
-| 3  | Reference resolution and run state          | todo   |
+| 3  | Reference resolution and run state          | done   |
 | 4  | Planner: tasks, loops, fan-outs             | todo   |
 | 5  | Planner: sub-flows, output, failures        | todo   |
 | 6  | Store port and memory store                 | todo   |

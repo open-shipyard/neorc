@@ -11,6 +11,7 @@ from neorc_core._errors import (
     ManagerUnavailableError,
     NeorcError,
     PayloadTooLargeError,
+    ResolutionError,
     TaskNotFoundError,
     TaskStateError,
 )
@@ -43,6 +44,7 @@ __all__ = [
     "Payload",
     "PayloadTooLargeError",
     "QueueClient",
+    "ResolutionError",
     "Subscription",
     "Task",
     "TaskHandler",
