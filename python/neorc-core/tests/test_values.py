@@ -4,6 +4,7 @@
 """Encoding the values that travel between tasks: JSON plus tagged datetimes."""
 
 import json
+import time
 from datetime import UTC, date, datetime, timedelta, timezone
 
 import pytest
@@ -131,3 +132,14 @@ def test_brackets_inside_strings_do_not_count_as_nesting() -> None:
     value = {"s": '[{"\\' * MAX_JSON_DEPTH, "t": ["\\", '"']}
 
     assert loads(json.dumps(value)) == value
+
+
+def test_an_unterminated_string_is_scanned_in_linear_time() -> None:
+    """Escaped quotes after an open one once made the depth scan quadratic."""
+    text = '"' + '\\"' * 500_000
+    started = time.monotonic()
+
+    with pytest.raises(ValueError):
+        loads(text)
+
+    assert time.monotonic() - started < 2
