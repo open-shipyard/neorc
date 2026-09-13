@@ -12,6 +12,8 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
+from neorc_core._errors import TaskStateError
+
 TaskId = uuid.UUID
 
 Payload = Mapping[str, Any]
@@ -20,8 +22,10 @@ Payload = Mapping[str, Any]
 class TaskStatus(StrEnum):
     """Where a task is in its lifecycle.
 
-    The set of statuses and the transitions between them are still open; see
-    docs/specs/postgres-implementation.md.
+    A task is published ``PENDING``, becomes ``CLAIMED`` when a worker leases
+    it, ``RUNNING`` once that worker reports it started, and ends ``SUCCEEDED``
+    or ``FAILED``. A lease that lapses takes a ``CLAIMED`` or ``RUNNING`` task
+    back to claimable without passing through a terminal status.
     """
 
     PENDING = "pending"
@@ -29,6 +33,39 @@ class TaskStatus(StrEnum):
     RUNNING = "running"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
+
+
+TERMINAL_STATUSES = frozenset({TaskStatus.SUCCEEDED, TaskStatus.FAILED})
+"""Statuses a task never leaves."""
+
+LEASED_STATUSES = frozenset({TaskStatus.CLAIMED, TaskStatus.RUNNING})
+"""Statuses in which a worker holds the task and must keep heartbeating."""
+
+_ALLOWED_TRANSITIONS: dict[TaskStatus, frozenset[TaskStatus]] = {
+    TaskStatus.PENDING: frozenset({TaskStatus.CLAIMED}),
+    TaskStatus.CLAIMED: frozenset(
+        {TaskStatus.RUNNING, TaskStatus.SUCCEEDED, TaskStatus.FAILED}
+    ),
+    # Re-reporting a start is allowed: delivery is at-least-once, so a worker
+    # that retried the call must not be told off for it.
+    TaskStatus.RUNNING: frozenset(
+        {TaskStatus.RUNNING, TaskStatus.SUCCEEDED, TaskStatus.FAILED}
+    ),
+    TaskStatus.SUCCEEDED: frozenset(),
+    TaskStatus.FAILED: frozenset(),
+}
+
+
+def ensure_transition(current: TaskStatus, target: TaskStatus) -> None:
+    """Raise ``TaskStateError`` unless ``current`` may become ``target``.
+
+    Every store enforces the same rules, so an adapter cannot invent its own
+    lifecycle.
+    """
+    if target not in _ALLOWED_TRANSITIONS[current]:
+        raise TaskStateError(
+            f"a {current.value} task cannot become {target.value}",
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,3 +91,6 @@ class Task:
 
     ``None`` while the task is not claimed.
     """
+
+    error: str | None = None
+    """Why the task failed, on a ``FAILED`` task. ``None`` otherwise."""

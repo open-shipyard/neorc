@@ -1,0 +1,4 @@
+# Task name = "module:function". Modules resolve from this file's directory.
+[tasks]
+a = "tasks:a"
+b = "tasks:b"

@@ -45,7 +45,9 @@ Adding a Python package:
    `pyproject.toml`, to `testpaths` if it has tests, and to the `package`
    matrices in `.github/workflows/release.yml`.
 4. Name test modules so they are unique across the repository, for example
-   `tests/test_<name>_package.py`; pytest and mypy collect them all together.
+   `tests/test_<name>_package.py`; pytest and mypy collect them all together,
+   and two modules cannot share a name. Shared fixtures go in the `conftest.py`
+   at the root, for the same reason.
 
 ## Development setup
 
@@ -63,6 +65,21 @@ Run the same checks as CI before opening a pull request:
     uv run ruff format --check
     uv run mypy
     uv run pytest
+
+## Tests that need Postgres
+
+The Postgres tests run against a real server; they are marked `postgres`, and
+`uv run pytest -m "not postgres"` leaves them out.
+
+On Python 3.11 and 3.12 there is nothing to set up: `uv sync` installs
+`pgserver`, which bundles a Postgres, and the test session starts one of its own
+in a temporary directory. On newer Pythons, which `pgserver` has no wheels for,
+point the tests at a server you supply and they will use that instead:
+
+    export NEORC_TEST_DATABASE_URL=postgresql://postgres:secret@127.0.0.1:5432/postgres
+
+That is what CI does, so those tests run on every supported Python. Without
+either, they skip.
 
 New source files start with the license header:
 
