@@ -15,7 +15,7 @@ from neorc_core import (
     TaskStatus,
     Worker,
 )
-from neorc_core.testing import DirectQueueClient, MemoryTaskNotifier, MemoryTaskStore
+from neorc_core.local import DirectQueueClient, MemoryTaskNotifier, MemoryTaskStore
 
 
 @pytest.fixture

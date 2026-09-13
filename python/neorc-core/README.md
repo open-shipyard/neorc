@@ -17,8 +17,9 @@ deployment; install this one to implement your own adapters.
 - `TaskStore`, `TaskNotifier` — how a manager persists tasks and wakes waiters
 - `Manager` — leasing, waiting and status transitions, with no framework
 - `Worker` — claim, execute, heartbeat, report
-- `neorc_core.testing` — in-memory adapters for testing handlers without a
-  database
+- `neorc_core.local` — in-memory adapters: the whole system in one process
+- `neorc_core.testing.contracts` — test suites every adapter of a port must
+  pass, for implementing your own (needs pytest and pytest-asyncio)
 
 Licensed under the Apache License 2.0. See
 [CONTRIBUTING.md](https://github.com/open-shipyard/neorc/blob/main/CONTRIBUTING.md)

@@ -1,24 +1,16 @@
 # Copyright 2026 The neorc Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""In-memory adapters, for testing handlers and manager behaviour without a database.
-
-These keep everything in one process: useful in tests, useless in a deployment,
-since nothing here survives a restart or is seen by another process.
-"""
+"""The task store in a dictionary, with the same lease rules as Postgres."""
 
 from __future__ import annotations
 
 import asyncio
 import uuid
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 from neorc_core._errors import TaskNotFoundError, TaskStateError
-from neorc_core._manager import Manager
-from neorc_core._subscriptions import LocalSubscriptions
 from neorc_core._task import (
     LEASED_STATUSES,
     Payload,
@@ -27,8 +19,7 @@ from neorc_core._task import (
     TaskStatus,
     ensure_transition,
 )
-from neorc_core.ports._queue_client import DEFAULT_LEASE_SECONDS, QueueClient
-from neorc_core.ports._task_notifier import Subscription, TaskNotifier
+from neorc_core.ports._queue_client import DEFAULT_LEASE_SECONDS
 from neorc_core.ports._task_store import TaskStore
 
 
@@ -118,21 +109,6 @@ class MemoryTaskStore(TaskStore):
         return task
 
 
-class MemoryTaskNotifier(TaskNotifier):
-    """Wakes waiters in this process only."""
-
-    def __init__(self) -> None:
-        self._subscriptions = LocalSubscriptions()
-
-    async def notify(self) -> None:
-        self._subscriptions.wake_all()
-
-    @asynccontextmanager
-    async def subscribe(self) -> AsyncIterator[Subscription]:
-        async with self._subscriptions.subscribe() as subscription:
-            yield subscription
-
-
 def _is_claimable(task: Task, now: datetime) -> bool:
     """Ready to run, and either never claimed or holding a lapsed lease."""
     if task.run_after > now:
@@ -144,50 +120,3 @@ def _is_claimable(task: Task, now: datetime) -> bool:
         and task.lease_expires_at is not None
         and task.lease_expires_at <= now
     )
-
-
-class DirectQueueClient(QueueClient):
-    """A queue client that calls a manager in this process, with no HTTP in between.
-
-    Lets a worker and its handlers be exercised end to end without a running
-    manager service.
-    """
-
-    def __init__(self, manager: Manager) -> None:
-        self._manager = manager
-
-    async def publish(
-        self,
-        name: str,
-        payload: Payload,
-        *,
-        run_after: datetime | None = None,
-        priority: int = 0,
-    ) -> TaskId:
-        task = await self._manager.publish(
-            name, payload, run_after=run_after, priority=priority
-        )
-        return task.id
-
-    async def pick_next_task(
-        self, *, timeout: float, lease_seconds: float = DEFAULT_LEASE_SECONDS
-    ) -> Task | None:
-        return await self._manager.pick_next_task(
-            timeout=timeout, lease_seconds=lease_seconds
-        )
-
-    async def extend_lease(
-        self, task_id: TaskId, *, lease_seconds: float = DEFAULT_LEASE_SECONDS
-    ) -> datetime:
-        return await self._manager.extend_lease(task_id, lease_seconds=lease_seconds)
-
-    async def report_started(self, task_id: TaskId) -> None:
-        await self._manager.report_started(task_id)
-
-    async def report_finished(
-        self, task_id: TaskId, *, error: str | None = None
-    ) -> None:
-        await self._manager.report_finished(task_id, error=error)
-
-    async def get_status(self, task_id: TaskId) -> TaskStatus:
-        return await self._manager.get_status(task_id)
