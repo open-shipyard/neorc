@@ -29,6 +29,7 @@ from neorc_core._runs import (
     RunId,
     RunStatus,
     StoredFlow,
+    TaskDelivery,
 )
 from neorc_core._task import (
     LEASED_STATUSES,
@@ -40,7 +41,15 @@ from neorc_core._task import (
     ensure_transition,
 )
 from neorc_core._worker import TaskHandler, Worker
-from neorc_core.ports import QueueClient, Store, Subscription, TaskNotifier, TaskStore
+from neorc_core.ports import (
+    FlowQueueClient,
+    ManagerClient,
+    QueueClient,
+    Store,
+    Subscription,
+    TaskNotifier,
+    TaskStore,
+)
 
 try:
     __version__ = version("neorc-core")
@@ -55,10 +64,12 @@ __all__ = [
     "FlowDefinitionError",
     "FlowManager",
     "FlowNotFoundError",
+    "FlowQueueClient",
     "FlowTask",
     "FlowVersionError",
     "InvalidValueError",
     "Manager",
+    "ManagerClient",
     "ManagerUnavailableError",
     "NeorcError",
     "Payload",
@@ -74,6 +85,7 @@ __all__ = [
     "StoredFlow",
     "Subscription",
     "Task",
+    "TaskDelivery",
     "TaskHandler",
     "TaskId",
     "TaskNotFoundError",

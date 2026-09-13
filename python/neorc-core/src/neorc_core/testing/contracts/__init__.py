@@ -19,8 +19,18 @@ coroutines, so the suite expects pytest-asyncio in ``auto`` mode. Call
 messages.
 """
 
+from neorc_core.testing.contracts._flow_clients import (
+    FlowQueueClientContract,
+    ManagerClientContract,
+)
 from neorc_core.testing.contracts._queue_client import QueueClientContract
 from neorc_core.testing.contracts._store import StoreContract
 from neorc_core.testing.contracts._task_store import TaskStoreContract
 
-__all__ = ["QueueClientContract", "StoreContract", "TaskStoreContract"]
+__all__ = [
+    "FlowQueueClientContract",
+    "ManagerClientContract",
+    "QueueClientContract",
+    "StoreContract",
+    "TaskStoreContract",
+]

@@ -60,7 +60,7 @@ def dumps_json(value: JsonValue) -> str:
 
     This is the encoding the payload limit is counted in.
     """
-    return json.dumps(value, separators=(",", ":"), ensure_ascii=False)
+    return json.dumps(value, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
 
 
 def loads(text: str) -> Any:
@@ -89,7 +89,10 @@ def ensure_json_depth(text: str, *, limit: int = MAX_JSON_DEPTH) -> None:
 
 def ensure_fits(encoded: str, *, limit: int = MAX_PAYLOAD_BYTES) -> None:
     """Raise ``PayloadTooLargeError`` if ``encoded`` is over ``limit`` bytes."""
-    size = len(encoded.encode("utf-8"))
+    try:
+        size = len(encoded.encode("utf-8"))
+    except UnicodeEncodeError as exc:
+        raise InvalidValueError(f"payload is not valid UTF-8: {exc}") from None
     if size > limit:
         raise PayloadTooLargeError(f"payload is {size} bytes, over the {limit} limit")
 

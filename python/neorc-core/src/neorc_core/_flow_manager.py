@@ -235,6 +235,18 @@ class FlowManager:
 
     # Workers.
 
+    async def task_definitions(self, queue: str) -> list[TaskStep]:
+        """Every task on ``queue`` in the latest flows, for a worker to check.
+
+        One task step per flow that defines it, flows in name order.
+        """
+        return [
+            task
+            for flow in await self._store.latest_flows()
+            for task in flow.definition.tasks()
+            if task.queue == queue
+        ]
+
     async def pick_next_task(
         self,
         queue: str,

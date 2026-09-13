@@ -143,3 +143,8 @@ def test_an_unterminated_string_is_scanned_in_linear_time() -> None:
         loads(text)
 
     assert time.monotonic() - started < 2
+
+
+def test_text_that_is_not_utf_8_does_not_fit() -> None:
+    with pytest.raises(InvalidValueError, match="not valid UTF-8"):
+        ensure_fits('"\ud800"')

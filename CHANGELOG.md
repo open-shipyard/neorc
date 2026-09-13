@@ -40,6 +40,9 @@ one version, cut from a single tag on `main`.
   scheduler, checking the size of the complete payload; hands workers their
   tasks with references filled in; records starts and results; and long-polls
   events for the scheduler.
+- `neorc-core`: the `FlowQueueClient` and `ManagerClient` ports, the direct
+  clients that reach a manager in the same process through JSON, as HTTP would,
+  and `FlowQueueClientContract` and `ManagerClientContract`.
 - Claims are leases: workers heartbeat to hold a task, and a task whose lease
   lapses returns to the queue. Chosen so the queue can move to SQS unchanged.
 - `neorc.postgres`: the task store, claiming with `FOR UPDATE SKIP LOCKED`, and
