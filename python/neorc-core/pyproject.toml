@@ -25,7 +25,7 @@ classifiers = [
     "Topic :: System :: Distributed Computing",
     "Typing :: Typed",
 ]
-dependencies = []
+dependencies = ["pyyaml>=6.0"]
 
 [project.urls]
 Homepage = "https://github.com/open-shipyard/neorc"
