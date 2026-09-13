@@ -26,7 +26,7 @@ new ports and runs the contract suites against them.
 | 8  | Manager: tasks, payloads, events            | done   |
 | 9  | Client ports and direct clients             | done   |
 | 10 | Worker for flows                            | done   |
-| 11 | Scheduler and LocalCluster                  | todo   |
+| 11 | Scheduler and LocalCluster                  | done   |
 | 12 | `neorc run` and the examples as tests       | todo   |
 
 ### 1. Values and flow definitions

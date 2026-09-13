@@ -47,6 +47,10 @@ one version, cut from a single tag on `main`.
   queue imports and takes exactly its task's inputs, then runs handlers with
   their inputs as keyword arguments, plain functions in a thread. Handler
   resolution by import path moves from the `neorc` command to `neorc-core`.
+- `neorc-core`: the `Scheduler`, which waits for events, plans each run they
+  concern and applies the actions, failing a run whose request is rejected; and
+  `LocalCluster` and `run_local`, a manager, scheduler and one worker per queue
+  in one process.
 - Claims are leases: workers heartbeat to hold a task, and a task whose lease
   lapses returns to the queue. Chosen so the queue can move to SQS unchanged.
 - `neorc.postgres`: the task store, claiming with `FOR UPDATE SKIP LOCKED`, and

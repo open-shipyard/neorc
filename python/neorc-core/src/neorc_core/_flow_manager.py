@@ -18,6 +18,7 @@ from typing import TypeVar
 from neorc_core import _values
 from neorc_core._errors import (
     FlowDefinitionError,
+    FlowVersionError,
     InvalidValueError,
     RunStateError,
 )
@@ -52,6 +53,9 @@ from neorc_core.ports._store import Store
 from neorc_core.ports._task_notifier import TaskNotifier
 
 CANCELLED_BY_HAND = "cancelled by hand"
+
+_START_ATTEMPTS = 3
+"""Starts to try while uploads keep replacing a flow's latest version."""
 
 
 class FlowManager:
@@ -117,9 +121,7 @@ class FlowManager:
         declared inputs, each of its declared type: ``InvalidValueError``
         otherwise. ``FlowNotFoundError`` if there is no such flow.
         """
-        stored = await self._store.get_flow(flow)
-        check_inputs(stored.definition, inputs)
-        run = await self._store.start_run(flow, stored.version, inputs)
+        run = await self._start_latest(flow, inputs)
         await self._events.notify()
         return run
 
@@ -203,14 +205,8 @@ class FlowManager:
         ensure_active(run)
         step = _step_at(definition, address, SubFlowStep)
         inputs = _inputs(run, definition, state, step, address)
-        called = await self._store.get_flow(step.flow)
-        check_inputs(called.definition, inputs)
-        sub_run = await self._store.start_run(
-            step.flow,
-            called.version,
-            inputs,
-            parent_id=parent_id,
-            parent_address=address,
+        sub_run = await self._start_latest(
+            step.flow, inputs, parent_id=parent_id, parent_address=address
         )
         await self._events.notify()
         return sub_run
@@ -305,6 +301,35 @@ class FlowManager:
     async def get_task(self, task_id: TaskId) -> FlowTask:
         """A task, for a status query."""
         return await self._store.get_task(task_id)
+
+    async def _start_latest(
+        self,
+        flow: str,
+        inputs: Mapping[str, JsonValue],
+        *,
+        parent_id: RunId | None = None,
+        parent_address: Address | None = None,
+    ) -> Run:
+        """Start a run on the latest version, checking inputs against that version.
+
+        A version uploaded between reading the latest and starting the run is
+        not a reason to refuse: check against the new latest and start again.
+        """
+        for attempt in range(_START_ATTEMPTS):
+            stored = await self._store.get_flow(flow)
+            check_inputs(stored.definition, inputs)
+            try:
+                return await self._store.start_run(
+                    flow,
+                    stored.version,
+                    inputs,
+                    parent_id=parent_id,
+                    parent_address=parent_address,
+                )
+            except FlowVersionError:
+                if attempt == _START_ATTEMPTS - 1:
+                    raise
+        raise AssertionError("unreachable")
 
     async def _context(self, run_id: RunId) -> tuple[Run, FlowDefinition, RunState]:
         run = await self._store.get_run(run_id)

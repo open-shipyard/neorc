@@ -32,6 +32,7 @@ from neorc_core._runs import (
     StoredFlow,
     TaskDelivery,
 )
+from neorc_core._scheduler import Scheduler
 from neorc_core._task import (
     LEASED_STATUSES,
     TERMINAL_STATUSES,
@@ -84,6 +85,7 @@ __all__ = [
     "RunNotFoundError",
     "RunStateError",
     "RunStatus",
+    "Scheduler",
     "Store",
     "StoredFlow",
     "Subscription",
