@@ -19,7 +19,7 @@ from neorc_core import (
 )
 from neorc_core._values import JsonValue
 from neorc_core.flows import Address, Reference, Version, read_flow_yaml
-from neorc_core.local import MemoryStore
+from neorc_core.local import MemoryStore, MemoryTaskNotifier
 
 EXAMPLES = Path(__file__).parents[3] / "examples"
 
@@ -58,7 +58,7 @@ def store() -> MemoryStore:
 
 @pytest.fixture
 def flows(store: MemoryStore) -> FlowManager:
-    return FlowManager(store)
+    return FlowManager(store, tasks=MemoryTaskNotifier(), events=MemoryTaskNotifier())
 
 
 NOW: JsonValue = {"$datetime": "2026-09-13T10:00:00+00:00"}

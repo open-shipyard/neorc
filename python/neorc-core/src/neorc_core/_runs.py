@@ -98,6 +98,19 @@ class FlowTask:
     error: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class TaskDelivery:
+    """A claimed task, with the inputs its handler is called with.
+
+    ``inputs`` holds every param and fixed param in its JSON form, references
+    filled in, except ``neorc.attempts``: the worker fills that in from the
+    queue backend.
+    """
+
+    task: FlowTask
+    inputs: Mapping[str, JsonValue]
+
+
 class EventKind(StrEnum):
     """What happened to a run, for the scheduler to act on."""
 

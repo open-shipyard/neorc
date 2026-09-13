@@ -36,6 +36,10 @@ one version, cut from a single tag on `main`.
 - `neorc-core`: `FlowManager`, uploading flows deployed together under the
   version rules, starting runs on the latest version with their inputs checked
   against the declared types, and cancelling, failing and succeeding run trees.
+- `neorc-core`: `FlowManager` publishes tasks and starts sub-flow runs for the
+  scheduler, checking the size of the complete payload; hands workers their
+  tasks with references filled in; records starts and results; and long-polls
+  events for the scheduler.
 - Claims are leases: workers heartbeat to hold a task, and a task whose lease
   lapses returns to the queue. Chosen so the queue can move to SQS unchanged.
 - `neorc.postgres`: the task store, claiming with `FOR UPDATE SKIP LOCKED`, and

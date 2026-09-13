@@ -55,6 +55,14 @@ def dumps(value: Any) -> str:
     return json.dumps(encode(value), separators=(",", ":"), ensure_ascii=False)
 
 
+def dumps_json(value: JsonValue) -> str:
+    """Serialise a value already in its JSON form, compactly, as it travels.
+
+    This is the encoding the payload limit is counted in.
+    """
+    return json.dumps(value, separators=(",", ":"), ensure_ascii=False)
+
+
 def loads(text: str) -> Any:
     """Parse JSON and decode it into a user value."""
     ensure_json_depth(text)

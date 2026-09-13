@@ -23,7 +23,7 @@ new ports and runs the contract suites against them.
 | 5  | Planner: sub-flows, output, failures        | done   |
 | 6  | Store port and memory store                 | done   |
 | 7  | Manager: flows, runs, run trees             | done   |
-| 8  | Manager: tasks, payloads, events            | todo   |
+| 8  | Manager: tasks, payloads, events            | done   |
 | 9  | Client ports and direct clients             | todo   |
 | 10 | Worker for flows                            | todo   |
 | 11 | Scheduler and LocalCluster                  | todo   |
@@ -191,3 +191,9 @@ Open in the specs, decided here to make progress. Revisit if they are wrong.
   that task in the same operation, so its lease lapsing never hands it out again.
 - Every run that finishes, in any status, records a "run finished" event with its
   own id; the scheduler looks at the parent from there.
+- The scheduler publishes a task, or starts a sub-flow run, by run and address;
+  the manager takes the queue, handler and inputs from the run's version of the
+  flow, so a request cannot disagree with the definition.
+- The manager wakes workers and the scheduler through two notifiers, one for
+  tasks and one for events, both on the existing `TaskNotifier` port.
+- A result that is not a valid value or is over the size limit fails its task.
