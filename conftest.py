@@ -23,10 +23,14 @@ from typing import TYPE_CHECKING
 import pytest
 
 from neorc_core import Manager
-from neorc_core.testing import MemoryTaskNotifier, MemoryTaskStore
+from neorc_core.local import MemoryTaskNotifier, MemoryTaskStore
 
 if TYPE_CHECKING:
     from neorc.postgres import PostgresTaskNotifier, PostgresTaskStore
+
+# Before a test module imports the contract suites, so their asserts explain a
+# failure the way asserts in test modules do.
+pytest.register_assert_rewrite("neorc_core.testing.contracts")
 
 DATABASE_URL_ENV = "NEORC_TEST_DATABASE_URL"
 

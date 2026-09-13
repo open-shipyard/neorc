@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from neorc_core import Manager, TaskNotFoundError, TaskStateError, TaskStatus
-from neorc_core.testing import MemoryTaskNotifier, MemoryTaskStore
+from neorc_core.local import MemoryTaskNotifier, MemoryTaskStore
 
 
 async def test_published_task_starts_pending(manager: Manager) -> None:

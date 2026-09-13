@@ -3,12 +3,14 @@
 
 """Encoding the values that travel between tasks: JSON plus tagged datetimes."""
 
+import json
 from datetime import UTC, date, datetime, timedelta, timezone
 
 import pytest
 
 from neorc_core import InvalidValueError, PayloadTooLargeError
 from neorc_core._values import (
+    MAX_JSON_DEPTH,
     MAX_PAYLOAD_BYTES,
     JsonValue,
     decode,
@@ -101,3 +103,31 @@ def test_size_limit_counts_utf8_bytes() -> None:
 
     with pytest.raises(PayloadTooLargeError):
         ensure_fits(dumps("é" * (MAX_PAYLOAD_BYTES // 2)))
+
+
+def test_json_at_the_depth_limit_parses() -> None:
+    text = "[" * MAX_JSON_DEPTH + "]" * MAX_JSON_DEPTH
+
+    assert loads(text) is not None
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "[" * (MAX_JSON_DEPTH + 1) + "]" * (MAX_JSON_DEPTH + 1),
+        '{"a":' * (MAX_JSON_DEPTH + 1) + "1" + "}" * (MAX_JSON_DEPTH + 1),
+        # Far deeper than any parser's stack, which must never be reached.
+        "[" * 100_000 + "]" * 100_000,
+    ],
+    ids=["one-too-deep", "objects", "stack-deep"],
+)
+def test_json_nested_too_deep_is_rejected_before_parsing(text: str) -> None:
+    with pytest.raises(InvalidValueError, match="deeper than"):
+        loads(text)
+
+
+def test_brackets_inside_strings_do_not_count_as_nesting() -> None:
+    # Escaped quotes and backslashes must not end a string early either.
+    value = {"s": '[{"\\' * MAX_JSON_DEPTH, "t": ["\\", '"']}
+
+    assert loads(json.dumps(value)) == value

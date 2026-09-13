@@ -166,9 +166,11 @@ def read_flow_json(text: str) -> Any:
         return mapping
 
     try:
+        _values.ensure_json_depth(text)
         data = json.loads(text, object_pairs_hook=unique_keys)
-    # ValueError covers JSONDecodeError and integers over the digit limit.
-    except (ValueError, RecursionError) as exc:
+    # ValueError covers JSONDecodeError, integers over the digit limit and
+    # InvalidValueError for nesting too deep to hand to the parser.
+    except ValueError as exc:
         raise FlowDefinitionError([f"not valid JSON: {exc}"]) from None
     if duplicates:
         raise FlowDefinitionError(duplicates)
