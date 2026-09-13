@@ -10,8 +10,10 @@ invalid. ``Manager`` keeps serving the task API next to it.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Mapping, Sequence
 from datetime import datetime
+from typing import TypeVar
 
 from neorc_core import _values
 from neorc_core._errors import (
@@ -19,28 +21,58 @@ from neorc_core._errors import (
     InvalidValueError,
     RunStateError,
 )
-from neorc_core._runs import Run, RunId, RunStatus, StoredFlow
+from neorc_core._runs import (
+    Event,
+    FlowTask,
+    Run,
+    RunId,
+    RunStatus,
+    StoredFlow,
+    TaskDelivery,
+    ensure_active,
+    task_id_for,
+)
+from neorc_core._task import TaskId
 from neorc_core._values import JsonValue
 from neorc_core.flows import (
+    Address,
     FlowDefinition,
     InputType,
+    Namespace,
     Reference,
+    RunState,
+    SubFlowStep,
+    TaskStep,
+    Version,
     parse_flow,
     resolve,
 )
+from neorc_core.ports._queue_client import DEFAULT_LEASE_SECONDS
 from neorc_core.ports._store import Store
+from neorc_core.ports._task_notifier import TaskNotifier
 
 CANCELLED_BY_HAND = "cancelled by hand"
 
 
 class FlowManager:
-    """Serves flow uploads, runs and, later, the scheduler and workers."""
+    """Serves flow uploads and runs, the scheduler's requests, and workers.
 
-    def __init__(self, store: Store) -> None:
+    ``tasks`` wakes workers waiting for a task; ``events`` wakes a scheduler
+    waiting for events. Both wakeups are hints: a waiter that finds nothing
+    waits again.
+    """
+
+    def __init__(
+        self, store: Store, *, tasks: TaskNotifier, events: TaskNotifier
+    ) -> None:
         self._store = store
+        self._tasks = tasks
+        self._events = events
+
+    # Flows and runs.
 
     async def upload_flows(self, contents: Sequence[JsonValue]) -> list[bool]:
-        """Validate flows deployed together, then store each version.
+        """Validate flows deployed together, then store their versions as one.
 
         ``contents`` are flow files as their JSON structure. The flows that will
         be latest are checked as a set, so a sub-flow may be uploaded with its
@@ -61,12 +93,22 @@ class FlowManager:
         if problems:
             raise FlowDefinitionError(problems)
 
-        return await self._store.store_flows(
+        stored = await self._store.store_flows(
             [
                 StoredFlow(definition, content)
                 for definition, content in zip(definitions, contents, strict=True)
             ]
         )
+        await self._events.notify()  # a new version cancels runs
+        return stored
+
+    async def get_flow(self, name: str, version: Version | None = None) -> StoredFlow:
+        """A flow version, the latest when ``version`` is ``None``."""
+        return await self._store.get_flow(name, version)
+
+    async def latest_flows(self) -> list[StoredFlow]:
+        """The latest version of every flow."""
+        return await self._store.latest_flows()
 
     async def start_run(self, flow: str, inputs: Mapping[str, JsonValue]) -> Run:
         """Start a run of ``flow``'s latest version.
@@ -77,11 +119,17 @@ class FlowManager:
         """
         stored = await self._store.get_flow(flow)
         check_inputs(stored.definition, inputs)
-        return await self._store.start_run(flow, stored.version, inputs)
+        run = await self._store.start_run(flow, stored.version, inputs)
+        await self._events.notify()
+        return run
 
     async def get_run(self, run_id: RunId) -> Run:
         """A run, for a status query."""
         return await self._store.get_run(run_id)
+
+    async def run_state(self, run_id: RunId) -> RunState:
+        """What a run's tasks and sub-flow runs have produced so far."""
+        return await self._store.run_state(run_id)
 
     async def cancel_run(self, run_id: RunId, reason: str = CANCELLED_BY_HAND) -> None:
         """Cancel a run by hand, and with it every active run in its tree.
@@ -92,10 +140,14 @@ class FlowManager:
         if run.status is not RunStatus.ACTIVE:
             raise RunStateError(f"run {run_id} is already {run.status.value}")
         await self._store.cancel_run_tree(run_id, reason)
+        await self._events.notify()
+
+    # The scheduler's requests.
 
     async def fail_run(self, run_id: RunId, reason: str) -> None:
         """Fail every active run in a run's tree; nothing changes if none is."""
         await self._store.fail_run_tree(run_id, reason)
+        await self._events.notify()
 
     async def succeed_run(self, run_id: RunId, output: Reference | None) -> Run:
         """Mark an active run succeeded, with the value of ``output`` if any.
@@ -105,14 +157,152 @@ class FlowManager:
         """
         value: JsonValue = None
         if output is not None:
-            run = await self._store.get_run(run_id)
-            definition = (await self._store.get_flow(run.flow, run.version)).definition
-            state = await self._store.run_state(run_id)
+            _, definition, state = await self._context(run_id)
             resolved = resolve(definition, state, None, output)
             if resolved is None:
                 raise RunStateError(f"run {run_id}: {output} is not available yet")
             value = resolved.value
-        return await self._store.succeed_run(run_id, value)
+        succeeded = await self._store.succeed_run(run_id, value)
+        await self._events.notify()
+        return succeeded
+
+    async def publish_task(self, run_id: RunId, address: Address) -> FlowTask:
+        """Publish the task at ``address`` in an active run.
+
+        The task's queue, handler and inputs come from the run's version of the
+        flow; the inputs are stored as references. Rejected with
+        ``PayloadTooLargeError`` if the complete encoded payload a worker would
+        receive is over the limit, ``RunStateError`` if the run is not active or
+        an input is not available yet, and ``InvalidValueError`` if the flow has
+        no task at ``address``. Publishing an address again changes nothing.
+        """
+        run, definition, state = await self._context(run_id)
+        ensure_active(run)
+        step = _step_at(definition, address, TaskStep)
+        inputs = _inputs(run, definition, state, step, address)
+        _values.ensure_fits(_encoded_delivery(task_id_for(run_id, address), inputs))
+        task = await self._store.publish_task(
+            run_id,
+            address,
+            queue=step.queue,
+            handler=step.handler,
+            params=step.params,
+            fixed_params=step.fixed_params,
+        )
+        await self._tasks.notify()
+        return task
+
+    async def start_sub_run(self, parent_id: RunId, address: Address) -> Run:
+        """Start the sub-flow run at ``address`` in an active parent run.
+
+        It runs the called flow's latest version, with its inputs resolved now
+        and checked against that version's declared types. Starting the same
+        address again returns the run already started.
+        """
+        run, definition, state = await self._context(parent_id)
+        ensure_active(run)
+        step = _step_at(definition, address, SubFlowStep)
+        inputs = _inputs(run, definition, state, step, address)
+        called = await self._store.get_flow(step.flow)
+        check_inputs(called.definition, inputs)
+        sub_run = await self._store.start_run(
+            step.flow,
+            called.version,
+            inputs,
+            parent_id=parent_id,
+            parent_address=address,
+        )
+        await self._events.notify()
+        return sub_run
+
+    async def wait_for_events(
+        self, after: int, *, timeout: float, limit: int = 100
+    ) -> list[Event]:
+        """Events with a sequence above ``after``, waiting up to ``timeout`` for one.
+
+        Returns an empty list when the wait ends with nothing new.
+        """
+        deadline = time.monotonic() + timeout
+        async with self._events.subscribe() as subscription:
+            while True:
+                events = await self._store.events_after(after, limit=limit)
+                if events:
+                    return events
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return []
+                await subscription.wait(timeout=remaining)
+
+    # Workers.
+
+    async def pick_next_task(
+        self,
+        queue: str,
+        *,
+        timeout: float,
+        lease_seconds: float = DEFAULT_LEASE_SECONDS,
+    ) -> TaskDelivery | None:
+        """Lease the next task on ``queue``, waiting up to ``timeout`` for one.
+
+        The delivery carries the task's inputs with every reference filled in,
+        and the metadata known at publish time.
+        """
+        deadline = time.monotonic() + timeout
+        async with self._tasks.subscribe() as subscription:
+            while True:
+                task = await self._store.claim_task(queue, lease_seconds=lease_seconds)
+                if task is not None:
+                    return await self._delivery(task)
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return None
+                await subscription.wait(timeout=remaining)
+
+    async def report_started(self, task_id: TaskId) -> None:
+        """Record that a worker began a task.
+
+        Raises ``RunStateError`` if the task's run is no longer active: the
+        worker drops the task, and it is never handed out again.
+        """
+        await self._store.start_task(task_id)
+
+    async def extend_lease(
+        self, task_id: TaskId, *, lease_seconds: float = DEFAULT_LEASE_SECONDS
+    ) -> datetime:
+        """Take a worker's heartbeat; return the lease's new expiry."""
+        return await self._store.extend_task_lease(task_id, lease_seconds=lease_seconds)
+
+    async def report_finished(
+        self, task_id: TaskId, *, result: JsonValue = None, error: str | None = None
+    ) -> FlowTask:
+        """Record a task's result, or its failure when ``error`` is set.
+
+        A result that is not a valid value, or is over the size limit, fails the
+        task instead, with the reason as its error.
+        """
+        if error is None:
+            try:
+                result = _values.encode(_values.decode(result))
+                _values.ensure_fits(_values.dumps_json(result))
+            except InvalidValueError as exc:
+                result, error = None, f"invalid result: {exc}"
+        finished = await self._store.finish_task(task_id, result=result, error=error)
+        await self._events.notify()
+        return finished
+
+    async def get_task(self, task_id: TaskId) -> FlowTask:
+        """A task, for a status query."""
+        return await self._store.get_task(task_id)
+
+    async def _context(self, run_id: RunId) -> tuple[Run, FlowDefinition, RunState]:
+        run = await self._store.get_run(run_id)
+        definition = (await self._store.get_flow(run.flow, run.version)).definition
+        return run, definition, await self._store.run_state(run_id)
+
+    async def _delivery(self, task: FlowTask) -> TaskDelivery:
+        run, definition, state = await self._context(task.run_id)
+        inputs = _filled_in(run, definition, state, task.address, task.params)
+        return TaskDelivery(task, {**task.fixed_params, **inputs})
 
 
 def check_inputs(definition: FlowDefinition, inputs: Mapping[str, JsonValue]) -> None:
@@ -144,3 +334,67 @@ def _is_of_type(value: JsonValue, declared: InputType) -> bool:
         return isinstance(_values.decode(value), datetime)
     except InvalidValueError:
         return False
+
+
+_S = TypeVar("_S", TaskStep, SubFlowStep)
+
+
+def _step_at(definition: FlowDefinition, address: Address, kind: type[_S]) -> _S:
+    """The step of ``kind`` at ``address``, or ``InvalidValueError``."""
+    try:
+        step = definition.step(address.step)
+    except KeyError:
+        step = None
+    if not isinstance(step, kind):
+        raise InvalidValueError(
+            f"{definition.name} has no {kind.__name__} called {address.step!r}"
+        )
+    around = [container.name for container in definition.enclosing(address.step)]
+    if [name for name, _ in address.scope] != around:
+        raise InvalidValueError(f"{address} is not where {address.step} is")
+    return step
+
+
+def _inputs(
+    run: Run,
+    definition: FlowDefinition,
+    state: RunState,
+    step: TaskStep | SubFlowStep,
+    address: Address,
+) -> dict[str, JsonValue]:
+    """A step's fixed params and its params filled in; ``RunStateError`` if not yet."""
+    filled = _filled_in(run, definition, state, address, step.params)
+    return {**step.fixed_params, **filled}
+
+
+def _filled_in(
+    run: Run,
+    definition: FlowDefinition,
+    state: RunState,
+    address: Address,
+    params: Mapping[str, Reference],
+) -> dict[str, JsonValue]:
+    """Params with every reference resolved, except ``neorc.attempts``."""
+    values: dict[str, JsonValue] = {}
+    for name, reference in params.items():
+        if reference.namespace is Namespace.NEORC:
+            if reference.name == "attempts":
+                continue  # the worker's to fill in
+            if reference.name == "task_id":
+                values[name] = str(task_id_for(run.id, address))
+                continue
+            if reference.name == "flow_run_id":
+                values[name] = str(run.id)
+                continue
+        resolved = resolve(definition, state, address, reference)
+        if resolved is None:
+            raise RunStateError(f"{address}: {reference} is not available yet")
+        values[name] = resolved.value
+    return values
+
+
+def _encoded_delivery(task_id: TaskId, inputs: Mapping[str, JsonValue]) -> str:
+    """Roughly what a worker receives, for the size check: id, attempts, inputs."""
+    return _values.dumps_json(
+        {"task_id": str(task_id), "attempts": 1, "inputs": dict(inputs)}
+    )
