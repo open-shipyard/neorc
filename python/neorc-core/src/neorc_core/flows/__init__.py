@@ -23,6 +23,7 @@ from neorc_core.flows._loader import (
     load_flow_yaml,
     load_flows,
     parse_flow,
+    read_flow_json,
     read_flow_yaml,
     validate_flow_set,
 )
@@ -45,6 +46,7 @@ __all__ = [
     "load_flow_yaml",
     "load_flows",
     "parse_flow",
+    "read_flow_json",
     "read_flow_yaml",
     "validate_flow_set",
 ]

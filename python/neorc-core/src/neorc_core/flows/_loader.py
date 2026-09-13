@@ -10,6 +10,7 @@ where it is.
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Iterable, Mapping
 from pathlib import Path
@@ -46,23 +47,152 @@ _STEP_KEYS = {
 
 
 class _FlowYamlLoader(yaml.SafeLoader):
-    """Safe YAML without timestamp conversion: datetimes are written as tags."""
+    """Safe YAML with YAML 1.2 core schema scalars, so a file means what JSON would.
+
+    PyYAML follows YAML 1.1, where unquoted ``no`` is false, ``12:30`` is 750,
+    ``010`` is 8 and ``2026-09-13`` is a date. Here only ``true``/``false``,
+    ``null``, decimal integers and plain floats are typed; everything else is a
+    string, and datetimes are written as ``{"$datetime": ...}`` tags.
+
+    Also records keys repeated within one mapping, which YAML parsers otherwise
+    resolve silently by keeping the last value, and rejects anchors and aliases.
+    """
+
+    def __init__(self, stream: str) -> None:
+        super().__init__(stream)
+        self.duplicates: list[str] = []
+
+    def compose_node(self, parent: Any, index: Any) -> Any:
+        # Anchors and aliases have no JSON equivalent, and they let a small file
+        # expand into a huge or self-containing value.
+        event = self.peek_event()  # type: ignore[no-untyped-call]
+        if isinstance(event, yaml.AliasEvent) or getattr(event, "anchor", None):
+            raise yaml.composer.ComposerError(
+                None,
+                None,
+                "anchors and aliases are not allowed in flow files",
+                event.start_mark,
+            )
+        return super().compose_node(parent, index)
+
+    def construct_mapping(
+        self, node: yaml.MappingNode, deep: bool = False
+    ) -> dict[Any, Any]:
+        seen: set[Any] = set()
+        for key_node, _ in node.value:
+            if key_node.tag == "tag:yaml.org,2002:merge":
+                continue
+            key = self.construct_object(key_node, deep=deep)
+            try:
+                repeated = key in seen
+                seen.add(key)
+            except TypeError:
+                continue  # an unhashable key: construction reports it
+            if repeated:
+                line = key_node.start_mark.line + 1
+                self.duplicates.append(
+                    f"line {line}: {key!r} appears more than once in the same mapping"
+                )
+        return super().construct_mapping(node, deep=deep)
+
+    def construct_yaml_int(self, node: yaml.ScalarNode) -> int:
+        return int(self.construct_scalar(node), 10)
 
 
+_YAML_1_1_TYPES = ("bool", "int", "float", "timestamp")
 _FlowYamlLoader.yaml_implicit_resolvers = {
-    first: [(tag, regexp) for tag, regexp in resolvers if not tag.endswith("timestamp")]
+    first: [
+        (tag, regexp)
+        for tag, regexp in resolvers
+        if tag.rpartition(":")[2] not in _YAML_1_1_TYPES
+    ]
     for first, resolvers in yaml.SafeLoader.yaml_implicit_resolvers.items()
 }
+_FlowYamlLoader.add_implicit_resolver(
+    "tag:yaml.org,2002:bool",
+    re.compile(r"^(?:true|True|TRUE|false|False|FALSE)$"),
+    list("tTfF"),
+)
+_FlowYamlLoader.add_implicit_resolver(
+    "tag:yaml.org,2002:int", re.compile(r"^[-+]?[0-9]+$"), list("-+0123456789")
+)
+_FlowYamlLoader.add_implicit_resolver(
+    "tag:yaml.org,2002:float",
+    re.compile(
+        r"^(?:[-+]?(?:\.[0-9]+|[0-9]+(?:\.[0-9]*)?)(?:[eE][-+]?[0-9]+)?"
+        r"|[-+]?\.(?:inf|Inf|INF)|\.(?:nan|NaN|NAN))$"
+    ),
+    list("-+.0123456789"),
+)
+_FlowYamlLoader.add_constructor(
+    "tag:yaml.org,2002:int", _FlowYamlLoader.construct_yaml_int
+)
 
 
 def read_flow_yaml(text: str) -> Any:
-    """Parse YAML into the JSON structure it stands for, unvalidated."""
-    return yaml.load(text, Loader=_FlowYamlLoader)
+    """Parse YAML into the JSON structure it stands for, not yet validated.
+
+    Raises ``FlowDefinitionError`` for malformed YAML or a key repeated within
+    one mapping.
+    """
+    loader = _FlowYamlLoader(text)
+    try:
+        data = loader.get_single_data()
+    # A bad explicit tag (!!int abc) raises ValueError, deep nesting
+    # RecursionError: neither is a YAMLError.
+    except (yaml.YAMLError, ValueError, RecursionError) as exc:
+        raise FlowDefinitionError([f"not valid YAML: {exc}"]) from None
+    finally:
+        loader.dispose()
+    if loader.duplicates:
+        raise FlowDefinitionError(loader.duplicates)
+    return data
+
+
+def read_flow_json(text: str) -> Any:
+    """Parse a JSON upload into its structure, not yet validated.
+
+    Raises ``FlowDefinitionError`` for malformed JSON or a key repeated within
+    one object.
+    """
+    duplicates: list[str] = []
+
+    def unique_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        mapping: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in mapping:
+                duplicates.append(f"{key!r} appears more than once in the same object")
+            mapping[key] = value
+        return mapping
+
+    try:
+        data = json.loads(text, object_pairs_hook=unique_keys)
+    # ValueError covers JSONDecodeError and integers over the digit limit.
+    except (ValueError, RecursionError) as exc:
+        raise FlowDefinitionError([f"not valid JSON: {exc}"]) from None
+    if duplicates:
+        raise FlowDefinitionError(duplicates)
+    return data
 
 
 def load_flow_yaml(text: str) -> FlowDefinition:
-    """Parse and validate one flow from YAML text."""
-    return parse_flow(read_flow_yaml(text))
+    """Parse and validate one flow from YAML text.
+
+    A flow file also has to start with ``name`` and ``version``, so both read
+    first in the repository. JSON object order carries no meaning, so
+    ``parse_flow`` does not ask it of uploads.
+    """
+    data = read_flow_yaml(text)
+    order = []
+    if isinstance(data, Mapping) and list(data)[:2] != ["name", "version"]:
+        order = ["flow: 'name' and 'version' must be the first two fields"]
+    try:
+        definition = parse_flow(data)
+    except FlowDefinitionError as exc:
+        raise FlowDefinitionError(order + exc.problems) from None
+    if order:
+        raise FlowDefinitionError(order)
+    return definition
 
 
 def load_flow_file(path: Path) -> FlowDefinition:
@@ -110,8 +240,6 @@ class _Parser:
             self.problem("flow", "must be a mapping")
             return None
         self.keys(data, "flow", allowed=_TOP_KEYS, required={"name", "version"})
-        if list(data)[:2] != ["name", "version"]:
-            self.problem("flow", "'name' and 'version' must be the first two fields")
         name = self.name(data.get("name"), "name")
         version = self.version(data.get("version"))
         inputs = self.inputs(data.get("inputs", {}))

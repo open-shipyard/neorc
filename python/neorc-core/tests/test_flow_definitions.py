@@ -3,6 +3,7 @@
 
 """Reading and validating flow files."""
 
+import json
 from pathlib import Path
 from textwrap import dedent
 
@@ -21,6 +22,7 @@ from neorc_core.flows import (
     load_flow_yaml,
     load_flows,
     parse_flow,
+    read_flow_json,
     read_flow_yaml,
     validate_flow_set,
 )
@@ -109,6 +111,149 @@ def test_yaml_and_its_json_upload_are_the_same_structure() -> None:
 
     assert data["steps"]["t"]["fixed_params"]["day"] == "2026-09-13"
     assert parse_flow(data) == load_flow_yaml(text)
+    assert read_flow_json(json.dumps(data)) == data
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        (
+            "name: f\nversion: 1.0.0\nsteps: {t: {handler: m:a}, t: {handler: m:b}}",
+            "line 3: 't' appears more than once",
+        ),
+        (
+            "name: f\nversion: 1.0.0\nsteps:\n  t:\n    handler: m:a\n"
+            "  t:\n    handler: m:b\n",
+            "line 6: 't' appears more than once",
+        ),
+        (
+            "name: f\nversion: 1.0.0\nversion: 2.0.0\nsteps: {t: {handler: m:a}}",
+            "line 3: 'version' appears more than once",
+        ),
+        (
+            "name: f\nversion: 1.0.0\n"
+            "steps: {t: {handler: m:a, params: {x: tasks.u, x: tasks.v}}}",
+            "'x' appears more than once",
+        ),
+    ],
+    ids=["flow-style-step", "block-style-step", "top-level-field", "param"],
+)
+def test_keys_repeated_in_one_yaml_mapping_are_problems(
+    text: str, expected: str
+) -> None:
+    assert expected in problems(text)
+
+
+def test_repeated_keys_are_all_reported() -> None:
+    reported = problems("name: f\nname: g\nversion: 1.0.0\nversion: 1.0.0\nsteps: {}")
+
+    assert reported.count("appears more than once") == 2
+
+
+def test_keys_repeated_in_one_json_object_are_problems() -> None:
+    text = '{"name": "f", "version": "1.0.0", "steps": {"t": {}, "t": {}}}'
+
+    with pytest.raises(FlowDefinitionError, match="'t' appears more than once"):
+        read_flow_json(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["steps: {t: [", "n: !!int oops", "n: !!float oops", "[" * 100_000],
+    ids=["unclosed", "bad-int-tag", "bad-float-tag", "deep-nesting"],
+)
+def test_malformed_yaml_is_a_flow_definition_error(text: str) -> None:
+    with pytest.raises(FlowDefinitionError, match="not valid YAML"):
+        read_flow_yaml(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "a: &x {queue: q}\nb: *x",
+        "a: &x [*x]",
+        "a: &x hello",
+        "a: &x {q: 1}\nb: {<<: *x}",
+    ],
+    ids=["alias", "self-referencing-alias", "unused-anchor", "merge-key-alias"],
+)
+def test_yaml_anchors_and_aliases_are_rejected(text: str) -> None:
+    with pytest.raises(
+        FlowDefinitionError, match="anchors and aliases are not allowed"
+    ):
+        read_flow_yaml(text)
+
+
+def test_self_referencing_alias_in_a_flow_is_a_flow_definition_error() -> None:
+    with pytest.raises(FlowDefinitionError, match="anchors and aliases"):
+        load_flow_yaml(flow("t: {handler: m:f, fixed_params: {a: &a [*a]}}"))
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["{", '{"n": ' + "1" * 5000 + "}", "[" * 100_000 + "]" * 100_000],
+    ids=["unclosed", "integer-over-digit-limit", "deep-nesting"],
+)
+def test_malformed_json_is_a_flow_definition_error(text: str) -> None:
+    with pytest.raises(FlowDefinitionError, match="not valid JSON"):
+        read_flow_json(text)
+
+
+@pytest.mark.parametrize(
+    ("scalar", "expected"),
+    [
+        ("NO", "NO"),
+        ("on", "on"),
+        ("yes", "yes"),
+        ("12:30", "12:30"),
+        ("1_000", "1_000"),
+        ("2026-09-13", "2026-09-13"),
+        ("0x1F", "0x1F"),
+        ("1.0.0", "1.0.0"),
+        ("010", 10),
+        ("-4", -4),
+        ("1.5", 1.5),
+        ("1e3", 1000.0),
+        ("true", True),
+        ("False", False),
+        ("~", None),
+        ("null", None),
+    ],
+)
+def test_yaml_scalars_follow_the_yaml_1_2_core_schema(
+    scalar: str, expected: object
+) -> None:
+    assert read_flow_yaml(f"value: {scalar}") == {"value": expected}
+
+
+def test_yaml_1_1_boolean_words_can_be_names() -> None:
+    definition = load_flow_yaml(
+        flow(
+            "on: {handler: m:f, params: {no: inputs.yes}}",
+            header="inputs: {yes: string}\n",
+        )
+    )
+
+    assert definition.step("on") == TaskStep(
+        "on", "m:f", params={"no": Reference(Namespace.INPUTS, "yes")}
+    )
+
+
+def test_json_uploads_can_have_fields_in_any_order() -> None:
+    upload = {"steps": {"t": {"handler": "m:f"}}, "version": "1.0.0", "name": "f"}
+
+    definition = parse_flow(read_flow_json(json.dumps(upload, sort_keys=True)))
+
+    assert (definition.name, str(definition.version)) == ("f", "1.0.0")
+
+
+def test_field_order_is_reported_with_the_other_problems_of_a_file() -> None:
+    reported = problems(
+        "version: 1.0.0\nname: f\ncolour: red\nsteps: {t: {handler: m}}"
+    )
+
+    assert "first two fields" in reported
+    assert "unknown field 'colour'" in reported
 
 
 def test_queue_defaults_to_default() -> None:
