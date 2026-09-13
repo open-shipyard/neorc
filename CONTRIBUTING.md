@@ -35,6 +35,11 @@ depends on a sibling by naming it in its own `dependencies`; the root
 Packages in other languages get a sibling top-level directory (`rust/`, `ts/`)
 with their own tooling.
 
+Where code and tests go between `neorc-core` and the adapters in `neorc` is set
+by [contributing/in-memory-first.md](contributing/in-memory-first.md): logic
+and most tests live in core, running in memory; adapters add only persistence
+and transport.
+
 Adding a Python package:
 
 1. Create `python/<name>/` with a `pyproject.toml` modelled on an existing one,
