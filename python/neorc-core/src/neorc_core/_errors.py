@@ -34,3 +34,7 @@ class FlowDefinitionError(NeorcError):
     def __init__(self, problems: list[str]) -> None:
         self.problems = problems
         super().__init__("invalid flow definition:\n" + "\n".join(problems))
+
+
+class ResolutionError(NeorcError):
+    """A reference cannot be resolved: a fan-out's ``over`` value is not a list."""

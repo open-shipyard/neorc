@@ -23,6 +23,9 @@ one version, cut from a single tag on `main`.
 - `neorc-core.testing.contracts`: `TaskStoreContract` and `QueueClientContract`,
   test suites written against the ports. The in-memory adapters, the Postgres
   store and the HTTP queue client all run them.
+- `neorc-core.flows`: `RunState`, a run's step results addressed by loop
+  iteration and fan-out index, and `resolve`, which gives a reference's value
+  for a consumer as the "Resolving references" table of the flows spec does.
 - Claims are leases: workers heartbeat to hold a task, and a task whose lease
   lapses returns to the queue. Chosen so the queue can move to SQS unchanged.
 - `neorc.postgres`: the task store, claiming with `FOR UPDATE SKIP LOCKED`, and
