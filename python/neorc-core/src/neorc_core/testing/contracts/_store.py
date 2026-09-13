@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 import pytest
 
 from neorc_core._errors import (
+    FlowDefinitionError,
     FlowNotFoundError,
     FlowVersionError,
     RunNotFoundError,
@@ -23,6 +24,7 @@ from neorc_core._runs import (
     EventKind,
     Run,
     RunStatus,
+    StoredFlow,
     sub_run_id_for,
     task_id_for,
 )
@@ -67,7 +69,8 @@ class StoreContract:
         self, store: Store, name: str = "a", version: str = "1.0.0", **kwargs: str
     ) -> bool:
         content = _content(name, version, **kwargs)
-        return await store.store_flow(_flow(content), content)
+        (stored,) = await store.store_flows([StoredFlow(_flow(content), content)])
+        return stored
 
     async def start(self, store: Store, name: str = "a") -> Run:
         latest = await store.get_flow(name)
@@ -107,10 +110,10 @@ class StoreContract:
             work: JsonValue = {"handler": "tasks:work", "fixed_params": {"flag": value}}
             return {"name": "a", "version": "1.0.0", "steps": {"work": work}}
 
-        await store.store_flow(_flow(content(before)), content(before))
+        await store.store_flows([StoredFlow(_flow(content(before)), content(before))])
 
         with pytest.raises(FlowVersionError, match="new version"):
-            await store.store_flow(_flow(content(after)), content(after))
+            await store.store_flows([StoredFlow(_flow(content(after)), content(after))])
 
     async def test_a_lower_version_is_rejected(self, store: Store) -> None:
         await self.upload(store, version="1.2.0")
@@ -141,6 +144,87 @@ class StoreContract:
         await self.upload(store)
         with pytest.raises(FlowNotFoundError):
             await store.get_flow("a", Version(9, 9, 9))
+
+    def caller(self, version: str, calls_with: str) -> StoredFlow:
+        content: JsonValue = {
+            "name": "caller",
+            "version": version,
+            "steps": {"call": {"flow": "b", "fixed_params": {calls_with: 1}}},
+        }
+        return StoredFlow(_flow(content), content)
+
+    def callee(self, version: str, takes: str) -> StoredFlow:
+        content: JsonValue = {
+            "name": "b",
+            "version": version,
+            "inputs": {takes: "number"},
+            "steps": {"work": {"handler": "tasks:work"}},
+        }
+        return StoredFlow(_flow(content), content)
+
+    async def test_flows_deployed_together_are_stored_together(
+        self, store: Store
+    ) -> None:
+        stored = await store.store_flows(
+            [self.caller("1.0.0", "x"), self.callee("1.0.0", "x")]
+        )
+
+        assert stored == [True, True]
+        assert [f.name for f in await store.latest_flows()] == ["b", "caller"]
+
+    async def test_one_rejected_upload_stores_none_of_the_set(
+        self, store: Store
+    ) -> None:
+        await store.store_flows([self.callee("1.0.0", "x"), self.caller("1.0.0", "x")])
+        await self.upload(store, "c")
+        run = await self.start(store, "c")
+
+        with pytest.raises(FlowVersionError):
+            await store.store_flows(
+                [
+                    self.callee("2.0.0", "y"),
+                    self.caller("1.0.0", "y"),
+                    self.upload_of("c", "0.1.0"),
+                ]
+            )
+
+        assert (await store.get_flow("b")).version == Version(1, 0, 0)
+        assert (await store.get_run(run.id)).status is RunStatus.ACTIVE
+
+    def upload_of(self, name: str, version: str) -> StoredFlow:
+        content = _content(name, version)
+        return StoredFlow(_flow(content), content)
+
+    async def test_the_set_is_checked_as_it_will_be_once_stored(
+        self, store: Store
+    ) -> None:
+        await store.store_flows([self.callee("1.0.0", "x")])
+        await store.store_flows([self.callee("2.0.0", "y")])
+
+        # b 1.0.0 is identical to what is stored, but 2.0.0 stays the latest.
+        with pytest.raises(FlowDefinitionError, match="b has no input 'x'"):
+            await store.store_flows(
+                [self.callee("1.0.0", "x"), self.caller("1.0.0", "x")]
+            )
+
+        with pytest.raises(FlowNotFoundError):
+            await store.get_flow("caller")
+
+    async def test_a_new_version_must_still_suit_the_flows_calling_it(
+        self, store: Store
+    ) -> None:
+        await store.store_flows([self.callee("1.0.0", "x"), self.caller("1.0.0", "x")])
+
+        with pytest.raises(FlowDefinitionError, match="missing input 'y'"):
+            await store.store_flows([self.callee("2.0.0", "y")])
+
+    async def test_a_flow_uploaded_twice_in_one_set_is_rejected(
+        self, store: Store
+    ) -> None:
+        with pytest.raises(FlowDefinitionError, match="more than once"):
+            await store.store_flows(
+                [self.upload_of("a", "1.0.0"), self.upload_of("a", "2.0.0")]
+            )
 
     # Runs.
 

@@ -15,13 +15,13 @@ deployed adapters move here.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 
 from neorc_core._runs import Event, FlowTask, Run, RunId, StoredFlow
 from neorc_core._task import TaskId
 from neorc_core._values import JsonValue
-from neorc_core.flows import Address, FlowDefinition, Reference, RunState, Version
+from neorc_core.flows import Address, Reference, RunState, Version
 from neorc_core.ports._queue_client import DEFAULT_LEASE_SECONDS
 
 
@@ -29,13 +29,14 @@ class Store(ABC):
     """Durable storage for flow versions, runs, their tasks and their events."""
 
     @abstractmethod
-    async def store_flow(self, definition: FlowDefinition, content: JsonValue) -> bool:
-        """Store a flow version, and cancel the run trees it replaces.
+    async def store_flows(self, uploads: Sequence[StoredFlow]) -> list[bool]:
+        """Store flow versions deployed together, and cancel the run trees they replace.
 
-        ``check_upload`` decides against the flow's stored versions: ``False``
-        means an identical upload, and nothing changes. A stored new version
-        cancels, in the same operation, every active run tree that contains a
-        run of this flow. Raises ``FlowVersionError`` for a rejected upload.
+        One operation: ``check_uploads`` decides against every stored version,
+        and raises before anything changes if an upload breaks a version rule
+        or leaves the latest flows invalid as a set. Returns, per upload,
+        whether a new version was stored; ``False`` for an identical one. Each
+        new version cancels every active run tree containing a run of its flow.
         """
         raise NotImplementedError
 
