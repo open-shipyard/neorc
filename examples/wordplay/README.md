@@ -31,7 +31,10 @@ are the same as in [hello](../hello/README.md#deployed).
 2. The manager:
 
        export NEORC_DATABASE_URL=...   # from step 1
-       uv run neorc manager start --host 127.0.0.1 --create-schema
+       uv run neorc manager start --host 127.0.0.1 --create-schema --no-ui
+
+   `--no-ui` because a checkout holds no built web UI; the `neorc-ui` wheel
+   does, and `neorc manager start` serves it at `/ui/` unless told not to.
 
 3. Upload the flows:
 

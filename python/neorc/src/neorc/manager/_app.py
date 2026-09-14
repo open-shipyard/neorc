@@ -10,12 +10,15 @@ may move to another backend later, while reporting stays with the store.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from neorc._errors import error_body, status_of
 from neorc.manager._routes import router
+from neorc.manager._ui import mount_ui
 from neorc_core import InvalidValueError, Manager, NeorcError
 
 DEFAULT_LONG_POLL_TIMEOUT = 25.0
@@ -27,9 +30,16 @@ that hits it simply asks again.
 
 
 def create_app(
-    manager: Manager, *, long_poll_timeout: float = DEFAULT_LONG_POLL_TIMEOUT
+    manager: Manager,
+    *,
+    long_poll_timeout: float = DEFAULT_LONG_POLL_TIMEOUT,
+    ui: Path | None = None,
 ) -> FastAPI:
-    """Build the ASGI application serving ``manager``."""
+    """Build the ASGI application serving ``manager``.
+
+    With ``ui``, a directory holding the built web UI, the app serves it at
+    ``/ui/`` and sends ``/`` there; without, ``/`` is not found.
+    """
     app = FastAPI(title="neorc manager", version="0")
     app.state.manager = manager
     app.state.long_poll_timeout = long_poll_timeout
@@ -54,4 +64,6 @@ def create_app(
         """Liveness, for load balancers and deployment scripts."""
         return {"status": "ok"}
 
+    if ui is not None:
+        mount_ui(app, ui)  # after the routes: the mount takes a whole prefix
     return app

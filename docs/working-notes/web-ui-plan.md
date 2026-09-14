@@ -62,7 +62,7 @@ in-memory `neorc run` has no UI: it prints its run's output and exits.
 | 2  | The same on the Postgres store                      | done   |
 | 3  | The manager routes the UI needs                     | done   |
 | 4  | `neorc-ui` distribution and its build               | done   |
-| 5  | The manager serves the UI                           | todo   |
+| 5  | The manager serves the UI                           | done   |
 | 6  | UI: flows and runs                                  | todo   |
 | 7  | UI: a run, its tree and its tasks, live             | todo   |
 | 8  | UI: start and cancel runs                           | todo   |

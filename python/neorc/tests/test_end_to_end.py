@@ -17,6 +17,7 @@ import sys
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 
+import httpx
 import pytest
 import uvicorn
 
@@ -38,8 +39,16 @@ def _free_port() -> int:
 
 
 @pytest.fixture
-async def manager_address(pg_schema: str) -> AsyncIterator[str]:
-    """A manager service listening on a real port, backed by a real database."""
+async def manager_address(
+    pg_schema: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> AsyncIterator[str]:
+    """A manager service listening on a real port, backed by a real database.
+
+    It serves a stand-in UI: the built one needs Node.js, which Python tests
+    never do.
+    """
+    (tmp_path / "index.html").write_text("<!doctype html><title>stand-in</title>")
+    monkeypatch.setattr("neorc_ui.STATIC", tmp_path)
     port = _free_port()
     app = build_app(pg_schema, create_schema=True, long_poll_timeout=2)
     config = uvicorn.Config(
@@ -132,3 +141,17 @@ async def test_word_picker_runs_deployed(manager_address: str) -> None:
 async def test_word_picker_rounds_runs_deployed(manager_address: str) -> None:
     async with deployed(manager_address, "wordplay", ["default", "scoring"]) as client:
         await examples.word_picker_rounds(client, EXAMPLES)
+
+
+async def test_the_manager_serves_the_ui_and_the_listings(
+    manager_address: str,
+) -> None:
+    async with httpx.AsyncClient(base_url=manager_address) as http:
+        page = await http.get("/ui/")
+        flows = await http.get("/flows")
+        runs = await http.get("/runs")
+
+    assert page.status_code == 200 and "stand-in" in page.text
+    assert "content-security-policy" in page.headers
+    assert flows.status_code == 200 and flows.json() == {"flows": []}
+    assert runs.status_code == 200 and runs.json() == {"runs": []}

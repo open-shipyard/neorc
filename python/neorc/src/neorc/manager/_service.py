@@ -28,6 +28,7 @@ def build_app(
     *,
     create_schema: bool = False,
     long_poll_timeout: float = DEFAULT_LONG_POLL_TIMEOUT,
+    ui: bool = True,
 ) -> FastAPI:
     """Build the application from the environment: store, notifiers, then routes.
 
@@ -38,6 +39,10 @@ def build_app(
     Two notification channels: one wakes workers when a task is published,
     the other wakes a scheduler when an event is recorded. Both are hints sent
     after the transaction commits; a waiter re-reads the store.
+
+    With ``ui``, the web UI from the ``neorc-ui`` distribution is served at
+    ``/ui/``; ``FileNotFoundError`` names the fix if that holds no built UI,
+    as in a checkout that was never built.
     """
     from neorc.postgres import PostgresStore, PostgresTaskNotifier
     from neorc.postgres import create_schema as create_postgres_schema
@@ -46,6 +51,11 @@ def build_app(
     dsn = database_url or os.environ.get(DATABASE_URL_ENV)
     if not dsn:
         raise RuntimeError(f"no database to serve: pass one or set {DATABASE_URL_ENV}")
+    static = None
+    if ui:
+        import neorc_ui
+
+        static = neorc_ui.static_dir()
 
     store = PostgresStore(dsn)
     tasks = PostgresTaskNotifier(dsn, channel=TASKS_CHANNEL)
@@ -64,6 +74,7 @@ def build_app(
     app = create_app(
         Manager(store, tasks=tasks, events=events),
         long_poll_timeout=long_poll_timeout,
+        ui=static,
     )
     app.router.lifespan_context = lifespan
     return app
@@ -75,7 +86,8 @@ def run(
     *,
     database_url: str | None = None,
     create_schema: bool = False,
+    ui: bool = True,
 ) -> None:
     """Serve the manager until interrupted. Blocks."""
-    app = build_app(database_url, create_schema=create_schema)
+    app = build_app(database_url, create_schema=create_schema, ui=ui)
     uvicorn.run(app, host=host, port=port)

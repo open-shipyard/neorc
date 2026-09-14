@@ -154,6 +154,10 @@ one version, cut from a single tag on `main`.
   writes the committed `bundled-packages.txt`. Dependencies follow
   `contributing/js-dependencies.md`: exact versions, install scripts off,
   Dependabot with a cooldown, advisories and signatures checked in CI.
+- `neorc manager start` serves the web UI at `/ui/` and sends `/` there;
+  `--no-ui` serves the API alone. Hashed assets are cached as immutable and
+  the page is not; every UI response carries a Content-Security-Policy that
+  keeps scripts and connections to the manager's own origin.
 
 ### Changed
 
