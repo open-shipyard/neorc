@@ -27,7 +27,7 @@ than Postgres.
 | #  | Step                                              | Status |
 | -- | ------------------------------------------------- | ------ |
 | 1  | Postgres schema for flows                         | done   |
-| 2  | `PostgresStore`: flow versions, runs, events      | todo   |
+| 2  | `PostgresStore`: flow versions, runs, events      | done   |
 | 3  | `PostgresStore`: tasks, leases, run state         | todo   |
 | 4  | Manager routes for flows and runs                 | todo   |
 | 5  | Manager routes for the scheduler and workers      | todo   |

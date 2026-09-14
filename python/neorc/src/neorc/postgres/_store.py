@@ -14,13 +14,12 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from types import TracebackType
 
 from psycopg import AsyncConnection
-from psycopg.rows import DictRow, dict_row
+from psycopg.rows import DictRow
 from psycopg.types.json import Jsonb
-from psycopg_pool import AsyncConnectionPool
 
+from neorc.postgres._pool import Pooled
 from neorc.postgres._schema import TASKS_TABLE
 from neorc_core import (
     LEASED_STATUSES,
@@ -90,54 +89,8 @@ RETURNING lease_expires_at
 """
 
 
-class PostgresTaskStore(TaskStore):
+class PostgresTaskStore(Pooled, TaskStore):
     """Stores tasks in Postgres, over a connection pool."""
-
-    def __init__(self, dsn: str, *, min_size: int = 1, max_size: int = 10) -> None:
-        self._dsn = dsn
-        self._min_size = min_size
-        self._max_size = max_size
-        self._pool: AsyncConnectionPool[AsyncConnection[DictRow]] | None = None
-
-    async def __aenter__(self) -> PostgresTaskStore:
-        await self.open()
-        return self
-
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc: BaseException | None,
-        tb: TracebackType | None,
-    ) -> None:
-        await self.aclose()
-
-    async def open(self) -> None:
-        """Open the connection pool."""
-        if self._pool is not None:
-            return
-        pool: AsyncConnectionPool[AsyncConnection[DictRow]] = AsyncConnectionPool(
-            self._dsn,
-            min_size=self._min_size,
-            max_size=self._max_size,
-            kwargs={"row_factory": dict_row},
-            open=False,
-        )
-        await pool.open(wait=True)
-        self._pool = pool
-
-    async def aclose(self) -> None:
-        """Close the connection pool."""
-        if self._pool is None:
-            return
-        await self._pool.close()
-        self._pool = None
-
-    @property
-    def pool(self) -> AsyncConnectionPool[AsyncConnection[DictRow]]:
-        """The open pool, for callers that share this store's connections."""
-        if self._pool is None:
-            raise NeorcError("the task store is not open")
-        return self._pool
 
     async def add(
         self,

@@ -76,6 +76,12 @@ one version, cut from a single tag on `main`.
   `create_schema` next to `neorc_tasks`, with the row mapping to and from the
   core's dataclasses. Values are stored as their compact JSON text, so numbers
   read back exactly as written; a flow version's content is canonical JSON.
+- `neorc.postgres`: `PostgresStore`, the `Store` for flows on Postgres:
+  uploads under an advisory lock, runs and sub-flow runs, succeeding, failing
+  and cancelling run trees under their root's row lock, and events appended
+  last under a second advisory lock so their sequences commit in order. Tasks
+  and run state follow. A version part is at most 2³¹ − 1, what the store's
+  `integer` columns hold, in every store.
 - `neorc-core`: a string holding NUL, in a value or anywhere in a flow
   definition, is refused in core before any store sees it, because Postgres
   `text` cannot hold it and the in-memory store must refuse what the deployed
