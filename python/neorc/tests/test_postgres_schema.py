@@ -42,9 +42,9 @@ from neorc.postgres._schema import (
     FLOW_TASKS_TABLE,
     FLOW_VERSIONS_TABLE,
     INDEXES,
+    RETIRED_TABLES,
     RUNS_TABLE,
     TABLES,
-    TASKS_TABLE,
 )
 from neorc_core import (
     Event,
@@ -83,13 +83,17 @@ async def test_create_schema_is_idempotent_and_creates_everything(
     database_url: str,
 ) -> None:
     await drop_schema(database_url)
+    async with await psycopg.AsyncConnection.connect(
+        database_url, autocommit=True
+    ) as conn:  # a table of an earlier version, as a reused database may hold
+        await conn.execute("CREATE TABLE neorc_tasks (id uuid PRIMARY KEY)")
     await create_schema(database_url)
     await create_schema(database_url)
 
     async with await psycopg.AsyncConnection.connect(
         database_url, row_factory=dict_row
     ) as conn:
-        assert await _names(conn, _TABLES) == set(TABLES)
+        assert await _names(conn, _TABLES) == set(TABLES) | set(RETIRED_TABLES)
         assert set(INDEXES) <= await _names(conn, _INDEXES)
 
     await drop_schema(database_url)
@@ -111,12 +115,11 @@ SELECT pg_get_constraintdef(c.oid) AS definition
 @pytest.mark.parametrize(
     ("table", "column", "enum"),
     [
-        (TASKS_TABLE, "status", TaskStatus),
         (FLOW_TASKS_TABLE, "status", TaskStatus),
         (RUNS_TABLE, "status", RunStatus),
         (EVENTS_TABLE, "kind", EventKind),
     ],
-    ids=["tasks", "flow-tasks", "runs", "events"],
+    ids=["tasks", "runs", "events"],
 )
 async def test_check_constraints_are_in_step_with_the_enums(
     conn: psycopg.AsyncConnection[DictRow],

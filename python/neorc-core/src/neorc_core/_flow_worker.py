@@ -4,8 +4,7 @@
 """The worker for flows: check its queue's handlers, then take and run tasks.
 
 Handlers are plain functions named by import path, called with a task's inputs
-as keyword arguments; they need not import neorc. ``Worker`` keeps serving the
-task API next to this.
+as keyword arguments; they need not import neorc.
 """
 
 from __future__ import annotations
@@ -23,8 +22,7 @@ from neorc_core._handlers import resolve_handler, signature_problems
 from neorc_core._runs import TaskDelivery, storable_text
 from neorc_core._task import TaskId
 from neorc_core.flows import DEFAULT_QUEUE, Namespace, TaskStep
-from neorc_core.ports._flow_clients import FlowQueueClient
-from neorc_core.ports._queue_client import DEFAULT_LEASE_SECONDS
+from neorc_core.ports._flow_clients import DEFAULT_LEASE_SECONDS, FlowQueueClient
 
 DEFAULT_POLL_TIMEOUT = 30.0
 

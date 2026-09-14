@@ -35,7 +35,7 @@ than Postgres.
 | 7  | Manager service on Postgres, two channels         | done   |
 | 8  | `flows upload`, `scheduler start`, `worker start` | done   |
 | 9  | The examples end to end, deployed                 | done   |
-| 10 | Remove the task API                               | todo   |
+| 10 | Remove the task API                               | done   |
 | 11 | Flow classes take the task API's names            | todo   |
 
 ### 1. Postgres schema for flows

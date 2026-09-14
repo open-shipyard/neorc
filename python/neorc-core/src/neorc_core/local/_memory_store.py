@@ -36,7 +36,7 @@ from neorc_core._runs import (
 from neorc_core._task import LEASED_STATUSES, TaskId, TaskStatus, ensure_transition
 from neorc_core._values import JsonValue
 from neorc_core.flows import Address, Reference, RunState, Version
-from neorc_core.ports._queue_client import DEFAULT_LEASE_SECONDS
+from neorc_core.ports._flow_clients import DEFAULT_LEASE_SECONDS
 from neorc_core.ports._store import Store
 
 

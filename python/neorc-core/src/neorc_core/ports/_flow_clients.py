@@ -4,16 +4,19 @@
 """The ports that reach a manager for flows: one for workers, one for the rest.
 
 Values cross them in their JSON form, datetimes tagged. Errors are the core
-exceptions, whatever carries the call. ``QueueClient`` keeps serving the task
-API next to them.
+exceptions, whatever carries the call. The HTTP implementation in ``neorc``
+long-polls the manager; Redis or SQS could take its place for the worker's
+port without either side changing.
 """
 
 from __future__ import annotations
 
+import math
 from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 
+from neorc_core._errors import InvalidValueError
 from neorc_core._runs import Event, Run, RunId, TaskDelivery
 from neorc_core._task import TaskId
 from neorc_core._values import JsonValue
@@ -25,7 +28,29 @@ from neorc_core.flows import (
     TaskStep,
     Version,
 )
-from neorc_core.ports._queue_client import DEFAULT_LEASE_SECONDS
+
+DEFAULT_LEASE_SECONDS = 60.0
+
+MAX_LEASE_SECONDS = 24 * 60 * 60.0
+"""The longest lease a worker may ask for.
+
+A bound every store can add to a clock: an infinite or astronomical lease would
+fail in each store in its own way, and hand no task back either way.
+"""
+
+
+def check_lease_seconds(lease_seconds: float) -> None:
+    """Raise ``InvalidValueError`` unless ``lease_seconds`` is a lease to grant."""
+    if (
+        isinstance(lease_seconds, bool)
+        or not isinstance(lease_seconds, int | float)
+        or not math.isfinite(lease_seconds)
+        or not 0 < lease_seconds <= MAX_LEASE_SECONDS
+    ):
+        raise InvalidValueError(
+            f"lease_seconds must be over 0 and at most {MAX_LEASE_SECONDS}, "
+            f"not {lease_seconds!r}"
+        )
 
 
 class FlowQueueClient(ABC):

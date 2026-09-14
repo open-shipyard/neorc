@@ -12,16 +12,12 @@ from neorc_core.local._cluster import LocalCluster, run_local
 from neorc_core.local._direct_clients import DirectFlowQueueClient, DirectManagerClient
 from neorc_core.local._memory_store import MemoryStore
 from neorc_core.local._notifier import MemoryTaskNotifier
-from neorc_core.local._queue_client import DirectQueueClient
-from neorc_core.local._store import MemoryTaskStore
 
 __all__ = [
     "DirectFlowQueueClient",
     "DirectManagerClient",
-    "DirectQueueClient",
     "LocalCluster",
     "MemoryStore",
     "MemoryTaskNotifier",
-    "MemoryTaskStore",
     "run_local",
 ]

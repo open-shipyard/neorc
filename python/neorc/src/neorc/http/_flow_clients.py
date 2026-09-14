@@ -46,7 +46,7 @@ from neorc_core.flows import (
     is_queue_name,
     parse_flow,
 )
-from neorc_core.ports._queue_client import DEFAULT_LEASE_SECONDS
+from neorc_core.ports._flow_clients import DEFAULT_LEASE_SECONDS
 
 DEFAULT_POLL_TIMEOUT = 30.0
 

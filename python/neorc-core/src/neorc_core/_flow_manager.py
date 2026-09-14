@@ -5,7 +5,7 @@
 
 The manager records and queues; it does not decide what happens next, which is
 the scheduler's job. It validates what it is asked to record and rejects what is
-invalid. ``Manager`` keeps serving the task API next to it.
+invalid.
 """
 
 from __future__ import annotations
@@ -51,7 +51,7 @@ from neorc_core.flows import (
     resolve,
 )
 from neorc_core.flows._validation import check_output
-from neorc_core.ports._queue_client import DEFAULT_LEASE_SECONDS, check_lease_seconds
+from neorc_core.ports._flow_clients import DEFAULT_LEASE_SECONDS, check_lease_seconds
 from neorc_core.ports._store import Store
 from neorc_core.ports._task_notifier import TaskNotifier
 

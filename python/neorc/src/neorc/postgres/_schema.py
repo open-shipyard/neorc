@@ -1,15 +1,14 @@
 # Copyright 2026 The neorc Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""The tables the stores need, and how to create them.
+"""The tables the store needs, and how to create them.
 
 The statements are idempotent, so running them against an up-to-date database
 does nothing. This is a create-if-absent step, not a migration tool: changing
 the shape of an existing table is out of scope until there is a released
 version to migrate from.
 
-``neorc_tasks`` serves the task API. The flow tables follow
-docs/working-notes/postgres-http-implementation-plan.md:
+The tables follow docs/working-notes/postgres-http-implementation-plan.md:
 
 - Values (run inputs and outputs, task params, fixed params and results) are
   ``text`` holding their compact JSON, not ``jsonb``: ``jsonb`` keeps numbers as
@@ -28,17 +27,18 @@ from __future__ import annotations
 
 import psycopg
 
-TASKS_TABLE = "neorc_tasks"
 FLOW_VERSIONS_TABLE = "neorc_flow_versions"
 RUNS_TABLE = "neorc_runs"
 FLOW_TASKS_TABLE = "neorc_flow_tasks"
 EVENTS_TABLE = "neorc_events"
 
-TABLES = (TASKS_TABLE, FLOW_VERSIONS_TABLE, RUNS_TABLE, FLOW_TASKS_TABLE, EVENTS_TABLE)
+TABLES = (FLOW_VERSIONS_TABLE, RUNS_TABLE, FLOW_TASKS_TABLE, EVENTS_TABLE)
 """Every table ``create_schema`` creates."""
 
+RETIRED_TABLES = ("neorc_tasks",)
+"""Tables of earlier versions, no longer created; ``drop_schema`` removes them too."""
+
 INDEXES = (
-    f"{TASKS_TABLE}_claimable_idx",
     f"{RUNS_TABLE}_root_idx",
     f"{RUNS_TABLE}_parent_idx",
     f"{RUNS_TABLE}_active_by_flow_idx",
@@ -48,27 +48,6 @@ INDEXES = (
 """Every index ``create_schema`` creates, besides primary keys."""
 
 CREATE_SCHEMA = f"""
-CREATE TABLE IF NOT EXISTS {TASKS_TABLE} (
-    id               uuid PRIMARY KEY,
-    name             text NOT NULL,
-    payload          jsonb NOT NULL DEFAULT '{{}}'::jsonb,
-    status           text NOT NULL
-                     CHECK (status IN ('pending', 'claimed', 'running',
-                                       'succeeded', 'failed')),
-    created_at       timestamptz NOT NULL DEFAULT now(),
-    run_after        timestamptz NOT NULL DEFAULT now(),
-    priority         integer NOT NULL DEFAULT 0,
-    attempts         integer NOT NULL DEFAULT 0,
-    lease_expires_at timestamptz,
-    error            text
-);
-
--- The claim query's index: due tasks that are not finished, best first. Partial,
--- so finished tasks stop costing anything to skip over as the table grows.
-CREATE INDEX IF NOT EXISTS {TASKS_TABLE}_claimable_idx
-    ON {TASKS_TABLE} (priority DESC, run_after)
-    WHERE status IN ('pending', 'claimed', 'running');
-
 -- One row per flow version. The version is three integers so the latest is
 -- ORDER BY major, minor, patch, not a text sort.
 CREATE TABLE IF NOT EXISTS {FLOW_VERSIONS_TABLE} (
@@ -145,7 +124,7 @@ CREATE TABLE IF NOT EXISTS {EVENTS_TABLE} (
 );
 """
 
-DROP_SCHEMA = f"DROP TABLE IF EXISTS {', '.join(TABLES)}"
+DROP_SCHEMA = f"DROP TABLE IF EXISTS {', '.join(TABLES + RETIRED_TABLES)}"
 
 
 async def create_schema(dsn: str) -> None:

@@ -15,10 +15,22 @@ import asyncio
 import psycopg
 import pytest
 
-from neorc.postgres import PostgresTaskNotifier, PostgresTaskStore
-from neorc_core import Manager
+from neorc.postgres import PostgresStore, PostgresTaskNotifier
+from neorc_core import FlowManager
+from neorc_core._values import JsonValue
+from neorc_core.flows import Address
 
 pytestmark = pytest.mark.postgres
+
+FLOW: JsonValue = {
+    "name": "f",
+    "version": "1.0.0",
+    "steps": {
+        "one": {"handler": "tasks:one"},
+        "two": {"handler": "tasks:two"},
+        "three": {"handler": "tasks:three"},
+    },
+}
 
 
 async def test_a_waiter_is_woken_by_an_announcement(
@@ -76,18 +88,21 @@ async def test_a_task_published_on_another_process_wakes_this_one(
 
 
 async def test_many_waiters_cost_no_connections(
-    database_url: str, pg_store: PostgresTaskStore, pg_notifier: PostgresTaskNotifier
+    pg_schema: str, pg_notifier: PostgresTaskNotifier
 ) -> None:
     """Fifty idle workers on a pool of two, which is the whole point."""
-    async with PostgresTaskStore(database_url, min_size=1, max_size=2) as small_pool:
-        manager = Manager(small_pool, pg_notifier)
+    async with PostgresStore(pg_schema, min_size=1, max_size=2) as small_pool:
+        manager = FlowManager(small_pool, tasks=pg_notifier, events=pg_notifier)
+        await manager.upload_flows([FLOW])
+        run = await manager.start_run("f", {})
         waiting = [
-            asyncio.create_task(manager.pick_next_task(timeout=2)) for _ in range(50)
+            asyncio.create_task(manager.pick_next_task("default", timeout=2))
+            for _ in range(50)
         ]
         await asyncio.sleep(0.2)  # let them all reach the wait
 
-        for _ in range(3):
-            await manager.publish("send_email", {})
+        for name in ("one", "two", "three"):
+            await manager.publish_task(run.id, Address(name))
 
         done, pending = await asyncio.wait(waiting, timeout=10)
         picked = [task.result() for task in done if task.result() is not None]
@@ -98,19 +113,21 @@ async def test_many_waiters_cost_no_connections(
 
 
 async def test_a_waiting_worker_is_woken_by_a_publish(
-    pg_store: PostgresTaskStore, pg_notifier: PostgresTaskNotifier
+    pg_flow_store: PostgresStore, pg_notifier: PostgresTaskNotifier
 ) -> None:
-    manager = Manager(pg_store, pg_notifier)
+    manager = FlowManager(pg_flow_store, tasks=pg_notifier, events=pg_notifier)
+    await manager.upload_flows([FLOW])
+    run = await manager.start_run("f", {})
 
     async def publish_shortly() -> None:
         await asyncio.sleep(0.05)
-        await manager.publish("send_email", {})
+        await manager.publish_task(run.id, Address("one"))
 
     loop = asyncio.get_running_loop()
     started = loop.time()
     async with asyncio.TaskGroup() as group:
         group.create_task(publish_shortly())
-        picked = await manager.pick_next_task(timeout=10)
+        picked = await manager.pick_next_task("default", timeout=10)
 
     assert picked is not None
     # Woken by the announcement, not by falling out of the poll timeout.

@@ -20,9 +20,8 @@ import pytest
 
 from neorc.manager import create_app
 from neorc.manager._flow_routes import MAX_BODY_BYTES
-from neorc_core import FlowManager, Manager
+from neorc_core import FlowManager
 from neorc_core._values import MAX_JSON_DEPTH, JsonValue
-from neorc_core.local import MemoryStore, MemoryTaskNotifier
 
 MAIN: JsonValue = {
     "name": "main",
@@ -34,17 +33,8 @@ MAIN: JsonValue = {
 
 
 @pytest.fixture
-def flows() -> FlowManager:
-    return FlowManager(
-        MemoryStore(), tasks=MemoryTaskNotifier(), events=MemoryTaskNotifier()
-    )
-
-
-@pytest.fixture
-async def http(
-    manager: Manager, flows: FlowManager
-) -> AsyncIterator[httpx.AsyncClient]:
-    app = create_app(manager, flows=flows, long_poll_timeout=2)
+async def http(flows: FlowManager) -> AsyncIterator[httpx.AsyncClient]:
+    app = create_app(flows, long_poll_timeout=2)
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(
         transport=transport, base_url="http://manager.test"
@@ -197,16 +187,6 @@ async def test_values_are_checked_by_core_not_by_the_envelope(
 
     assert (response.status_code, _error(response)) == (422, "InvalidValueError")
     assert "input 'word' is not a string" in response.json()["detail"]
-
-
-async def test_the_task_api_answers_errors_in_the_same_form(
-    http: httpx.AsyncClient,
-) -> None:
-    response = await http.get(f"/tasks/{uuid.uuid4()}")
-
-    assert response.status_code == 404
-    assert response.json()["error"] == "TaskNotFoundError"
-    assert "detail" in response.json()
 
 
 # The scheduler's and the workers' routes.

@@ -41,8 +41,11 @@ from neorc_core.flows import (
     Version,
     parse_flow,
 )
-from neorc_core.ports._flow_clients import FlowQueueClient, ManagerClient
-from neorc_core.ports._queue_client import DEFAULT_LEASE_SECONDS
+from neorc_core.ports._flow_clients import (
+    DEFAULT_LEASE_SECONDS,
+    FlowQueueClient,
+    ManagerClient,
+)
 
 
 class DirectFlowQueueClient(FlowQueueClient):

@@ -22,7 +22,7 @@ from neorc_core.flows import read_flows
 from neorc_core.local._direct_clients import DirectFlowQueueClient, DirectManagerClient
 from neorc_core.local._memory_store import MemoryStore
 from neorc_core.local._notifier import MemoryTaskNotifier
-from neorc_core.ports._queue_client import DEFAULT_LEASE_SECONDS
+from neorc_core.ports._flow_clients import DEFAULT_LEASE_SECONDS
 
 _log = logging.getLogger(__name__)
 

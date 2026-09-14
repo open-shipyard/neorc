@@ -24,11 +24,9 @@ from neorc.manager import create_app
 from neorc_core import (
     FlowManager,
     FlowQueueClient,
-    Manager,
     ManagerClient,
     ManagerUnavailableError,
 )
-from neorc_core.local import MemoryStore, MemoryTaskNotifier
 from neorc_core.testing.contracts import (
     FlowQueueClientContract,
     ManagerClientContract,
@@ -36,17 +34,8 @@ from neorc_core.testing.contracts import (
 
 
 @pytest.fixture
-def flows() -> FlowManager:
-    return FlowManager(
-        MemoryStore(), tasks=MemoryTaskNotifier(), events=MemoryTaskNotifier()
-    )
-
-
-@pytest.fixture
-def transport(manager: Manager, flows: FlowManager) -> httpx.ASGITransport:
-    return httpx.ASGITransport(
-        app=create_app(manager, flows=flows, long_poll_timeout=2)
-    )
+def transport(flows: FlowManager) -> httpx.ASGITransport:
+    return httpx.ASGITransport(app=create_app(flows, long_poll_timeout=2))
 
 
 @pytest.fixture

@@ -13,14 +13,14 @@ import uvicorn
 from fastapi import FastAPI
 
 from neorc.manager._app import DEFAULT_LONG_POLL_TIMEOUT, create_app
-from neorc_core import FlowManager, Manager
+from neorc_core import FlowManager
 
 # A manager serves workers on other hosts, so it binds every interface.
 DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 8420
 
 DATABASE_URL_ENV = "NEORC_DATABASE_URL"
-"""Where the reference deployment keeps its tasks."""
+"""Where the reference deployment keeps its flows, runs, tasks and events."""
 
 
 def build_app(
@@ -29,17 +29,17 @@ def build_app(
     create_schema: bool = False,
     long_poll_timeout: float = DEFAULT_LONG_POLL_TIMEOUT,
 ) -> FastAPI:
-    """Build the application from the environment: stores, notifiers, then routes.
+    """Build the application from the environment: store, notifiers, then routes.
 
-    Which adapter backs the stores is a deployment choice. This one is the
-    reference: Postgres, from ``NEORC_DATABASE_URL``, serving the task API
-    and the flow routes side by side. Nothing above this function names it.
+    Which adapter backs the store is a deployment choice. This one is the
+    reference: Postgres, from ``NEORC_DATABASE_URL``. Nothing above this
+    function names it.
 
     Two notification channels: one wakes workers when a task is published,
     the other wakes a scheduler when an event is recorded. Both are hints sent
     after the transaction commits; a waiter re-reads the store.
     """
-    from neorc.postgres import PostgresStore, PostgresTaskNotifier, PostgresTaskStore
+    from neorc.postgres import PostgresStore, PostgresTaskNotifier
     from neorc.postgres import create_schema as create_postgres_schema
     from neorc.postgres._notifier import EVENTS_CHANNEL, TASKS_CHANNEL
 
@@ -47,7 +47,6 @@ def build_app(
     if not dsn:
         raise RuntimeError(f"no database to serve: pass one or set {DATABASE_URL_ENV}")
 
-    task_store = PostgresTaskStore(dsn)
     store = PostgresStore(dsn)
     tasks = PostgresTaskNotifier(dsn, channel=TASKS_CHANNEL)
     events = PostgresTaskNotifier(dsn, channel=EVENTS_CHANNEL)
@@ -57,15 +56,13 @@ def build_app(
         if create_schema:
             await create_postgres_schema(dsn)
         async with AsyncExitStack() as stack:
-            await stack.enter_async_context(task_store)
             await stack.enter_async_context(store)
             await stack.enter_async_context(tasks)
             await stack.enter_async_context(events)
             yield
 
     app = create_app(
-        Manager(task_store, tasks),
-        flows=FlowManager(store, tasks=tasks, events=events),
+        FlowManager(store, tasks=tasks, events=events),
         long_poll_timeout=long_poll_timeout,
     )
     app.router.lifespan_context = lifespan

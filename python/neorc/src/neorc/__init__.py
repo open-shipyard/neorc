@@ -10,7 +10,7 @@ subpackages that match the extras that install them: ``neorc.http``,
 
 from importlib.metadata import PackageNotFoundError, version
 
-from neorc_core import Payload, Task, TaskHandler, TaskId, TaskStatus, Worker
+from neorc_core import FlowWorker, Scheduler, TaskId, TaskStatus
 
 try:
     __version__ = version("neorc")
@@ -18,11 +18,9 @@ except PackageNotFoundError:  # a source checkout on sys.path, not installed
     __version__ = "0+unknown"
 
 __all__ = [
-    "Payload",
-    "Task",
-    "TaskHandler",
+    "FlowWorker",
+    "Scheduler",
     "TaskId",
     "TaskStatus",
-    "Worker",
     "__version__",
 ]

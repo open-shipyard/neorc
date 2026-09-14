@@ -14,15 +14,12 @@ one version, cut from a single tag on `main`.
 
 - Initial monorepo structure: a uv workspace with the `neorc-core` and `neorc`
   Python packages under `python/`.
-- `neorc-core`: the `Task` model and its status transitions, the `QueueClient`,
-  `TaskStore` and `TaskNotifier` ports, the `Manager` (leasing, long-poll
-  waiting, transitions) and the `Worker` loop (claim, execute, heartbeat,
-  report).
-- `neorc-core.local`: in-memory `MemoryTaskStore`, `MemoryTaskNotifier` and
-  `DirectQueueClient`, for exercising handlers and workers without a database.
-- `neorc-core.testing.contracts`: `TaskStoreContract` and `QueueClientContract`,
-  test suites written against the ports. The in-memory adapters, the Postgres
-  store and the HTTP queue client all run them.
+- `neorc-core`: a task's status transitions, the same in every store, and the
+  `TaskNotifier` port.
+- `neorc-core.local`: `MemoryTaskNotifier`, for exercising the system without
+  a database.
+- `neorc-core.testing.contracts`: test suites written against the ports, which
+  the in-memory adapters, the Postgres adapters and the HTTP clients all run.
 - `neorc-core.flows`: `RunState`, a run's step results addressed by loop
   iteration and fan-out index, and `resolve`, which gives a reference's value
   for a consumer as the "Resolving references" table of the flows spec does.
@@ -56,15 +53,9 @@ one version, cut from a single tag on `main`.
   run with it, and their outputs are asserted in the tests.
 - Claims are leases: workers heartbeat to hold a task, and a task whose lease
   lapses returns to the queue. Chosen so the queue can move to SQS unchanged.
-- `neorc.postgres`: the task store, claiming with `FOR UPDATE SKIP LOCKED`, and
-  a LISTEN/NOTIFY notifier whose waiters hold no connection.
+- `neorc.postgres`: a LISTEN/NOTIFY notifier whose waiters hold no connection.
 - `neorc.manager`: the FastAPI application, and a service that assembles it from
   `NEORC_DATABASE_URL`.
-- `neorc.http`: `HttpQueueClient`, the long-polling client publishers and
-  workers use.
-- `neorc worker start --tasks tasks.toml` (or `$NEORC_WORKER_TASKS`): a
-  `[tasks]` table maps task names to `module:function` handlers, which need not
-  import neorc and may be plain functions. Every entry is checked at startup.
 - `neorc`: the console script — `neorc manager start` and `neorc worker start`.
   A command whose extra is missing says which one to install rather than
   raising `ModuleNotFoundError`.
@@ -84,22 +75,20 @@ one version, cut from a single tag on `main`.
   `FOR UPDATE SKIP LOCKED`, and a run's state read in one snapshot. It passes
   the store contract in full. A version part is at most 2³¹ − 1, what the
   store's `integer` columns hold, in every store.
-- `neorc.manager`: the flow routes, served next to the task API when
-  `create_app` is given a `FlowManager`: `POST /flows`, `GET /flows/{name}`
+- `neorc.manager`: the flow routes: `POST /flows`, `GET /flows/{name}`
   and `/flows/{name}/versions/{version}`, `POST /flows/{name}/runs`,
   `GET /runs/{id}`, `POST /runs/{id}/cancel` and `GET /runs/{id}/state`.
   Bodies are read as bytes, capped at 16 MiB and checked for nesting depth
   before anything parses them. Every core error crosses as
   `{"error": "<class>", "detail": ...}` with a status per class, and a
-  `FlowDefinitionError` carries its `problems`; the task API's errors take
-  the same form.
+  `FlowDefinitionError` carries its `problems`.
 - `neorc.manager`: the routes the scheduler and workers use. For the
   scheduler, `GET /events` long-polled up to the manager's deadline,
   `POST /runs/{id}/tasks` and `/sub-runs` by address, `/succeed` with the
   output reference and `/fail`. For workers, `GET /queues/{queue}/tasks` for
   the task definitions, `POST /queues/{queue}/tasks/next` long-polled, and
-  `POST /flow-tasks/{id}/started`, `/heartbeat` and `/finished`; the task
-  API keeps `/tasks` meanwhile. In core, a lease is at most a day and a run
+  `POST /flow-tasks/{id}/started`, `/heartbeat` and `/finished`. In core, a
+  lease is at most a day and a run
   is succeeded only with a reference to one of its flow's tasks or
   sub-flows, so every client is refused the same requests.
 - `neorc.http`: `HttpManagerClient` and `HttpFlowQueueClient`, the flow
@@ -113,8 +102,7 @@ one version, cut from a single tag on `main`.
   half of what JSON text may, so it fits in whatever it travels in; and a
   queue name is letters, digits, `_` and `-`, as it travels in a URL path.
 - `neorc.manager`: `build_app` assembles `FlowManager` on `PostgresStore`
-  next to the task API's manager and serves both route sets, with two
-  notification channels, `neorc_task_ready` for workers and
+  with two notification channels, `neorc_task_ready` for workers and
   `neorc_event_ready` for the scheduler, so a task or event recorded through
   one manager process wakes a waiter on another. `--create-schema` creates
   the flow tables too. An announcement is a hint, so a request never waits
@@ -128,7 +116,7 @@ one version, cut from a single tag on `main`.
   HTTP client, stopping on `SIGINT` and `SIGTERM`. `neorc worker start
   --manager-address --code-location [--queue]` runs a worker for flows on the
   HTTP client; handlers that do not fit the queue's tasks stop it at startup
-  with every problem listed. `--tasks` keeps running the task API's worker.
+  with every problem listed.
 - `neorc-core.testing.examples`: the example scenarios, `hello`,
   `word_picker` and `word_picker_rounds`, run through any `ManagerClient`
   with their outputs asserted. Core runs them on `LocalCluster`; `neorc` runs
@@ -140,5 +128,15 @@ one version, cut from a single tag on `main`.
   `text` cannot hold it and the in-memory store must refuse what the deployed
   one would. Task errors and run reasons, which are messages, are stored with
   NUL replaced instead.
+
+### Removed
+
+- The task API, which let a task be published on its own: `TaskStore`,
+  `Manager`, `QueueClient`, `Worker`, `Task`, `Payload`, `MemoryTaskStore`,
+  `DirectQueueClient`, `TaskStoreContract`, `QueueClientContract`,
+  `PostgresTaskStore`, `HttpQueueClient`, the `/tasks` routes, the
+  `neorc_tasks` table, and `neorc worker start --tasks`. Every task belongs to
+  a flow; a basic queue is a flow with a single task, as `examples/hello`
+  shows. `create_schema` leaves a `neorc_tasks` table from before in place.
 
 [Unreleased]: https://github.com/open-shipyard/neorc/commits/main

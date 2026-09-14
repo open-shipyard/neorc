@@ -7,9 +7,6 @@ Each method is one atomic operation: a transaction in a database, one lock in
 memory. Core never composes several of them into something that has to be
 atomic. The decisions an operation makes inside, such as the upload rules and a
 run's state, come from ``neorc_core._runs``, so every store makes them alike.
-
-This port is for flows. ``TaskStore`` keeps serving the task API until the
-deployed adapters move here.
 """
 
 from __future__ import annotations
@@ -22,7 +19,7 @@ from neorc_core._runs import Event, FlowTask, Run, RunId, StoredFlow
 from neorc_core._task import TaskId
 from neorc_core._values import JsonValue
 from neorc_core.flows import Address, Reference, RunState, Version
-from neorc_core.ports._queue_client import DEFAULT_LEASE_SECONDS
+from neorc_core.ports._flow_clients import DEFAULT_LEASE_SECONDS
 
 
 class Store(ABC):
