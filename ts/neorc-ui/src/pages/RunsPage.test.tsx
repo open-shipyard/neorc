@@ -26,7 +26,7 @@ describe("RunsPage", () => {
     );
     expect(rows[2]).toHaveTextContent("word_picker");
     expect(rows[2]).toHaveTextContent("2.5 s");
-    expect(screen.getByRole("link", { name: "5f3a1c2e" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "word_picker 5f3a1c2e" })).toHaveAttribute(
       "href",
       `#/runs/${SUCCEEDED.id}`,
     );

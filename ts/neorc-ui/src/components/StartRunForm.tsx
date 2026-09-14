@@ -147,7 +147,7 @@ export function StartRunForm({ flow }: { flow: Flow }) {
         </label>
       )}
       {(problem ?? refused) && <p role="alert">{problem ?? refused}</p>}
-      <button type="submit" disabled={start.isPending}>
+      <button type="submit" className="primary" disabled={start.isPending}>
         {start.isPending ? "Starting…" : "Start run"}
       </button>
     </form>

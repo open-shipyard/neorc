@@ -15,7 +15,7 @@ describe("RunPage on a recorded word_picker_rounds run", () => {
     renderWithClient(<RunPage id={run.id} />);
 
     const heading = await screen.findByRole("heading", { level: 1 });
-    expect(heading).toHaveTextContent(`Run ${shortId(run.id)}`);
+    expect(heading).toHaveTextContent(`${run.flow} ${shortId(run.id)}`);
     expect(within(heading).getByText("succeeded")).toBeInTheDocument();
 
     // The loop ran twice: each iteration holds the sub-flow and its exit task.
@@ -38,6 +38,9 @@ describe("RunPage on a recorded word_picker_rounds run", () => {
       expect(within(region).getByRole("region", { name: "padding iteration 2" })).toBeInTheDocument();
     }
     expect(screen.queryByText("not published")).not.toBeInTheDocument();
+    // A finished step says its status in words, with how long it took.
+    const report = screen.getByText("report").closest("li");
+    expect(report).toHaveTextContent(/succeeded · \d+ ms/);
 
     // Sub-runs are listed too, with the step that started them.
     const table = screen.getByRole("table");

@@ -8,3 +8,10 @@ export function StatusBadge({ status }: { status: RunStatus | TaskStatus }) {
     </span>
   );
 }
+
+/** The same status as a small coloured dot, its name for a screen reader. */
+export function StatusDot({ status }: { status: RunStatus | TaskStatus | "none" }) {
+  return (
+    <span className={`dot dot-${status}`} data-status={status} role="img" aria-label={status} />
+  );
+}
