@@ -103,6 +103,67 @@ async def test_create_schema_is_idempotent_and_creates_everything(
         assert await _names(conn, _TABLES) == set()
 
 
+_COLUMNS = """
+SELECT column_name AS name FROM information_schema.columns
+ WHERE table_schema = current_schema() AND table_name = %s
+"""
+
+_OLD_RUNS = f"""
+CREATE TABLE {RUNS_TABLE} (
+    id uuid PRIMARY KEY, flow text NOT NULL, version text NOT NULL,
+    inputs text NOT NULL, status text NOT NULL, root_id uuid NOT NULL,
+    parent_id uuid, parent_address text, output text NOT NULL DEFAULT 'null',
+    reason text
+)
+"""
+
+_OLD_TASKS = f"""
+CREATE TABLE {FLOW_TASKS_TABLE} (
+    id uuid PRIMARY KEY, run_id uuid NOT NULL, address text NOT NULL,
+    queue text NOT NULL, handler text NOT NULL, params text NOT NULL,
+    fixed_params text NOT NULL, status text NOT NULL,
+    attempts integer NOT NULL DEFAULT 0, lease_expires_at timestamptz,
+    result text NOT NULL DEFAULT 'null', error text,
+    position bigint GENERATED ALWAYS AS IDENTITY
+)
+"""
+
+
+async def test_create_schema_adds_the_columns_tables_from_before_lack(
+    database_url: str,
+) -> None:
+    """Tables from a checkout before the timestamps get them, with rows kept."""
+    await drop_schema(database_url)
+    try:
+        async with await psycopg.AsyncConnection.connect(
+            database_url, autocommit=True, row_factory=dict_row
+        ) as conn:
+            await conn.execute(_OLD_RUNS)
+            await conn.execute(_OLD_TASKS)
+            run_id = uuid.uuid4()
+            await conn.execute(
+                f"INSERT INTO {RUNS_TABLE} (id, flow, version, inputs, status, root_id)"
+                " VALUES (%s, 'a', '1.0.0', '{}', 'active', %s)",
+                (run_id, run_id),
+            )
+
+            await create_schema(database_url)
+
+            runs = await _names(conn, _COLUMNS.replace("%s", f"'{RUNS_TABLE}'"))
+            tasks = await _names(conn, _COLUMNS.replace("%s", f"'{FLOW_TASKS_TABLE}'"))
+            cursor = await conn.execute(
+                f"SELECT {RUN_COLUMNS}, position FROM {RUNS_TABLE}"
+            )
+            (row,) = await cursor.fetchall()
+
+        assert {"created_at", "finished_at", "position"} <= runs
+        assert {"created_at", "started_at", "finished_at"} <= tasks
+        assert run_from_row(row).id == run_id
+        assert row["created_at"] is not None and row["position"] == 1  # backfilled
+    finally:  # the tables lack their constraints: leave nothing for the next test
+        await drop_schema(database_url)
+
+
 _CONSTRAINT = """
 SELECT pg_get_constraintdef(c.oid) AS definition
   FROM pg_constraint AS c
@@ -185,7 +246,8 @@ async def _insert_run(conn: psycopg.AsyncConnection[DictRow], run: Run) -> Run:
     await conn.execute(
         f"INSERT INTO {RUNS_TABLE} ({RUN_COLUMNS}) VALUES "
         "(%(id)s, %(flow)s, %(version)s, %(inputs)s, %(status)s, %(root_id)s, "
-        "%(parent_id)s, %(parent_address)s, %(output)s, %(reason)s)",
+        "%(parent_id)s, %(parent_address)s, %(output)s, %(reason)s, "
+        "%(created_at)s, %(finished_at)s)",
         run_to_row(run),
     )
     cursor = await conn.execute(
@@ -204,6 +266,7 @@ async def test_runs_round_trip(conn: psycopg.AsyncConnection[DictRow]) -> None:
         inputs={"numbers": NUMBERS, "when": {"$datetime": WHEN.isoformat()}},
         status=RunStatus.ACTIVE,
         root_id=root_id,
+        created_at=WHEN,
     )
     sub_run = Run(
         id=uuid.uuid4(),
@@ -216,6 +279,8 @@ async def test_runs_round_trip(conn: psycopg.AsyncConnection[DictRow]) -> None:
         parent_address=Address("call", (("rounds", 2), ("picking", 3))),
         output={"words": ["red"]},
         reason="a task failed",
+        created_at=WHEN,
+        finished_at=WHEN,
     )
 
     read_root = await _insert_run(conn, root)
@@ -242,6 +307,7 @@ async def test_tasks_round_trip_and_are_ordered_by_publication(
             "n": Reference.parse("neorc.attempts"),
         },
         fixed_params={"k": {"$datetime": WHEN.isoformat()}, "numbers": NUMBERS},
+        created_at=WHEN,
     )
     finished = Task(
         id=uuid.uuid4(),
@@ -254,13 +320,16 @@ async def test_tasks_round_trip_and_are_ordered_by_publication(
         lease_expires_at=WHEN,
         result=NUMBERS,
         error=None,
+        created_at=WHEN,
+        started_at=WHEN,
+        finished_at=WHEN,
     )
     for task in (pending, finished):
         await conn.execute(
             f"INSERT INTO {FLOW_TASKS_TABLE} ({TASK_COLUMNS}) VALUES "
             "(%(id)s, %(run_id)s, %(address)s, %(queue)s, %(handler)s, %(params)s, "
             "%(fixed_params)s, %(status)s, %(attempts)s, %(lease_expires_at)s, "
-            "%(result)s, %(error)s)",
+            "%(result)s, %(error)s, %(created_at)s, %(started_at)s, %(finished_at)s)",
             task_to_row(task),
         )
 

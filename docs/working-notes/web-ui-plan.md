@@ -58,8 +58,8 @@ in-memory `neorc run` has no UI: it prints its run's output and exits.
 
 | #  | Step                                                | Status |
 | -- | --------------------------------------------------- | ------ |
-| 1  | Read queries and timestamps, in core and in memory  | todo   |
-| 2  | The same on the Postgres store                      | todo   |
+| 1  | Read queries and timestamps, in core and in memory  | done   |
+| 2  | The same on the Postgres store                      | done   |
 | 3  | The manager routes the UI needs                     | todo   |
 | 4  | `neorc-ui` distribution and its build               | todo   |
 | 5  | The manager serves the UI                           | todo   |
@@ -100,14 +100,20 @@ shows. Nothing lists.
 ### 2. The same on the Postgres store
 
 - `neorc/postgres/_schema.py`: the timestamp columns on `neorc_runs` and
-  `neorc_flow_tasks`, `timestamptz`. `create_schema` adds them with
-  `ADD COLUMN IF NOT EXISTS` as well, since databases created before this
-  step exist and no release is out to migrate.
-- Indexes for listing runs by flow, status and time: on `neorc_runs`
-  `(created_at, id)` for the page cursor, and `(flow, created_at)`; the existing
-  partial index on active runs serves the status filter.
+  `neorc_flow_tasks`, `timestamptz`, set by the server's `now()`; and
+  `position` on `neorc_runs`, since two rows can share a time and the port
+  orders by start. Unlike a task's, a run's position is not an identity
+  column: it is allocated as max + 1 under the event lock, right after the
+  run's event, so positions commit in order and a page never skips a run that
+  committed late. `create_schema`
+  adds them to existing tables too, after a check of `information_schema`
+  finds them missing, since databases created before this step exist, no
+  release is out to migrate, and an unconditional `ALTER TABLE` would lock the
+  table at every manager start.
+- Indexes for listing: on `neorc_runs` `(position)` and `(flow, position)`;
+  the existing partial index on active runs serves the status filter.
 - `PostgresStore` implements the four queries; `list_runs` pages by
-  `(created_at, id)`, not by offset. The `xfail` marks from step 1 go.
+  `position`, not by offset. The `xfail` marks from step 1 go.
 - Nothing here takes a lock outside the store's documented order: reads only.
 
 ### 3. The manager routes the UI needs

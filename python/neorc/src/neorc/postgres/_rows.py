@@ -27,11 +27,11 @@ Row = Mapping[str, Any]
 FLOW_COLUMNS = "name, major, minor, patch, content"
 RUN_COLUMNS = (
     "id, flow, version, inputs, status, root_id, parent_id, parent_address, "
-    "output, reason"
+    "output, reason, created_at, finished_at"
 )
 TASK_COLUMNS = (
     "id, run_id, address, queue, handler, params, fixed_params, status, "
-    "attempts, lease_expires_at, result, error"
+    "attempts, lease_expires_at, result, error, created_at, started_at, finished_at"
 )
 EVENT_COLUMNS = "sequence, run_id, kind"
 
@@ -67,6 +67,8 @@ def run_to_row(run: Run) -> dict[str, Any]:
         ),
         "output": _values.dumps_json(run.output),
         "reason": run.reason,
+        "created_at": run.created_at,
+        "finished_at": run.finished_at,
     }
 
 
@@ -86,6 +88,8 @@ def run_from_row(row: Row) -> Run:
         ),
         output=json.loads(row["output"]),
         reason=row["reason"],
+        created_at=row["created_at"],
+        finished_at=row["finished_at"],
     )
 
 
@@ -105,6 +109,9 @@ def task_to_row(task: Task) -> dict[str, Any]:
         "lease_expires_at": task.lease_expires_at,
         "result": _values.dumps_json(task.result),
         "error": task.error,
+        "created_at": task.created_at,
+        "started_at": task.started_at,
+        "finished_at": task.finished_at,
     }
 
 
@@ -122,6 +129,9 @@ def task_from_row(row: Row) -> Task:
         lease_expires_at=row["lease_expires_at"],
         result=json.loads(row["result"]),
         error=row["error"],
+        created_at=row["created_at"],
+        started_at=row["started_at"],
+        finished_at=row["finished_at"],
     )
 
 
