@@ -43,14 +43,23 @@ from neorc.postgres._rows import (
     EVENT_COLUMNS,
     FLOW_COLUMNS,
     RUN_COLUMNS,
+    TASK_COLUMNS,
     event_from_row,
     flow_from_row,
     flow_to_row,
     run_from_row,
     run_to_row,
+    task_from_row,
+    task_to_row,
 )
-from neorc.postgres._schema import EVENTS_TABLE, FLOW_VERSIONS_TABLE, RUNS_TABLE
+from neorc.postgres._schema import (
+    EVENTS_TABLE,
+    FLOW_TASKS_TABLE,
+    FLOW_VERSIONS_TABLE,
+    RUNS_TABLE,
+)
 from neorc_core import (
+    LEASED_STATUSES,
     Event,
     EventKind,
     FlowNotFoundError,
@@ -63,20 +72,28 @@ from neorc_core import (
     Store,
     StoredFlow,
     TaskId,
+    TaskNotFoundError,
+    TaskStateError,
+    TaskStatus,
+    ensure_transition,
 )
 from neorc_core._runs import (
     check_uploads,
     ensure_active,
+    run_state_of,
     storable_text,
     sub_run_id_for,
+    task_id_for,
 )
 from neorc_core._values import JsonValue, dumps_json
 from neorc_core.flows import Address, Reference, RunState, Version
 from neorc_core.ports._queue_client import DEFAULT_LEASE_SECONDS
 
 _LOCK_SPACE = 0x6E656F72  # "neor": keeps clear of other advisory locks in the database
-_UPLOAD_LOCK = (_LOCK_SPACE, 1)
-_EVENT_LOCK = (_LOCK_SPACE, 2)
+UPLOAD_LOCK = (_LOCK_SPACE, 1)
+"""The advisory lock key uploads take exclusively and run starts share."""
+EVENT_LOCK = (_LOCK_SPACE, 2)
+"""The advisory lock key every transaction appending events takes, last."""
 
 _LATEST_ORDER = "ORDER BY major DESC, minor DESC, patch DESC"
 
@@ -160,6 +177,65 @@ SELECT {EVENT_COLUMNS} FROM {EVENTS_TABLE}
  LIMIT %(limit)s
 """
 
+_SELECT_TASK = f"SELECT {TASK_COLUMNS} FROM {FLOW_TASKS_TABLE} WHERE id = %(id)s"
+
+_LOCK_TASK = f"{_SELECT_TASK} FOR UPDATE"
+
+_INSERT_TASK = f"""
+INSERT INTO {FLOW_TASKS_TABLE} ({TASK_COLUMNS})
+VALUES (%(id)s, %(run_id)s, %(address)s, %(queue)s, %(handler)s, %(params)s,
+        %(fixed_params)s, %(status)s, %(attempts)s, %(lease_expires_at)s,
+        %(result)s, %(error)s)
+ON CONFLICT (id) DO NOTHING
+RETURNING id
+"""
+
+# One statement, so the claim and everything that goes with it are atomic. The
+# inner SELECT takes the oldest ready task of the queue and locks it, skipping
+# rows another claimer already holds; ready is pending, or leased past the
+# lease's end.
+_CLAIM_TASK = f"""
+UPDATE {FLOW_TASKS_TABLE} AS t
+   SET status = 'claimed',
+       attempts = t.attempts + 1,
+       lease_expires_at = now() + make_interval(secs => %(lease_seconds)s)
+ WHERE t.id = (
+       SELECT c.id
+         FROM {FLOW_TASKS_TABLE} AS c
+        WHERE c.queue = %(queue)s
+          AND (c.status = 'pending'
+               OR (c.status IN ('claimed', 'running')
+                   AND c.lease_expires_at <= now()))
+        ORDER BY c.position
+          FOR UPDATE SKIP LOCKED
+        LIMIT 1)
+RETURNING {TASK_COLUMNS}
+"""
+
+_START_TASK = f"""
+UPDATE {FLOW_TASKS_TABLE} SET status = 'running' WHERE id = %(id)s
+RETURNING {TASK_COLUMNS}
+"""
+
+_EXTEND_TASK_LEASE = f"""
+UPDATE {FLOW_TASKS_TABLE}
+   SET lease_expires_at = now() + make_interval(secs => %(lease_seconds)s)
+ WHERE id = %(id)s
+RETURNING lease_expires_at
+"""
+
+_FINISH_TASK = f"""
+UPDATE {FLOW_TASKS_TABLE}
+   SET status = %(status)s, result = %(result)s, error = %(error)s,
+       lease_expires_at = NULL
+ WHERE id = %(id)s
+RETURNING {TASK_COLUMNS}
+"""
+
+_TASKS_OF_RUN = f"SELECT {TASK_COLUMNS} FROM {FLOW_TASKS_TABLE} WHERE run_id = %(id)s"
+
+_SUB_RUNS_OF_RUN = f"SELECT {RUN_COLUMNS} FROM {RUNS_TABLE} WHERE parent_id = %(id)s"
+
 Connection = AsyncConnection[DictRow]
 Events = list[tuple[RunId, EventKind]]
 
@@ -169,7 +245,7 @@ class PostgresStore(Pooled, Store):
 
     async def store_flows(self, uploads: Sequence[StoredFlow]) -> list[bool]:
         async with self.pool.connection() as conn, conn.transaction():
-            await _lock(conn, _UPLOAD_LOCK, shared=False)
+            await _lock(conn, UPLOAD_LOCK, shared=False)
             stored: dict[str, list[StoredFlow]] = {}
             for row in await (await conn.execute(_SELECT_ALL_FLOWS)).fetchall():
                 flow = flow_from_row(row)
@@ -230,7 +306,7 @@ class PostgresStore(Pooled, Store):
         if (parent_id is None) != (parent_address is None):
             raise ValueError("a sub-flow run names both its parent and its address")
         async with self.pool.connection() as conn, conn.transaction():
-            await _lock(conn, _UPLOAD_LOCK, shared=True)
+            await _lock(conn, UPLOAD_LOCK, shared=True)
             latest = (await _flow(conn, flow, None)).version
             if version != latest:
                 raise FlowVersionError(
@@ -268,7 +344,18 @@ class PostgresStore(Pooled, Store):
             return await _run(conn, run_id)
 
     async def run_state(self, run_id: RunId) -> RunState:
-        raise NotImplementedError("tasks and run state arrive in step 3")
+        async with self.pool.connection() as conn, conn.transaction():
+            # The run, its tasks and its sub-runs from one snapshot, so the
+            # state is one a serial history could have reached.
+            await conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+            run = await _run(conn, run_id)
+            tasks = await conn.execute(_TASKS_OF_RUN, {"id": run_id})
+            sub_runs = await conn.execute(_SUB_RUNS_OF_RUN, {"id": run_id})
+            return run_state_of(
+                run,
+                [task_from_row(row) for row in await tasks.fetchall()],
+                [run_from_row(row) for row in await sub_runs.fetchall()],
+            )
 
     async def succeed_run(self, run_id: RunId, output: JsonValue) -> Run:
         async with self.pool.connection() as conn, conn.transaction():
@@ -300,28 +387,109 @@ class PostgresStore(Pooled, Store):
         params: Mapping[str, Reference],
         fixed_params: Mapping[str, JsonValue],
     ) -> FlowTask:
-        raise NotImplementedError("tasks arrive in step 3")
+        async with self.pool.connection() as conn, conn.transaction():
+            run = await _run(conn, run_id)
+            await _lock_roots(conn, [run.root_id])
+            # Under the root lock, the run's status is settled.
+            ensure_active(await _run(conn, run_id))
+            task = FlowTask(
+                id=task_id_for(run_id, address),
+                run_id=run_id,
+                address=address,
+                queue=queue,
+                handler=handler,
+                params=dict(params),
+                fixed_params=dict(fixed_params),
+            )
+            cursor = await conn.execute(_INSERT_TASK, task_to_row(task))
+            if await cursor.fetchone() is None:  # published before: unchanged
+                return await _task(conn, task.id)
+            return task
 
     async def claim_task(
         self, queue: str, *, lease_seconds: float = DEFAULT_LEASE_SECONDS
     ) -> FlowTask | None:
-        raise NotImplementedError("tasks arrive in step 3")
+        async with self.pool.connection() as conn:
+            cursor = await conn.execute(
+                _CLAIM_TASK, {"queue": queue, "lease_seconds": lease_seconds}
+            )
+            row = await cursor.fetchone()
+        return None if row is None else task_from_row(row)
 
     async def start_task(self, task_id: TaskId) -> FlowTask:
-        raise NotImplementedError("tasks arrive in step 3")
+        inactive: Run | None = None
+        row = None
+        async with self.pool.connection() as conn, conn.transaction():
+            run = await _run(conn, (await _task(conn, task_id)).run_id)
+            await _lock_roots(conn, [run.root_id])
+            task = await _task(conn, task_id, lock=True)
+            ensure_transition(task.status, TaskStatus.RUNNING)
+            run = await _run(conn, run.id)
+            if run.status is not RunStatus.ACTIVE:
+                # Failed and committed before the refusal is raised, so the
+                # lease never hands the task out again.
+                await conn.execute(
+                    _FINISH_TASK,
+                    {
+                        "id": task_id,
+                        "status": TaskStatus.FAILED.value,
+                        "result": dumps_json(None),
+                        "error": f"run {run.id} is {run.status.value}",
+                    },
+                )
+                inactive = run
+            else:
+                cursor = await conn.execute(_START_TASK, {"id": task_id})
+                row = await cursor.fetchone()
+        if inactive is not None:
+            ensure_active(inactive)
+        if row is None:  # unreachable: the row was locked just above
+            raise TaskNotFoundError(str(task_id))
+        return task_from_row(row)
 
     async def extend_task_lease(
         self, task_id: TaskId, *, lease_seconds: float = DEFAULT_LEASE_SECONDS
     ) -> datetime:
-        raise NotImplementedError("tasks arrive in step 3")
+        async with self.pool.connection() as conn, conn.transaction():
+            task = await _task(conn, task_id, lock=True)
+            if task.status not in LEASED_STATUSES:
+                raise TaskStateError(
+                    f"a {task.status.value} task holds no lease to extend"
+                )
+            cursor = await conn.execute(
+                _EXTEND_TASK_LEASE, {"id": task_id, "lease_seconds": lease_seconds}
+            )
+            row = await cursor.fetchone()
+        if row is None:  # unreachable: the row was locked just above
+            raise TaskNotFoundError(str(task_id))
+        expires_at: datetime = row["lease_expires_at"]
+        return expires_at
 
     async def finish_task(
         self, task_id: TaskId, *, result: JsonValue = None, error: str | None = None
     ) -> FlowTask:
-        raise NotImplementedError("tasks arrive in step 3")
+        status = TaskStatus.FAILED if error is not None else TaskStatus.SUCCEEDED
+        async with self.pool.connection() as conn, conn.transaction():
+            task = await _task(conn, task_id, lock=True)
+            ensure_transition(task.status, status)
+            cursor = await conn.execute(
+                _FINISH_TASK,
+                {
+                    "id": task_id,
+                    "status": status.value,
+                    "result": dumps_json(result if error is None else None),
+                    "error": storable_text(error) if error is not None else None,
+                },
+            )
+            row = await cursor.fetchone()
+            if row is None:  # unreachable: the row was locked just above
+                raise TaskNotFoundError(str(task_id))
+            await _append_events(conn, [(task.run_id, EventKind.TASK_FINISHED)])
+            return task_from_row(row)
 
     async def get_task(self, task_id: TaskId) -> FlowTask:
-        raise NotImplementedError("tasks arrive in step 3")
+        async with self.pool.connection() as conn:
+            return await _task(conn, task_id)
 
     async def events_after(self, sequence: int, *, limit: int = 100) -> list[Event]:
         async with self.pool.connection() as conn:
@@ -378,6 +546,15 @@ async def _run(conn: Connection, run_id: RunId) -> Run:
     return run_from_row(row)
 
 
+async def _task(conn: Connection, task_id: TaskId, *, lock: bool = False) -> FlowTask:
+    """A task; with ``lock``, its row locked so the caller can decide and write."""
+    cursor = await conn.execute(_LOCK_TASK if lock else _SELECT_TASK, {"id": task_id})
+    row = await cursor.fetchone()
+    if row is None:
+        raise TaskNotFoundError(str(task_id))
+    return task_from_row(row)
+
+
 async def _finish_trees(
     conn: Connection, root_ids: Sequence[RunId], status: RunStatus, reason: str
 ) -> Events:
@@ -397,7 +574,7 @@ async def _append_events(conn: Connection, events: Events) -> None:
     """Record the transaction's events, last thing, under the event lock."""
     if not events:
         return
-    await _lock(conn, _EVENT_LOCK, shared=False)
+    await _lock(conn, EVENT_LOCK, shared=False)
     await conn.execute(
         _INSERT_EVENTS,
         {
