@@ -17,8 +17,9 @@ from neorc_core import (
     RunStatus,
     TaskStatus,
 )
+from neorc_core._flow_worker import MAX_ERROR_LENGTH
 from neorc_core._runs import task_id_for
-from neorc_core._values import JsonValue
+from neorc_core._values import MAX_PAYLOAD_BYTES, MAX_VALUE_DEPTH, JsonValue
 from neorc_core.flows import Address, Outcome
 from neorc_core.local import (
     DirectFlowQueueClient,
@@ -170,6 +171,43 @@ async def test_a_result_that_is_not_a_value_fails_its_task(
     assert task.error is not None and task.error.startswith("invalid result")
 
 
+@pytest.mark.parametrize("what", ["deep", "big", "surrogate", "long"])
+async def test_what_no_report_could_carry_fails_its_task_once(
+    flows: FlowManager, tmp_path: Path, what: str
+) -> None:
+    """A transport would refuse the report on every lease; the worker fails it."""
+    module = handlers(
+        tmp_path,
+        f"""
+        def work():
+            if {what!r} == "deep":
+                value = []
+                for _ in range({MAX_VALUE_DEPTH}):
+                    value = [value]
+                return value
+            if {what!r} == "big":
+                return "x" * ({MAX_PAYLOAD_BYTES} + 1)
+            if {what!r} == "surrogate":
+                raise FileNotFoundError("no such file: '/data/\\udcff'")
+            raise ValueError("x" * ({MAX_ERROR_LENGTH} * 2))
+        """,
+    )
+    run_id = await published(flows, flow({"handler": f"{module}:work"}), {})
+
+    await worker(flows, tmp_path).run_once()
+
+    task = await flows.get_task(task_id_for(run_id, Address("work")))
+    assert task.status is TaskStatus.FAILED
+    assert task.error is not None
+    if what in ("deep", "big"):
+        assert task.error.startswith("invalid result")
+    elif what == "surrogate":
+        assert task.error == "FileNotFoundError: no such file: '/data/\ufffd'"
+    else:
+        assert len(task.error) == MAX_ERROR_LENGTH
+    assert await flows.pick_next_task("default", timeout=0) is None
+
+
 async def test_a_task_whose_run_was_cancelled_is_dropped_unrun(
     flows: FlowManager, tmp_path: Path
 ) -> None:
@@ -307,9 +345,10 @@ async def test_a_stop_before_the_worker_runs_is_kept(
     ("body", "error"),
     [
         ("raise SystemExit(3)", "SystemExit: 3"),
-        ("x = []\n    x.append(x)\n    return x", "invalid result: RecursionError"),
+        ("x = []\n    x.append(x)\n    return x", "invalid result: InvalidValueError"),
+        ("return 10 ** 5000", "invalid result: InvalidValueError"),
     ],
-    ids=["system-exit", "circular-result"],
+    ids=["system-exit", "circular-result", "huge-int"],
 )
 async def test_a_handler_cannot_take_the_worker_down(
     flows: FlowManager, tmp_path: Path, body: str, error: str

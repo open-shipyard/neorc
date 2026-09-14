@@ -28,6 +28,15 @@ MAX_PAYLOAD_BYTES = 1024 * 1024
 MAX_JSON_DEPTH = 200
 """The deepest nesting of arrays and objects that JSON text may have."""
 
+MAX_VALUE_DEPTH = MAX_JSON_DEPTH // 2
+"""The deepest nesting a value may have: half of what JSON text may.
+
+A value travels inside envelopes, a report, a delivery, a run's state, and
+gains a list level for every loop or fan-out between the step that produced it
+and the one that reads it. The other half is theirs, so a value that is
+accepted can always be sent on.
+"""
+
 DATETIME_TAG = "$datetime"
 RESERVED_PREFIX = "$"
 
@@ -40,19 +49,24 @@ def encode(value: Any, *, path: str = "value") -> JsonValue:
 
     Raises ``InvalidValueError`` for anything neorc does not carry: sets,
     tuples, dates, naive datetimes, non-finite floats, non-string keys, keys
-    starting with ``$``, and text no store can hold (see ``check_text``).
-    ``path`` names the value in the error.
+    starting with ``$``, text no store can hold (see ``check_text``), and
+    nesting past ``MAX_VALUE_DEPTH``. ``path`` names the value in the error.
     """
-    return _encode(value, path)
+    return _encode(value, path, 0)
 
 
-def decode(value: JsonValue, *, path: str = "value") -> Any:
+def decode(
+    value: JsonValue, *, path: str = "value", limit: int = MAX_VALUE_DEPTH
+) -> Any:
     """Turn a JSON form back into a user value, untagging datetimes.
 
-    Raises ``InvalidValueError`` for a malformed tag, any other ``$`` key, and
-    text no store can hold. ``path`` names the value in the error.
+    Raises ``InvalidValueError`` for a malformed tag, any other ``$`` key,
+    text no store can hold, a number JSON text cannot carry back, and nesting
+    past ``limit``. ``path`` names the value in the error. The default limit is
+    for a value entering the system; a worker decoding inputs already accepted,
+    and collected into lists by loops and fan-outs, passes ``MAX_JSON_DEPTH``.
     """
-    return _decode(value, path)
+    return _decode(value, path, 0, limit)
 
 
 def check_text(text: str, path: str) -> None:
@@ -130,7 +144,7 @@ pass rather than being retried from every later quote, which is quadratic.
 """
 
 
-def _encode(value: Any, path: str) -> JsonValue:
+def _encode(value: Any, path: str, depth: int) -> JsonValue:
     # bool before int: a bool is an int in Python.
     if value is None or isinstance(value, bool):
         return value
@@ -138,6 +152,7 @@ def _encode(value: Any, path: str) -> JsonValue:
         check_text(value, path)
         return value
     if isinstance(value, int):
+        _check_int(value, path)
         return value
     if isinstance(value, float):
         if not math.isfinite(value):
@@ -148,26 +163,35 @@ def _encode(value: Any, path: str) -> JsonValue:
             raise InvalidValueError(f"{path}: datetime {value} has no timezone")
         return {DATETIME_TAG: value.isoformat()}
     if isinstance(value, list):
-        return [_encode(item, f"{path}[{i}]") for i, item in enumerate(value)]
+        _check_depth(depth, path, MAX_VALUE_DEPTH)
+        return [
+            _encode(item, f"{path}[{i}]", depth + 1) for i, item in enumerate(value)
+        ]
     if isinstance(value, dict):
+        _check_depth(depth, path, MAX_VALUE_DEPTH)
         encoded: dict[str, JsonValue] = {}
         for key, item in value.items():
             _check_key(key, path)
-            encoded[key] = _encode(item, f"{path}.{key}")
+            encoded[key] = _encode(item, f"{path}.{key}", depth + 1)
         return encoded
     raise InvalidValueError(f"{path}: {type(value).__name__} is not a supported type")
 
 
-def _decode(value: JsonValue, path: str) -> Any:
+def _decode(value: JsonValue, path: str, depth: int, limit: int) -> Any:
     if isinstance(value, list):
-        return [_decode(item, f"{path}[{i}]") for i, item in enumerate(value)]
+        _check_depth(depth, path, limit)
+        return [
+            _decode(item, f"{path}[{i}]", depth + 1, limit)
+            for i, item in enumerate(value)
+        ]
     if isinstance(value, dict):
         if DATETIME_TAG in value and len(value) == 1:
             return _parse_datetime(value[DATETIME_TAG], path)
+        _check_depth(depth, path, limit)
         decoded: dict[str, Any] = {}
         for key, item in value.items():
             _check_key(key, path)
-            decoded[key] = _decode(item, f"{path}.{key}")
+            decoded[key] = _decode(item, f"{path}.{key}", depth + 1, limit)
         return decoded
     if isinstance(value, str):
         check_text(value, path)
@@ -175,6 +199,21 @@ def _decode(value: JsonValue, path: str) -> Any:
         # json.loads takes NaN and Infinity; JSON text cannot carry them back.
         raise InvalidValueError(f"{path}: {value} is not a JSON number")
     return value
+
+
+def _check_depth(depth: int, path: str, limit: int) -> None:
+    """``depth`` containers enclose the one about to be entered at ``path``."""
+    if depth >= limit:
+        raise InvalidValueError(f"{path}: nests deeper than {limit} levels")
+
+
+def _check_int(value: int, path: str) -> None:
+    # Python refuses to write an integer past its digit limit, as a ValueError
+    # from json.dumps; refuse it here, as a value, before anything writes it.
+    try:
+        str(value)
+    except ValueError as exc:
+        raise InvalidValueError(f"{path}: integer cannot be written: {exc}") from None
 
 
 def _check_key(key: object, path: str) -> None:

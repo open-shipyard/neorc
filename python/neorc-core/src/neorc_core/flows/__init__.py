@@ -17,6 +17,8 @@ from neorc_core.flows._definition import (
     SubFlowStep,
     TaskStep,
     Version,
+    is_name,
+    is_queue_name,
 )
 from neorc_core.flows._loader import (
     load_flow_file,
@@ -52,6 +54,8 @@ __all__ = [
     "TaskStep",
     "Version",
     "fan_out_width",
+    "is_name",
+    "is_queue_name",
     "load_flow_file",
     "load_flow_yaml",
     "load_flows",

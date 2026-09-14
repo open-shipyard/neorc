@@ -102,6 +102,16 @@ one version, cut from a single tag on `main`.
   API keeps `/tasks` meanwhile. In core, a lease is at most a day and a run
   is succeeded only with a reference to one of its flow's tasks or
   sub-flows, so every client is refused the same requests.
+- `neorc.http`: `HttpManagerClient` and `HttpFlowQueueClient`, the flow
+  clients over HTTP, held to the client contracts against the real
+  application. An error body raises the core exception it names, with a
+  `FlowDefinitionError`'s problems intact; a transport failure, or an answer
+  that is not the manager's, is `ManagerUnavailableError`. `FlowWorker` fails
+  a result over the payload limit itself, once, rather than have the report
+  refused on every lease, and reports an error message with what no store or
+  transport could carry replaced. In core, a value nests at most 100 levels,
+  half of what JSON text may, so it fits in whatever it travels in; and a
+  queue name is letters, digits, `_` and `-`, as it travels in a URL path.
 - `neorc-core`: a string holding NUL, in a value or anywhere in a flow
   definition, is refused in core before any store sees it, because Postgres
   `text` cannot hold it and the in-memory store must refuse what the deployed

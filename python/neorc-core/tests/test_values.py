@@ -13,11 +13,13 @@ from neorc_core import InvalidValueError, PayloadTooLargeError
 from neorc_core._values import (
     MAX_JSON_DEPTH,
     MAX_PAYLOAD_BYTES,
+    MAX_VALUE_DEPTH,
     JsonValue,
     decode,
     dumps,
     encode,
     ensure_fits,
+    ensure_json_depth,
     loads,
 )
 
@@ -93,6 +95,22 @@ def test_malformed_values_are_rejected_when_decoding(value: object) -> None:
         decode(value)  # type: ignore[arg-type]
 
 
+def test_an_integer_python_cannot_write_is_rejected() -> None:
+    """json.dumps would raise a plain ValueError past the digit limit."""
+    with pytest.raises(InvalidValueError, match="cannot be written"):
+        encode({"n": 10**5000})
+    assert encode(10**4000) == 10**4000
+
+
+def test_inputs_already_accepted_decode_past_the_value_depth() -> None:
+    """A worker's inputs hold values collected into lists: JSON's limit is theirs."""
+    collected: JsonValue = {"x": [[_nested(MAX_VALUE_DEPTH)]]}
+
+    with pytest.raises(InvalidValueError, match="deeper than"):
+        decode(collected)
+    assert decode(collected, limit=MAX_JSON_DEPTH) == collected
+
+
 def test_invalid_value_is_a_value_error() -> None:
     with pytest.raises(ValueError):
         encode({1, 2})
@@ -152,7 +170,36 @@ def test_size_limit_counts_utf8_bytes() -> None:
 def test_json_at_the_depth_limit_parses() -> None:
     text = "[" * MAX_JSON_DEPTH + "]" * MAX_JSON_DEPTH
 
-    assert loads(text) is not None
+    ensure_json_depth(text)
+    assert json.loads(text) is not None
+
+
+def _nested(depth: int) -> JsonValue:
+    value: JsonValue = []
+    for _ in range(depth - 1):
+        value = [value]
+    return value
+
+
+def test_a_value_nests_at_most_half_as_deep_as_json_text_may() -> None:
+    """The other half is for the envelopes and list levels it travels in."""
+    assert MAX_VALUE_DEPTH * 2 <= MAX_JSON_DEPTH
+    assert encode(_nested(MAX_VALUE_DEPTH)) == _nested(MAX_VALUE_DEPTH)
+    assert decode(_nested(MAX_VALUE_DEPTH)) == _nested(MAX_VALUE_DEPTH)
+    objects: JsonValue = {"a": {"b": _nested(MAX_VALUE_DEPTH - 2)}}
+    assert decode(objects) == objects
+
+    too_deep: list[JsonValue] = [
+        _nested(MAX_VALUE_DEPTH + 1),
+        {"a": {"b": _nested(MAX_VALUE_DEPTH - 1)}},
+    ]
+    for value in too_deep:
+        with pytest.raises(InvalidValueError, match="deeper than"):
+            encode(value)
+        with pytest.raises(InvalidValueError, match="deeper than"):
+            decode(value)
+    with pytest.raises(InvalidValueError, match="deeper than"):
+        loads(json.dumps(_nested(MAX_VALUE_DEPTH + 1)))
 
 
 @pytest.mark.parametrize(

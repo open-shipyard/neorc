@@ -24,6 +24,23 @@ MAX_VERSION_PART = 2**31 - 1
 
 DEFAULT_QUEUE = "default"
 
+_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_QUEUE_NAME = re.compile(r"[A-Za-z0-9_-]+")
+
+
+def is_name(text: str) -> bool:
+    """Whether ``text`` may name a flow, step, input or param: an identifier."""
+    return _NAME.fullmatch(text) is not None
+
+
+def is_queue_name(text: str) -> bool:
+    """Whether ``text`` may name a queue: letters, digits, ``_`` and ``-``.
+
+    A queue name travels in a URL path, where a ``/`` or a ``.`` segment would
+    be read as part of the route, and names a queue in every store.
+    """
+    return _QUEUE_NAME.fullmatch(text) is not None
+
 
 class InputType(StrEnum):
     """The type a flow declares for one of its inputs."""

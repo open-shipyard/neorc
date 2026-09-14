@@ -256,6 +256,15 @@ def test_field_order_is_reported_with_the_other_problems_of_a_file() -> None:
     assert "unknown field 'colour'" in reported
 
 
+@pytest.mark.parametrize("queue", ["gpu/large", ".", "..", "a b", ""])
+def test_a_queue_name_is_letters_digits_underscore_and_dash(queue: str) -> None:
+    """It travels in a URL path, where a slash or a dot segment would be read."""
+    assert "is not a queue name" in problems(
+        flow(f"t: {{handler: m:f, queue: {queue!r}}}")
+    )
+    assert load_flow_yaml(flow("t: {handler: m:f, queue: python-default_1}"))
+
+
 def test_queue_defaults_to_default() -> None:
     definition = load_flow_yaml(flow("t:\n  handler: m:f"))
 
