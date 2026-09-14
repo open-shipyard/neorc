@@ -159,7 +159,15 @@ async def test_a_task_whose_inputs_are_not_there_yet_is_rejected(
 
 @pytest.mark.parametrize(
     "address",
-    [Address("nothing"), Address("call"), Address("each"), Address("second")],
+    [
+        Address("nothing"),
+        Address("call"),
+        Address("each"),
+        Address("second"),
+        # Indexes count from 1: 0 would pick an item from the wrong end.
+        Address("second", (("each", 0),)),
+        Address("second", (("each", -1),)),
+    ],
     ids=str,
 )
 async def test_an_address_that_is_not_a_task_of_the_flow_is_rejected(
@@ -384,3 +392,38 @@ async def test_a_version_uploaded_while_a_sub_run_starts_is_used_instead(
     assert uploaded == [True]
     assert str(sub_run.version) == "1.1.0"
     assert (await flows.get_run(run_id)).status is RunStatus.ACTIVE
+
+
+async def test_a_waiting_worker_that_went_away_is_leased_nothing(
+    flows: FlowManager,
+) -> None:
+    """A server does not end a handler when its client leaves; the wait asks."""
+    run_id = await started(flows)
+    looks = 0
+
+    async def gone_after_one_look() -> bool:
+        # Present for the first claim, which finds nothing; gone by the time
+        # the publish wakes the wait, so nothing is claimed for it.
+        nonlocal looks
+        looks += 1
+        return looks > 1
+
+    async def publish_shortly() -> None:
+        await asyncio.sleep(0.1)
+        await flows.publish_task(run_id, FIRST)
+
+    async with asyncio.TaskGroup() as group:
+        group.create_task(publish_shortly())
+        delivery = await flows.pick_next_task(
+            "default", timeout=5, abandoned=gone_after_one_look
+        )
+
+    assert delivery is None
+    assert looks == 2
+    # The task is still there for the next worker, and a present one gets it.
+    present = await flows.pick_next_task("default", timeout=0, abandoned=_here)
+    assert present is not None and present.task.attempts == 1
+
+
+async def _here() -> bool:
+    return False

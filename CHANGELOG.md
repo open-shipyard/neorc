@@ -93,6 +93,15 @@ one version, cut from a single tag on `main`.
   `{"error": "<class>", "detail": ...}` with a status per class, and a
   `FlowDefinitionError` carries its `problems`; the task API's errors take
   the same form.
+- `neorc.manager`: the routes the scheduler and workers use. For the
+  scheduler, `GET /events` long-polled up to the manager's deadline,
+  `POST /runs/{id}/tasks` and `/sub-runs` by address, `/succeed` with the
+  output reference and `/fail`. For workers, `GET /queues/{queue}/tasks` for
+  the task definitions, `POST /queues/{queue}/tasks/next` long-polled, and
+  `POST /flow-tasks/{id}/started`, `/heartbeat` and `/finished`; the task
+  API keeps `/tasks` meanwhile. In core, a lease is at most a day and a run
+  is succeeded only with a reference to one of its flow's tasks or
+  sub-flows, so every client is refused the same requests.
 - `neorc-core`: a string holding NUL, in a value or anywhere in a flow
   definition, is refused in core before any store sees it, because Postgres
   `text` cannot hold it and the in-memory store must refuse what the deployed

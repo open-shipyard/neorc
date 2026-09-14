@@ -32,6 +32,7 @@ from neorc_core.flows import (
     parse_flow,
 )
 from neorc_core.ports._flow_clients import FlowQueueClient, ManagerClient
+from neorc_core.ports._queue_client import MAX_LEASE_SECONDS
 
 WHEN: JsonValue = {"$datetime": "2026-09-13T10:00:00+00:00"}
 
@@ -226,6 +227,9 @@ class ManagerClientContract(_Clients):
             await manager_client.start_sub_run(run_id, Address("call"))  # no input yet
         with pytest.raises(RunStateError):
             await manager_client.succeed_run(run_id, Reference.parse("flows.call"))
+        for output in ("tasks.nothing", "inputs.word", "neorc.task_id", "tasks.call"):
+            with pytest.raises(InvalidValueError):  # parses, names no task output
+                await manager_client.succeed_run(run_id, Reference.parse(output))
 
     async def test_a_payload_over_the_limit_is_refused(
         self, manager_client: ManagerClient
@@ -333,6 +337,32 @@ class FlowQueueClientContract(_Clients):
         assert state.steps[WORK].value == {"when": WHEN}
         with pytest.raises(TaskStateError):
             await queue_client.extend_lease(delivery.task.id)
+
+    @pytest.mark.parametrize(
+        "lease_seconds",
+        [0, -1, float("inf"), float("nan"), MAX_LEASE_SECONDS + 1],
+        ids=["zero", "negative", "infinite", "nan", "over-the-bound"],
+    )
+    async def test_a_lease_no_store_could_grant_is_refused(
+        self,
+        manager_client: ManagerClient,
+        queue_client: FlowQueueClient,
+        lease_seconds: float,
+    ) -> None:
+        run_id = await self.started(manager_client)
+        await manager_client.publish_task(run_id, WORK)
+
+        # Refused by the manager, or by the client's own transit first: JSON
+        # cannot carry an infinity either way.
+        with pytest.raises(InvalidValueError):
+            await queue_client.pick_next_task(
+                "default", timeout=0, lease_seconds=lease_seconds
+            )
+        delivery = await self.take(queue_client)
+        with pytest.raises(InvalidValueError):
+            await queue_client.extend_lease(
+                delivery.task.id, lease_seconds=lease_seconds
+            )
 
     async def test_a_failure_is_reported(
         self, manager_client: ManagerClient, queue_client: FlowQueueClient
