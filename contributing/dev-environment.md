@@ -17,6 +17,17 @@ check are in [CONTRIBUTING.md](../CONTRIBUTING.md).
   Ubuntu, `sudo apt install postgresql`; or a `postgres` container.
 - Neither: the `postgres` tests skip.
 
+## Playwright, for the browser tests
+
+`uv sync` installs the `playwright` package; the browser it drives is a
+separate download, with the system libraries it needs (Ubuntu: via `apt`, asks
+for `sudo`):
+
+    uv run playwright install --with-deps chromium
+
+Without it, the browser tests skip. Repeat after `uv sync` bumps `playwright`:
+each release wants its own browser build.
+
 ## Node.js, only to work on `ts/`
 
 Needed to build or change a package under `ts/`, never to run neorc. The

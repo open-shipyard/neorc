@@ -33,7 +33,8 @@ depends on a sibling by naming it in its own `dependencies`; the root
 `[tool.uv.sources]` resolves it to the workspace copy.
 
 Packages in other languages get a sibling top-level directory (`rust/`, `ts/`)
-with their own tooling.
+with their own tooling. Dependencies under `ts/` follow
+[contributing/js-dependencies.md](contributing/js-dependencies.md).
 
 Where code and tests go between `neorc-core` and the adapters in `neorc` is set
 by [contributing/in-memory-first.md](contributing/in-memory-first.md): logic

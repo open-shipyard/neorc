@@ -67,6 +67,7 @@ in-memory `neorc run` has no UI: it prints its run's output and exits.
 | 7  | UI: a run, its tree and its tasks, live             | todo   |
 | 8  | UI: start and cancel runs                           | todo   |
 | 9  | Browser smoke test, docs and changelog              | todo   |
+| 10 | The dependency rules, written where they are read   | todo   |
 
 ### 1. Read queries and timestamps, in core and in memory
 
@@ -140,9 +141,16 @@ No UI yet: a page that fetches `/flows` and lists the names, to prove the
 pipeline.
 
 - `ts/neorc-ui/`: Vite, React, TypeScript; `base: "./"` so the app works under
-  any path prefix; `package-lock.json` committed; the Node.js version pinned in
-  `.nvmrc` and `engines`. Types generated from `openapi.json` with
-  `openapi-typescript`.
+  any path prefix; the Node.js version pinned in `.nvmrc` and `engines`. Types
+  generated from `openapi.json` with `openapi-typescript`.
+- Dependencies as [contributing/js-dependencies.md](../../contributing/js-dependencies.md)
+  says, from the first commit: exact versions in `package.json`,
+  `package-lock.json` committed and `npm ci` everywhere, `.npmrc` with
+  `ignore-scripts=true`, a strict split between `dependencies` and
+  `devDependencies`, and `bundled-packages.txt` written by the build and
+  checked by CI so a new bundled package shows in the diff.
+- `.github/dependabot.yml` for the npm ecosystem, grouped updates, a cooldown
+  of 10 days; the `ui` CI job runs `npm audit` and `npm audit signatures`.
 - `python/neorc-ui/`: `pyproject.toml` modelled on `neorc-core`'s, with no
   dependencies and the same `LICENSE`, `NOTICE` and `AUTHORS` copies, which
   the `lint` job's sync check picks up from `python/*/` unchanged;
@@ -156,7 +164,12 @@ pipeline.
   Node.js.
 - Third-party licenses of the bundled JavaScript collected at build time
   (`rollup-plugin-license`) into `static/THIRD_PARTY_LICENSES.txt`, and listed
-  in the distribution's `license-files`.
+  in the distribution's `license-files`. The same plugin fails the build on a
+  bundled dependency whose license is not on the allowlist: MIT, ISC, 0BSD,
+  BSD-2-Clause, BSD-3-Clause, Apache-2.0, CC0-1.0, Unlicense. A dependency
+  with no or an unrecognised license also fails; extending the list is a
+  reviewed change to `vite.config.ts`. Only what ends up in the bundle counts:
+  build-time tools such as Vite and Vitest are not distributed.
 - A bundle size budget, 500 KB gzipped for all assets, checked by the build.
 - `neorc`: the `manager` extra becomes
   `["fastapi>=0.120", "uvicorn>=0.38", "neorc-ui"]`, so every manager install
@@ -182,12 +195,17 @@ pipeline.
   `neorc_ui.static_dir()`, and redirects `/` to `/ui/`. Hashed assets get
   `Cache-Control: immutable`, `index.html` `no-cache`. The UI uses hash routing
   (`/ui/#/runs/...`), so no fallback route is needed.
+- Every response under `/ui/` carries a `Content-Security-Policy` allowing
+  scripts, styles, images and connections from the page's own origin only,
+  with no inline scripts, so a compromised bundled package can neither load
+  more code nor send what it reads to another host. A test checks the header
+  and that the built app's `index.html` has no inline script.
 - `build_app` mounts the UI after the routes; `neorc manager start --no-ui`
   leaves it out and keeps the API, and `/` then answers 404 as today.
 - Tests: with a fake assets directory, the app serves `index.html`, redirects
-  `/`, and sets the cache headers; with `--no-ui` it does not; the missing
-  assets error names the fix. The end-to-end test on uvicorn and Postgres also
-  fetches `/ui/` and the listing routes.
+  `/`, and sets the cache and security headers; with `--no-ui` it does not;
+  the missing assets error names the fix. The end-to-end test on uvicorn and
+  Postgres also fetches `/ui/` and the listing routes.
 
 ### 6. UI: flows and runs
 
@@ -232,12 +250,39 @@ pipeline.
   uvicorn, a scheduler and one worker per queue, `examples/wordplay` uploaded
   with `neorc flows upload`. Start `word_picker_rounds` from the form, wait
   for it to succeed, check a fan-out's branch results are shown; start another
-  and cancel it.
+  and cancel it. `playwright` and `pytest-playwright` are in the `dev` group
+  already; the test skips when no browser is installed, and the `test` job
+  installs Chromium as `contributing/dev-environment.md` says.
 - README quick start and the example READMEs: the UI at `/ui/` after
   `neorc manager start`, and that there is no authentication yet.
 - The root CHANGELOG, the one file both packages point at: the new queries
   and timestamps in `neorc-core`, the routes and the UI in `neorc`, and the
   new `neorc-ui` distribution.
+
+### 10. The dependency rules, written where they are read
+
+The rules live in `contributing/js-dependencies.md`. This step puts a pointer
+to them at every place a person or an agent stands when about to change a
+dependency, so none is changed without meeting them. Small, and last, so it
+covers the files the earlier steps created.
+
+- `ts/neorc-ui/README.md`: how to work on the UI, and the rules, first.
+- `ts/neorc-ui/AGENTS.md`: for coding agents opened in that directory. Do not
+  add, remove or bump a package as part of another change; one dependency
+  change per pull request, vetted as the rules say; never loosen the CSP or
+  the license allowlist for a library; never run `npm install`, only
+  `npm ci`; never commit built assets.
+- A comment at the top of `.npmrc`, of `vite.config.ts` next to the license
+  allowlist and the bundled-package list, and of `.github/dependabot.yml`,
+  each naming the rules file.
+- `bundled-packages.txt` starts with a comment line saying what it is and
+  that a change to it is reviewed.
+- CONTRIBUTING.md's "Repository layout" already links the rules; the
+  `ui` CI job's failure messages name them too, so a red check on the license
+  or bundled-package step says where to read.
+- `contributing/js-dependencies.md` itself gets a last look against what
+  steps 4 to 9 actually built, so the paths and commands in it are the real
+  ones.
 
 ## Choices made while planning
 
@@ -277,6 +322,19 @@ Decided here to make progress. Revisit if they are wrong.
 - Hash routing in the UI, so serving is plain static files at any prefix, from
   FastAPI or any other server.
 - No CDN: every asset is in the wheel, so the UI works on air-gapped hosts.
+- Bundled dependencies are limited to permissive licenses, checked by the
+  build rather than by review: the wheel is Apache-2.0, and a copyleft library
+  in the bundle would put that in question. The UI stays in this repository;
+  the license obligation follows the wheel, not the source tree.
+- The npm supply chain is treated as the main risk of shipping a UI, and the
+  defences are few dependencies, slow intake and a small blast radius rather
+  than reading every package: a committed bundled-package list that makes a
+  new package a reviewed line, install scripts off, a cooldown on updates,
+  signatures and advisories checked in CI, and a same-origin CSP so a
+  compromised package cannot exfiltrate or load more code. None of this
+  catches a compromise that outlives the cooldown and keeps valid signatures;
+  keeping the tree small is the only answer to that. The rules are a
+  permanent contributing document, not this plan, because they outlive it.
 - The OpenAPI schema is a committed snapshot checked by a Python test, so the
   UI build needs no Python and the Python build needs no Node.js.
 - `neorc-ui` shares the single version and tag. `neorc[manager]` does not pin
