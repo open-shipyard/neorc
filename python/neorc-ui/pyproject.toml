@@ -3,9 +3,9 @@ requires = ["hatchling>=1.27", "hatch-vcs>=0.4"]
 build-backend = "hatchling.build"
 
 [project]
-name = "neorc"
+name = "neorc-ui"
 dynamic = ["version"]
-description = "A next generation orchestration system"
+description = "The built web UI of the neorc manager: static assets, no code to run"
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE", "AUTHORS"]
@@ -21,24 +21,11 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
-    "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: System :: Distributed Computing",
     "Typing :: Typed",
 ]
-dependencies = [
-    "neorc-core",
-]
-
-# Nothing is installed by default: a host installs the extras for the role it
-# plays. See docs/specs/core.md.
-[project.optional-dependencies]
-http = ["httpx>=0.28"]
-# The manager serves the UI, so its extra brings the built assets too.
-manager = ["fastapi>=0.120", "uvicorn>=0.38", "neorc-ui"]
-postgres = ["psycopg[binary,pool]>=3.2"]
-
-[project.scripts]
-neorc = "neorc._cli:main"
+# None: this distribution is the assets and the function that says where they are.
+dependencies = []
 
 [project.urls]
 Homepage = "https://github.com/open-shipyard/neorc"
@@ -49,5 +36,13 @@ Changelog = "https://github.com/open-shipyard/neorc/blob/main/CHANGELOG.md"
 source = "vcs"
 raw-options = { root = "../.." }
 
+# The built assets are gitignored, so they must be named as artifacts to be
+# packaged; in the sdist too, so a wheel built from it needs no Node.js.
+[tool.hatch.build]
+artifacts = ["src/neorc_ui/static/**"]
+
+# Builds ts/neorc-ui when the assets are missing. See hatch_build.py.
+[tool.hatch.build.hooks.custom]
+
 [tool.hatch.build.targets.wheel]
-packages = ["src/neorc"]
+packages = ["src/neorc_ui"]

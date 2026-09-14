@@ -25,6 +25,22 @@ from fastapi import APIRouter, Depends, Query, Request, Response, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ValidationError
 
+from neorc.manager._schemas import (
+    DeliveryResponse,
+    EventListResponse,
+    FlowListResponse,
+    FlowResponse,
+    FlowVersionsResponse,
+    HeartbeatResponse,
+    RunListResponse,
+    RunResponse,
+    RunStateResponse,
+    TaskDefinitionsResponse,
+    TaskListResponse,
+    TaskResponse,
+    UploadResponse,
+    documented,
+)
 from neorc_core import (
     InvalidValueError,
     Manager,
@@ -157,32 +173,40 @@ def _flow_response(flow: Any) -> dict[str, Any]:
     return {"name": flow.name, "version": str(flow.version), "content": flow.content}
 
 
-@router.post("/flows")
+@router.post("/flows", response_model=None, responses=documented(UploadResponse))
 async def upload_flows(request: Request, manager: Managed) -> dict[str, list[bool]]:
     """Upload flows deployed together; per flow, whether a version was stored."""
     body = await read_body(request, UploadRequest)
     return {"stored": await manager.upload_flows(body.flows)}
 
 
-@router.get("/flows")
+@router.get("/flows", response_model=None, responses=documented(FlowListResponse))
 async def list_flows(manager: Managed) -> dict[str, list[dict[str, Any]]]:
     """The latest version of every flow, by name."""
     return {"flows": [_flow_response(f) for f in await manager.latest_flows()]}
 
 
-@router.get("/flows/{name}")
+@router.get("/flows/{name}", response_model=None, responses=documented(FlowResponse))
 async def get_latest_flow(manager: Managed, name: str) -> dict[str, Any]:
     """A flow's latest version, with its content as uploaded."""
     return _flow_response(await manager.get_flow(name))
 
 
-@router.get("/flows/{name}/versions")
+@router.get(
+    "/flows/{name}/versions",
+    response_model=None,
+    responses=documented(FlowVersionsResponse),
+)
 async def flow_versions(manager: Managed, name: str) -> dict[str, list[dict[str, Any]]]:
     """Every stored version of a flow, newest first."""
     return {"versions": [_flow_response(f) for f in await manager.flow_versions(name)]}
 
 
-@router.get("/flows/{name}/versions/{version}")
+@router.get(
+    "/flows/{name}/versions/{version}",
+    response_model=None,
+    responses=documented(FlowResponse),
+)
 async def get_flow_version(manager: Managed, name: str, version: str) -> dict[str, Any]:
     """One version of a flow."""
     try:
@@ -192,7 +216,11 @@ async def get_flow_version(manager: Managed, name: str, version: str) -> dict[st
     return _flow_response(await manager.get_flow(name, parsed))
 
 
-@router.post("/flows/{name}/runs", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/flows/{name}/runs",
+    status_code=status.HTTP_201_CREATED,
+    responses=documented(RunResponse, status.HTTP_201_CREATED),
+)
 async def start_run(request: Request, manager: Managed, name: str) -> JSONResponse:
     """Start a run of the flow's latest version."""
     body = await read_body(request, StartRunRequest)
@@ -200,7 +228,7 @@ async def start_run(request: Request, manager: Managed, name: str) -> JSONRespon
     return JSONResponse(wire.run_to(run), status_code=status.HTTP_201_CREATED)
 
 
-@router.get("/runs")
+@router.get("/runs", response_model=None, responses=documented(RunListResponse))
 async def list_runs(
     manager: Managed,
     flow: str | None = None,
@@ -216,19 +244,25 @@ async def list_runs(
     return {"runs": [wire.run_to(run) for run in runs]}
 
 
-@router.get("/runs/{run_id}")
+@router.get("/runs/{run_id}", response_model=None, responses=documented(RunResponse))
 async def get_run(manager: Managed, run_id: RunId) -> dict[str, Any]:
     """A run, for a status query."""
     return wire.run_to(await manager.get_run(run_id))
 
 
-@router.get("/runs/{run_id}/tasks")
+@router.get(
+    "/runs/{run_id}/tasks", response_model=None, responses=documented(TaskListResponse)
+)
 async def run_tasks(manager: Managed, run_id: RunId) -> dict[str, list[dict[str, Any]]]:
     """A run's tasks, in the order they were published."""
     return {"tasks": [wire.task_to(t) for t in await manager.run_tasks(run_id)]}
 
 
-@router.get("/runs/{run_id}/sub-runs")
+@router.get(
+    "/runs/{run_id}/sub-runs",
+    response_model=None,
+    responses=documented(RunListResponse),
+)
 async def sub_runs(manager: Managed, run_id: RunId) -> dict[str, list[dict[str, Any]]]:
     """A run's direct sub-flow runs, in the order they started."""
     return {"runs": [wire.run_to(r) for r in await manager.sub_runs(run_id)]}
@@ -241,7 +275,9 @@ async def cancel_run(manager: Managed, run_id: RunId) -> Response:
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.get("/runs/{run_id}/state")
+@router.get(
+    "/runs/{run_id}/state", response_model=None, responses=documented(RunStateResponse)
+)
 async def run_state(manager: Managed, run_id: RunId) -> dict[str, Any]:
     """What a run's tasks and sub-flow runs have produced so far."""
     return wire.run_state_to(await manager.run_state(run_id))
@@ -292,7 +328,7 @@ def _waited(request: Request, timeout: float | None) -> float:
     return limit if timeout is None else min(timeout, limit)
 
 
-@router.get("/events")
+@router.get("/events", response_model=None, responses=documented(EventListResponse))
 async def wait_for_events(
     request: Request,
     manager: Managed,
@@ -307,7 +343,11 @@ async def wait_for_events(
     return {"events": [wire.event_to(event) for event in events]}
 
 
-@router.post("/runs/{run_id}/tasks", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/runs/{run_id}/tasks",
+    status_code=status.HTTP_201_CREATED,
+    responses=documented(TaskResponse, status.HTTP_201_CREATED),
+)
 async def publish_task(
     request: Request, manager: Managed, run_id: RunId
 ) -> JSONResponse:
@@ -317,7 +357,11 @@ async def publish_task(
     return JSONResponse(wire.task_to(task), status_code=status.HTTP_201_CREATED)
 
 
-@router.post("/runs/{run_id}/sub-runs", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/runs/{run_id}/sub-runs",
+    status_code=status.HTTP_201_CREATED,
+    responses=documented(RunResponse, status.HTTP_201_CREATED),
+)
 async def start_sub_run(
     request: Request, manager: Managed, run_id: RunId
 ) -> JSONResponse:
@@ -327,7 +371,9 @@ async def start_sub_run(
     return JSONResponse(wire.run_to(run), status_code=status.HTTP_201_CREATED)
 
 
-@router.post("/runs/{run_id}/succeed")
+@router.post(
+    "/runs/{run_id}/succeed", response_model=None, responses=documented(RunResponse)
+)
 async def succeed_run(
     request: Request, manager: Managed, run_id: RunId
 ) -> dict[str, Any]:
@@ -362,7 +408,11 @@ class FinishedRequest(BaseModel):
     error: str | None = None
 
 
-@router.get("/queues/{queue}/tasks")
+@router.get(
+    "/queues/{queue}/tasks",
+    response_model=None,
+    responses=documented(TaskDefinitionsResponse),
+)
 async def task_definitions(
     manager: Managed, queue: str
 ) -> dict[str, list[dict[str, Any]]]:
@@ -371,7 +421,13 @@ async def task_definitions(
     return {"tasks": [wire.task_step_to(step) for step in steps]}
 
 
-@router.post("/queues/{queue}/tasks/next")
+@router.post(
+    "/queues/{queue}/tasks/next",
+    responses={
+        **documented(DeliveryResponse),
+        status.HTTP_204_NO_CONTENT: {"description": "The wait ended with no task"},
+    },
+)
 async def pick_next_task(
     request: Request,
     manager: Managed,
@@ -393,7 +449,7 @@ async def pick_next_task(
     return JSONResponse(wire.delivery_to(delivery))
 
 
-@router.get("/tasks/{task_id}")
+@router.get("/tasks/{task_id}", response_model=None, responses=documented(TaskResponse))
 async def get_task(manager: Managed, task_id: TaskId) -> dict[str, Any]:
     """A task, for a status query."""
     return wire.task_to(await manager.get_task(task_id))
@@ -406,7 +462,11 @@ async def report_started(manager: Managed, task_id: TaskId) -> Response:
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.post("/tasks/{task_id}/heartbeat")
+@router.post(
+    "/tasks/{task_id}/heartbeat",
+    response_model=None,
+    responses=documented(HeartbeatResponse),
+)
 async def extend_lease(
     request: Request, manager: Managed, task_id: TaskId
 ) -> dict[str, str]:

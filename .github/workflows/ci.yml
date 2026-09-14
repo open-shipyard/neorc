@@ -62,6 +62,33 @@ jobs:
         env:
           NEORC_TEST_DATABASE_URL: postgresql://postgres:neorc@127.0.0.1:5432/postgres
 
+  # The web UI, under ts/neorc-ui. Its dependency rules are in
+  # contributing/js-dependencies.md; the checks here are the ones it names.
+  ui:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ts/neorc-ui
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: ts/neorc-ui/.nvmrc
+          cache: npm
+          cache-dependency-path: ts/neorc-ui/package-lock.json
+      - run: npm ci
+      - name: Known advisories, and registry signatures and provenance
+        run: |
+          npm audit
+          npm audit signatures
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run build
+      - name: The bundled-package list is committed as the build wrote it
+        run: git diff --exit-code -- bundled-packages.txt
+
   build:
     runs-on: ubuntu-latest
     steps:
@@ -70,4 +97,10 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - uses: astral-sh/setup-uv@v4
+      # Building neorc-ui builds the web UI, which needs Node.js.
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: ts/neorc-ui/.nvmrc
+          cache: npm
+          cache-dependency-path: ts/neorc-ui/package-lock.json
       - run: uv build --all-packages

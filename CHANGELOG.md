@@ -142,7 +142,18 @@ one version, cut from a single tag on `main`.
   `GET /runs/{id}/tasks`, `GET /runs/{id}/sub-runs` and `GET /tasks/{id}`.
   The application's OpenAPI schema is committed as `ts/neorc-ui/openapi.json`,
   written by `scripts/export_openapi.py` and checked by a test, for the UI
-  build to generate its types from without running Python.
+  build to generate its types from without running Python. Every response is
+  documented in it with the shape the manager sends, by models a test holds
+  to the wire forms.
+- `neorc-ui`: a new distribution carrying the manager's web UI as built
+  assets, with `neorc_ui.static_dir()` to find them and no dependencies.
+  `neorc[manager]` brings it. The UI's source is `ts/neorc-ui`: React,
+  TypeScript and Vite, built by CI and by the wheel build when the assets are
+  missing; a wheel from the sdist needs no Node.js. The build fails on a
+  bundled package outside the license allowlist or over the size budget, and
+  writes the committed `bundled-packages.txt`. Dependencies follow
+  `contributing/js-dependencies.md`: exact versions, install scripts off,
+  Dependabot with a cooldown, advisories and signatures checked in CI.
 
 ### Changed
 
