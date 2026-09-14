@@ -5,7 +5,8 @@ import { gzipSync } from "node:zlib";
 
 import react from "@vitejs/plugin-react";
 import license from "rollup-plugin-license";
-import { defineConfig, type Plugin } from "vite";
+import type { Plugin } from "vite";
+import { defineConfig } from "vitest/config";
 
 /** Licenses a bundled package may carry; the build fails on any other. */
 const ALLOWED_LICENSES = [
@@ -60,6 +61,11 @@ export default defineConfig({
   // Relative asset paths, so the app works under any prefix, such as /ui/.
   base: "./",
   plugins: [react(), sizeBudget()],
+  test: {
+    environment: "jsdom",
+    setupFiles: ["src/test/setup.ts"],
+    css: false,
+  },
   server: {
     // `npm run dev` against a local `neorc manager start`. The pattern is
     // matched against the URL with its query string, so `/runs?flow=a` and

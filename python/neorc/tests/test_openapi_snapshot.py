@@ -52,6 +52,7 @@ def test_every_route_the_ui_reads_is_in_the_schema() -> None:
         ("/runs/{run_id}/sub-runs", "get"),
         ("/tasks/{task_id}", "get"),
         ("/events", "get"),
+        ("/events/latest", "get"),
         ("/flows/{name}/runs", "post"),
         ("/runs/{run_id}/cancel", "post"),
     ]:

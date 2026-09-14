@@ -63,7 +63,7 @@ in-memory `neorc run` has no UI: it prints its run's output and exits.
 | 3  | The manager routes the UI needs                     | done   |
 | 4  | `neorc-ui` distribution and its build               | done   |
 | 5  | The manager serves the UI                           | done   |
-| 6  | UI: flows and runs                                  | todo   |
+| 6  | UI: flows and runs                                  | done   |
 | 7  | UI: a run, its tree and its tasks, live             | todo   |
 | 8  | UI: start and cancel runs                           | todo   |
 | 9  | Browser smoke test, docs and changelog              | todo   |
@@ -221,7 +221,12 @@ pipeline.
 - Runs: a paged list filtered by flow and status, newest first; new runs appear
   from the event stream without a reload.
 - Data fetching with TanStack Query; a long poll on `/events` runs for the
-  life of the page and invalidates the queries each event concerns.
+  life of the page and invalidates the queries each event concerns. It
+  starts from `GET /events/latest`, on a `last_sequence` store query added
+  here, so a page never reads the whole log to find its end; and it
+  refetches everything once after that, since a page may have loaded
+  before. Flows, which no event covers, go stale after 30 s and whenever a
+  run starts.
 - Component tests with Vitest and Testing Library against recorded API
   responses.
 

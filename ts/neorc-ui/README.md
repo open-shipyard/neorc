@@ -26,6 +26,7 @@ the manager's committed schema, by `npm run generate`; every script runs it
 first. When the routes change, `uv run python scripts/export_openapi.py` at
 the repository root refreshes the snapshot.
 
-Checks, as CI runs them: `npm run lint`, `npm run typecheck`, `npm run build`.
+Checks, as CI runs them: `npm run lint`, `npm run typecheck`, `npm test`,
+`npm run build`.
 The build fails on a bundled package outside the license allowlist or over
 the size budget, and writes `bundled-packages.txt`, which is committed.

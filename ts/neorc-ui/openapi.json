@@ -206,6 +206,20 @@
         "title": "HeartbeatResponse",
         "type": "object"
       },
+      "LatestEventResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "sequence": {
+            "title": "Sequence",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sequence"
+        ],
+        "title": "LatestEventResponse",
+        "type": "object"
+      },
       "Outcome": {
         "description": "How far a task or sub-flow run has got.",
         "enum": [
@@ -718,6 +732,65 @@
           }
         },
         "summary": "Wait For Events"
+      }
+    },
+    "/events/latest": {
+      "get": {
+        "description": "The latest event's sequence, or 0: a reader wanting only news starts after it.",
+        "operationId": "latest_event_events_latest_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LatestEventResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          }
+        },
+        "summary": "Latest Event"
       }
     },
     "/flows": {

@@ -85,6 +85,7 @@ jobs:
           npm audit signatures
       - run: npm run lint
       - run: npm run typecheck
+      - run: npm test
       - run: npm run build
       - name: The bundled-package list is committed as the build wrote it
         run: git diff --exit-code -- bundled-packages.txt

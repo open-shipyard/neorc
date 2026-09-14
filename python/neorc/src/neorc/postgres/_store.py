@@ -206,6 +206,8 @@ SELECT {EVENT_COLUMNS} FROM {EVENTS_TABLE}
  LIMIT %(limit)s
 """
 
+_LAST_SEQUENCE = f"SELECT COALESCE(MAX(sequence), 0) AS last FROM {EVENTS_TABLE}"
+
 _SELECT_TASK = f"SELECT {TASK_COLUMNS} FROM {FLOW_TASKS_TABLE} WHERE id = %(id)s"
 
 _LOCK_TASK = f"{_SELECT_TASK} FOR UPDATE"
@@ -586,6 +588,14 @@ class PostgresStore(Pooled, Store):
                 _SELECT_EVENTS, {"after": sequence, "limit": limit}
             )
             return [event_from_row(row) for row in await cursor.fetchall()]
+
+    async def last_sequence(self) -> int:
+        async with self.pool.connection() as conn:
+            cursor = await conn.execute(_LAST_SEQUENCE)
+            row = await cursor.fetchone()
+        assert row is not None
+        last: int = row["last"]
+        return last
 
     async def _finish_tree(self, run_id: RunId, status: RunStatus, reason: str) -> None:
         async with self.pool.connection() as conn, conn.transaction():

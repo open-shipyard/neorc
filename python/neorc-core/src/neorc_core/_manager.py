@@ -271,6 +271,10 @@ class Manager:
                     return []
                 await subscription.wait(timeout=remaining)
 
+    async def last_sequence(self) -> int:
+        """The latest event's sequence, or 0: where a reader wanting news starts."""
+        return await self._store.last_sequence()
+
     # Workers.
 
     async def task_definitions(self, queue: str) -> list[TaskStep]:

@@ -812,3 +812,18 @@ class StoreContract:
         assert sequences == sorted(sequences) and len(set(sequences)) == 5
         assert [e.run_id for e in page] == [runs[2].id, runs[3].id]
         assert await store.events_after(everything[-1].sequence) == []
+
+    async def test_the_last_sequence_is_where_a_new_reader_starts(
+        self, store: Store
+    ) -> None:
+        assert await store.last_sequence() == 0
+        await self.upload(store)
+        runs = [await self.start(store) for _ in range(3)]
+
+        last = await store.last_sequence()
+        so_far = await store.events_after(0)
+        later = await self.start(store)
+
+        assert last == so_far[-1].sequence
+        assert [e.run_id for e in so_far] == [run.id for run in runs]
+        assert [e.run_id for e in await store.events_after(last)] == [later.id]

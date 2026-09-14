@@ -1,53 +1,37 @@
-import { useEffect, useState } from "react";
+import { Layout } from "./components/Layout";
+import { FlowPage } from "./pages/FlowPage";
+import { FlowsPage } from "./pages/FlowsPage";
+import { RunPage } from "./pages/RunPage";
+import { RunsPage } from "./pages/RunsPage";
+import { useLiveEvents } from "./queries";
+import { href, useRoute } from "./router";
 
-import { listFlows, type FlowList } from "./api";
-
-type Loaded =
-  | { state: "loading" }
-  | { state: "failed"; message: string }
-  | { state: "ready"; flows: FlowList["flows"] };
-
-/** The pipeline's proof: the flows the manager holds, by name. */
 export function App() {
-  const [loaded, setLoaded] = useState<Loaded>({ state: "loading" });
-
-  useEffect(() => {
-    let cancelled = false;
-    listFlows().then(
-      (list) => {
-        if (!cancelled) setLoaded({ state: "ready", flows: list.flows });
-      },
-      (error: unknown) => {
-        if (!cancelled) setLoaded({ state: "failed", message: String(error) });
-      },
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
+  const route = useRoute();
+  useLiveEvents();
   return (
-    <main>
-      <h1>neorc</h1>
-      <p role="note">
-        No authentication yet: for development and testing only.
-      </p>
-      {loaded.state === "loading" && <p>Loading flows…</p>}
-      {loaded.state === "failed" && (
-        <p role="alert">Could not load the flows: {loaded.message}</p>
-      )}
-      {loaded.state === "ready" && loaded.flows.length === 0 && (
-        <p>No flows uploaded yet.</p>
-      )}
-      {loaded.state === "ready" && loaded.flows.length > 0 && (
-        <ul>
-          {loaded.flows.map((flow) => (
-            <li key={flow.name}>
-              {flow.name} {flow.version}
-            </li>
-          ))}
-        </ul>
-      )}
-    </main>
+    <Layout route={route}>
+      <Page route={route} />
+    </Layout>
   );
+}
+
+function Page({ route }: { route: ReturnType<typeof useRoute> }) {
+  switch (route.name) {
+    case "runs":
+      return <RunsPage flow={route.flow} status={route.status} />;
+    case "flows":
+      return <FlowsPage />;
+    case "flow":
+      return <FlowPage flow={route.flow} version={route.version} />;
+    case "run":
+      return <RunPage id={route.id} />;
+    case "unknown":
+      return (
+        <p role="alert">
+          Nothing at <code>{route.hash}</code>.{" "}
+          <a href={href({ name: "runs" })}>Runs</a>
+        </p>
+      );
+  }
 }

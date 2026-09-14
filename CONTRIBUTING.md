@@ -94,7 +94,7 @@ in `ts/neorc-ui`:
 `npm run dev` serves the app and proxies the API to a `neorc manager start
 --no-ui` on `127.0.0.1:8420`: a checkout holds no built UI, and the dev server
 is the UI here. The checks CI runs are `npm run lint`, `npm run
-typecheck` and `npm run build`; the build also writes `bundled-packages.txt`,
+typecheck`, `npm test` and `npm run build`; the build also writes `bundled-packages.txt`,
 which is committed, and fails on a license outside the allowlist or a bundle
 over the size budget. When the manager's routes change, refresh the schema
 the UI's types come from:

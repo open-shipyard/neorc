@@ -32,6 +32,7 @@ from neorc.manager._schemas import (
     FlowResponse,
     FlowVersionsResponse,
     HeartbeatResponse,
+    LatestEventResponse,
     RunListResponse,
     RunResponse,
     RunStateResponse,
@@ -341,6 +342,14 @@ async def wait_for_events(
         after, timeout=_waited(request, timeout), limit=limit
     )
     return {"events": [wire.event_to(event) for event in events]}
+
+
+@router.get(
+    "/events/latest", response_model=None, responses=documented(LatestEventResponse)
+)
+async def latest_event(manager: Managed) -> dict[str, int]:
+    """The latest event's sequence, or 0: a reader wanting only news starts after it."""
+    return {"sequence": await manager.last_sequence()}
 
 
 @router.post(

@@ -1,19 +1,32 @@
 // The manager's API, typed from openapi.json (see `npm run generate`).
-import type { paths } from "./api/schema";
+import type { components } from "./api/schema";
 
-export type FlowList =
-  paths["/flows"]["get"]["responses"]["200"]["content"]["application/json"];
+type Schemas = components["schemas"];
 
-/** The body every refusal carries; `error` names the manager's exception. */
-export type ErrorBody =
-  paths["/flows"]["get"]["responses"]["404"]["content"]["application/json"];
+export type Flow = Schemas["FlowResponse"];
+export type Run = Schemas["RunResponse"];
+export type RunStatus = Schemas["RunStatus"];
+export type Task = Schemas["TaskResponse"];
+export type TaskStatus = Schemas["TaskStatus"];
+export type Address = Schemas["AddressResponse"];
+export type ApiEvent = Schemas["EventResponse"];
+export type ErrorBody = Schemas["ErrorResponse"];
 
+export const RUN_STATUSES: readonly RunStatus[] = [
+  "active",
+  "succeeded",
+  "failed",
+  "cancelled",
+];
+
+/** A refusal: `error` names the manager's exception, `detail` says why. */
 export class ApiError extends Error {
   constructor(
     readonly status: number,
     readonly body: ErrorBody,
   ) {
-    super(`${body.error}: ${body.detail}`);
+    super(body.detail);
+    this.name = body.error;
   }
 }
 
@@ -22,20 +35,145 @@ export class ApiError extends Error {
  * and its routes at /, and `npm run dev` serves the page at / and proxies
  * the routes. Hash routing keeps the page's path fixed either way.
  */
-export function apiUrl(path: string): URL {
-  return new URL(path.replace(/^\//, ""), new URL("../", location.href));
+export function apiUrl(
+  path: string,
+  params: Record<string, string | number | boolean | undefined> = {},
+): URL {
+  const url = new URL(path.replace(/^\//, ""), new URL("../", location.href));
+  for (const [name, value] of Object.entries(params)) {
+    if (value !== undefined) url.searchParams.set(name, String(value));
+  }
+  return url;
 }
 
-export async function getJson<T>(path: string): Promise<T> {
-  const response = await fetch(apiUrl(path), {
-    headers: { accept: "application/json" },
+async function request<T>(url: URL, init: RequestInit = {}): Promise<T> {
+  const response = await fetch(url, {
+    ...init,
+    headers: { accept: "application/json", ...init.headers },
   });
   if (!response.ok) {
-    throw new ApiError(response.status, (await response.json()) as ErrorBody);
+    let body: ErrorBody;
+    try {
+      body = (await response.json()) as ErrorBody;
+    } catch {
+      body = { error: "HTTPError", detail: `${response.status} from ${url}` };
+    }
+    throw new ApiError(response.status, body);
   }
+  if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
 
-export function listFlows(): Promise<FlowList> {
-  return getJson<FlowList>("/flows");
+export function getJson<T>(
+  path: string,
+  params?: Record<string, string | number | boolean | undefined>,
+  signal?: AbortSignal,
+): Promise<T> {
+  return request<T>(apiUrl(path, params), { signal });
+}
+
+export function postJson<T>(path: string, body: unknown): Promise<T> {
+  return request<T>(apiUrl(path), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+// Flows.
+
+export async function listFlows(): Promise<Flow[]> {
+  return (await getJson<{ flows: Flow[] }>("/flows")).flows;
+}
+
+export function getFlow(name: string, version?: string): Promise<Flow> {
+  const path = version
+    ? `/flows/${encodeURIComponent(name)}/versions/${encodeURIComponent(version)}`
+    : `/flows/${encodeURIComponent(name)}`;
+  return getJson<Flow>(path);
+}
+
+export async function flowVersions(name: string): Promise<Flow[]> {
+  const path = `/flows/${encodeURIComponent(name)}/versions`;
+  return (await getJson<{ versions: Flow[] }>(path)).versions;
+}
+
+// Runs.
+
+export interface RunFilters {
+  flow?: string;
+  status?: RunStatus;
+  rootOnly?: boolean;
+}
+
+export const PAGE_SIZE = 50;
+
+export async function listRuns(
+  filters: RunFilters,
+  before?: string,
+): Promise<Run[]> {
+  const params = {
+    flow: filters.flow,
+    status: filters.status,
+    root_only: filters.rootOnly ?? true,
+    before,
+    limit: PAGE_SIZE,
+  };
+  return (await getJson<{ runs: Run[] }>("/runs", params)).runs;
+}
+
+export function getRun(id: string): Promise<Run> {
+  return getJson<Run>(`/runs/${encodeURIComponent(id)}`);
+}
+
+export async function runTasks(id: string): Promise<Task[]> {
+  const path = `/runs/${encodeURIComponent(id)}/tasks`;
+  return (await getJson<{ tasks: Task[] }>(path)).tasks;
+}
+
+export async function subRuns(id: string): Promise<Run[]> {
+  const path = `/runs/${encodeURIComponent(id)}/sub-runs`;
+  return (await getJson<{ runs: Run[] }>(path)).runs;
+}
+
+export function startRun(
+  flow: string,
+  inputs: Record<string, unknown>,
+): Promise<Run> {
+  return postJson<Run>(`/flows/${encodeURIComponent(flow)}/runs`, { inputs });
+}
+
+export function cancelRun(id: string): Promise<void> {
+  return postJson<void>(`/runs/${encodeURIComponent(id)}/cancel`, {});
+}
+
+// Events: the same long poll the scheduler uses, read, never consumed.
+
+export const EVENT_PAGE = 1000;
+
+/** The latest event's sequence, or 0: where a reader wanting only news starts. */
+export async function latestSequence(signal?: AbortSignal): Promise<number> {
+  const latest = await getJson<{ sequence: number }>(
+    "/events/latest",
+    {},
+    signal,
+  );
+  return latest.sequence;
+}
+
+export async function waitForEvents(
+  after: number,
+  options: { timeout: number; limit?: number; signal?: AbortSignal },
+): Promise<ApiEvent[]> {
+  const params = {
+    after,
+    timeout: options.timeout,
+    limit: options.limit ?? EVENT_PAGE,
+  };
+  const page = await getJson<{ events: ApiEvent[] }>(
+    "/events",
+    params,
+    options.signal,
+  );
+  return page.events;
 }
