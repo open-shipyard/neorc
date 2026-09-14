@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatDuration, formatTime, formatValue } from "./format";
+import { formatDuration, formatTime, formatValue, localToIso } from "./format";
 
 describe("format", () => {
   it("shows a duration at a fitting scale, and nothing before the end", () => {
@@ -23,5 +23,19 @@ describe("format", () => {
     expect(text).toContain('"n": [\n    1\n  ]');
     expect(text).toContain("(2026-09-13T10:00:00+00:00)");
     expect(text).not.toContain("$datetime");
+  });
+});
+
+describe("localToIso", () => {
+  it("keeps the moment typed, with the browser's offset spelled out", () => {
+    const iso = localToIso("2026-09-13T10:30");
+
+    expect(iso).toMatch(/^2026-09-13T10:30:00[+-]\d\d:\d\d$/);
+    expect(new Date(iso!).getTime()).toBe(new Date("2026-09-13T10:30").getTime());
+  });
+
+  it("has nothing for an empty or unreadable value", () => {
+    expect(localToIso("")).toBeUndefined();
+    expect(localToIso("noon")).toBeUndefined();
   });
 });

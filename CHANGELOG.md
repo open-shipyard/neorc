@@ -174,6 +174,11 @@ one version, cut from a single tag on `main`.
   a refresh every two seconds, since a task being published, claimed or
   started records no event. Tested on a recorded
   `word_picker_rounds` run, written by `scripts/record_ui_fixture.py`.
+- `neorc-ui`: a run is started from its flow's page, with a field per
+  declared input typed as declared, a datetime sent with the browser's
+  offset, and a JSON editor for what the fields cannot say; the manager's
+  refusal is shown next to the form. An active run is cancelled from its
+  page after a confirmation naming its active sub-runs.
 
 ### Changed
 

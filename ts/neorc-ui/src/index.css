@@ -248,3 +248,51 @@ input {
 pre.error {
   color: var(--bad);
 }
+
+.start-run {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  max-width: 40rem;
+}
+
+.start-run .fields {
+  display: grid;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.start-run label {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.start-run textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink);
+  padding: 0.5rem;
+}
+
+button.link {
+  border: none;
+  background: none;
+  color: var(--accent);
+  padding: 0;
+  text-decoration: underline;
+}
+
+.cancel-run {
+  margin: 0.5rem 0 1rem;
+}
+
+[role="alert"] {
+  color: var(--bad);
+}

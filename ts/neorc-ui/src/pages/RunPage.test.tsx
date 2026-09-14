@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { shortId } from "../format";
 import { RECORDED, recordedRoutes } from "../test/recorded";
+import { ACTIVE, CANCELLED } from "../test/fixtures";
 import { mockApi, refusal, renderWithClient } from "../test/render";
 import { RunPage } from "./RunPage";
 
@@ -105,5 +106,91 @@ describe("RunPage on a recorded word_picker_rounds run", () => {
     renderWithClient(<RunPage id="nothing" />);
 
     expect(await screen.findByRole("alert")).toHaveTextContent("nothing");
+  });
+});
+
+describe("cancelling a run", () => {
+  function activeRoutes(cancel: unknown) {
+    const { flows } = RECORDED;
+    const child = { ...ACTIVE, id: "c0c0c0c0-0000-4000-8000-000000000001", parent_id: ACTIVE.id };
+    return {
+      "/flows/hello": flows["word_picker_rounds"],
+      "/flows/hello/versions/0.1.0": {
+        ...flows["word_picker_rounds"],
+        name: "hello",
+        version: "0.1.0",
+      },
+      [`/runs/${ACTIVE.id}`]: ACTIVE,
+      [`/runs/${ACTIVE.id}/tasks`]: { tasks: [] },
+      [`/runs/${ACTIVE.id}/sub-runs`]: { runs: [child, { ...child, id: "c0c0c0c0-0000-4000-8000-000000000002", status: "succeeded" as const }] },
+      [`/runs/${ACTIVE.id}/cancel`]: cancel,
+    };
+  }
+
+  it("asks first, naming the active sub-runs, then cancels", async () => {
+    let cancelled = 0;
+    mockApi(activeRoutes(() => { cancelled += 1; return undefined; }));
+
+    renderWithClient(<RunPage id={ACTIVE.id} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel run" }));
+    const asking = await screen.findByRole("group", { name: "Confirm cancelling" });
+    expect(asking).toHaveTextContent("every active run in its tree: 1 active sub-run");
+
+    fireEvent.click(within(asking).getByRole("button", { name: "Cancel it" }));
+
+    await screen.findByRole("button", { name: "Cancel run" });
+    expect(cancelled).toBe(1);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("can be thought better of", async () => {
+    let cancelled = 0;
+    mockApi(activeRoutes(() => { cancelled += 1; return undefined; }));
+
+    renderWithClient(<RunPage id={ACTIVE.id} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel run" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Keep it" }));
+
+    expect(screen.getByRole("button", { name: "Cancel run" })).toBeInTheDocument();
+    expect(cancelled).toBe(0);
+  });
+
+  it("shows the manager's refusal", async () => {
+    mockApi(activeRoutes(refusal(409, "RunStateError", `run ${ACTIVE.id} is already cancelled`)));
+
+    renderWithClient(<RunPage id={ACTIVE.id} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel run" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel it" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("already cancelled");
+  });
+
+  it("is not offered on a sub-run, which points at its root instead", async () => {
+    const sub = { ...ACTIVE, id: "c0c0c0c0-0000-4000-8000-000000000009", parent_id: "root-id", root_id: "aaaaaaaa-0000-4000-8000-000000000000", parent_address: { step: "picker", scope: [] as [string, number][] } };
+    mockApi({
+      ...activeRoutes(undefined),
+      [`/runs/${sub.id}`]: sub,
+      [`/runs/${sub.id}/tasks`]: { tasks: [] },
+      [`/runs/${sub.id}/sub-runs`]: { runs: [] },
+    });
+
+    renderWithClient(<RunPage id={sub.id} />);
+
+    await screen.findByRole("heading", { level: 1 });
+    expect(screen.queryByRole("button", { name: "Cancel run" })).not.toBeInTheDocument();
+    expect(screen.getByText(/cancelled from its root/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "aaaaaaaa" })).toHaveAttribute(
+      "href",
+      `#/runs/${sub.root_id}`,
+    );
+  });
+
+  it("is not offered for a run that is over", async () => {
+    mockApi({ ...activeRoutes(undefined), [`/runs/${ACTIVE.id}`]: CANCELLED });
+
+    renderWithClient(<RunPage id={ACTIVE.id} />);
+
+    await screen.findByRole("heading", { level: 1 });
+    expect(screen.queryByRole("button", { name: "Cancel run" })).not.toBeInTheDocument();
   });
 });

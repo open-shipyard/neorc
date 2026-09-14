@@ -51,3 +51,24 @@ function untag(value: unknown): unknown {
 export function shortId(id: string): string {
   return id.slice(0, 8);
 }
+
+/**
+ * A `datetime-local` field's value as the manager takes a datetime: ISO 8601
+ * with the browser's own offset, so the moment typed is the moment meant.
+ * Undefined for an empty or unreadable value.
+ */
+export function localToIso(value: string): string | undefined {
+  if (!value) return undefined;
+  const moment = new Date(value);
+  if (Number.isNaN(moment.getTime())) return undefined;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const offset = -moment.getTimezoneOffset();
+  const sign = offset >= 0 ? "+" : "-";
+  const hours = pad(Math.floor(Math.abs(offset) / 60));
+  const minutes = pad(Math.abs(offset) % 60);
+  return (
+    `${moment.getFullYear()}-${pad(moment.getMonth() + 1)}-${pad(moment.getDate())}` +
+    `T${pad(moment.getHours())}:${pad(moment.getMinutes())}:${pad(moment.getSeconds())}` +
+    `${sign}${hours}:${minutes}`
+  );
+}

@@ -1,4 +1,5 @@
 import { Failed, Loading } from "../components/Layout";
+import { StartRunForm } from "../components/StartRunForm";
 import { formatValue } from "../format";
 import { useFlow, useFlowVersions } from "../queries";
 import { href, navigate } from "../router";
@@ -40,6 +41,14 @@ export function FlowPage({ flow, version }: { flow: string; version?: string }) 
       <pre className="definition" aria-label="Definition">
         {formatValue(shown.data.content)}
       </pre>
+      {shown.data.version === versions.data[0]?.version ? (
+        <StartRunForm key={`${flow}@${shown.data.version}`} flow={shown.data} />
+      ) : (
+        <p className="muted">
+          A run always uses the latest version, {versions.data[0]?.version}:{" "}
+          <a href={href({ name: "flow", flow })}>start one from there</a>.
+        </p>
+      )}
     </>
   );
 }
