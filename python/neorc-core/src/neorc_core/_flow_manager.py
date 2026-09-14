@@ -11,7 +11,7 @@ invalid. ``Manager`` keeps serving the task API next to it.
 from __future__ import annotations
 
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import datetime
 from typing import TypeVar
 
@@ -48,7 +48,8 @@ from neorc_core.flows import (
     parse_flow,
     resolve,
 )
-from neorc_core.ports._queue_client import DEFAULT_LEASE_SECONDS
+from neorc_core.flows._validation import check_output
+from neorc_core.ports._queue_client import DEFAULT_LEASE_SECONDS, check_lease_seconds
 from neorc_core.ports._store import Store
 from neorc_core.ports._task_notifier import TaskNotifier
 
@@ -56,6 +57,9 @@ CANCELLED_BY_HAND = "cancelled by hand"
 
 _START_ATTEMPTS = 3
 """Starts to try while uploads keep replacing a flow's latest version."""
+
+ABANDON_POLL_SECONDS = 0.25
+"""How often a waiting ``pick_next_task`` asks whether its caller has gone."""
 
 
 class FlowManager:
@@ -162,6 +166,9 @@ class FlowManager:
         value: JsonValue = None
         if output is not None:
             _, definition, state = await self._context(run_id)
+            problems = check_output(definition, output)
+            if problems:
+                raise InvalidValueError(f"{definition.name}: " + "; ".join(problems))
             resolved = resolve(definition, state, None, output)
             if resolved is None:
                 raise RunStateError(f"run {run_id}: {output} is not available yet")
@@ -252,23 +259,42 @@ class FlowManager:
         *,
         timeout: float,
         lease_seconds: float = DEFAULT_LEASE_SECONDS,
+        abandoned: Callable[[], Awaitable[bool]] | None = None,
     ) -> TaskDelivery | None:
         """Lease the next task on ``queue``, waiting up to ``timeout`` for one.
 
         The delivery carries the task's inputs with every reference filled in,
         and the metadata known at publish time.
+
+        ``abandoned`` says whether the caller has gone away meanwhile: a server
+        does not end a handler when its client leaves. It is asked every
+        ``ABANDON_POLL_SECONDS`` of the wait and before every claim, and the
+        wait ends with ``None`` once it says so, so a task is claimed only for
+        a worker known to be there a moment before. A worker lost between that
+        moment and its reply keeps the lease until it lapses.
         """
         _lookup(queue, "queue")
+        check_lease_seconds(lease_seconds)
         deadline = time.monotonic() + timeout
         async with self._tasks.subscribe() as subscription:
             while True:
+                if abandoned is not None and await abandoned():
+                    return None
                 task = await self._store.claim_task(queue, lease_seconds=lease_seconds)
                 if task is not None:
                     return await self._delivery(task)
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    return None
-                await subscription.wait(timeout=remaining)
+                while True:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        return None
+                    if abandoned is None:
+                        await subscription.wait(timeout=remaining)
+                        break
+                    slice_ = min(remaining, ABANDON_POLL_SECONDS)
+                    if await subscription.wait(timeout=slice_):
+                        break  # woken: claim again
+                    if await abandoned():
+                        return None
 
     async def report_started(self, task_id: TaskId) -> None:
         """Record that a worker began a task.
@@ -282,6 +308,7 @@ class FlowManager:
         self, task_id: TaskId, *, lease_seconds: float = DEFAULT_LEASE_SECONDS
     ) -> datetime:
         """Take a worker's heartbeat; return the lease's new expiry."""
+        check_lease_seconds(lease_seconds)
         return await self._store.extend_task_lease(task_id, lease_seconds=lease_seconds)
 
     async def report_finished(
@@ -407,6 +434,10 @@ def _step_at(definition: FlowDefinition, address: Address, kind: type[_S]) -> _S
     around = [container.name for container in definition.enclosing(address.step)]
     if [name for name, _ in address.scope] != around:
         raise InvalidValueError(f"{address} is not where {address.step} is")
+    if any(number < 1 for _, number in address.scope):
+        # Iterations and indexes count from 1; a lower number would pick a
+        # fan-out item from the wrong end, and name an instance that is not.
+        raise InvalidValueError(f"{address}: iterations and indexes start at 1")
     return step
 
 

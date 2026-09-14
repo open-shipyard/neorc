@@ -42,13 +42,19 @@ def check_flow(definition: FlowDefinition) -> list[str]:
                 _check_reference(definition, step, enclosing, where, reference)
             )
     if definition.output is not None:
-        output = definition.output
-        if output.namespace not in (Namespace.TASKS, Namespace.FLOWS):
-            problems.append(f"output: {output} must refer to tasks. or flows.")
-        else:
-            problems.extend(_check_target(definition, "output", output))
+        problems.extend(check_output(definition, definition.output))
     problems.extend(_check_cycles(definition))
     return problems
+
+
+def check_output(definition: FlowDefinition, output: Reference) -> list[str]:
+    """Problems with ``output`` as a flow's output: a task or sub-flow of the flow.
+
+    For the flow's own output, and for the reference a run is succeeded with.
+    """
+    if output.namespace not in (Namespace.TASKS, Namespace.FLOWS):
+        return [f"output: {output} must refer to tasks. or flows."]
+    return _check_target(definition, "output", output)
 
 
 def check_flow_set(definitions: list[FlowDefinition]) -> list[str]:

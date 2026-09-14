@@ -30,7 +30,7 @@ than Postgres.
 | 2  | `PostgresStore`: flow versions, runs, events      | done   |
 | 3  | `PostgresStore`: tasks, leases, run state         | done   |
 | 4  | Manager routes for flows and runs                 | done   |
-| 5  | Manager routes for the scheduler and workers      | todo   |
+| 5  | Manager routes for the scheduler and workers      | done   |
 | 6  | HTTP clients for flows                            | todo   |
 | 7  | Manager service on Postgres, two channels         | todo   |
 | 8  | `flows upload`, `scheduler start`, `worker start` | todo   |

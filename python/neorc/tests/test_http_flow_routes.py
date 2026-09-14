@@ -9,6 +9,7 @@ settled in core, and the HTTP clients are held to the client contracts.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from collections.abc import AsyncIterator
@@ -206,3 +207,167 @@ async def test_the_task_api_answers_errors_in_the_same_form(
     assert response.status_code == 404
     assert response.json()["error"] == "TaskNotFoundError"
     assert "detail" in response.json()
+
+
+# The scheduler's and the workers' routes.
+
+WORK = {"step": "work", "scope": []}
+
+
+async def test_a_run_is_driven_to_its_end_over_http(http: httpx.AsyncClient) -> None:
+    run_id = await _started(http)
+
+    published = await http.post(f"/runs/{run_id}/tasks", json={"address": WORK})
+    definitions = await http.get("/queues/default/tasks")
+    picked = await http.post("/queues/default/tasks/next", params={"timeout": 1})
+    task_id = picked.json()["task"]["id"]
+    started = await http.post(f"/flow-tasks/{task_id}/started")
+    beat = await http.post(
+        f"/flow-tasks/{task_id}/heartbeat", json={"lease_seconds": 30}
+    )
+    finished = await http.post(
+        f"/flow-tasks/{task_id}/finished", json={"result": "hi!"}
+    )
+    succeeded = await http.post(
+        f"/runs/{run_id}/succeed", json={"output": "tasks.work"}
+    )
+    events = await http.get("/events", params={"after": 0, "timeout": 0})
+
+    assert published.status_code == 201
+    assert published.json()["address"] == WORK
+    assert [t["name"] for t in definitions.json()["tasks"]] == ["work"]
+    assert picked.status_code == 200
+    assert picked.json()["inputs"] == {"word": "hi"}
+    assert started.status_code == 204
+    assert beat.status_code == 200 and "lease_expires_at" in beat.json()
+    assert finished.status_code == 204
+    assert succeeded.status_code == 200
+    assert succeeded.json()["status"] == "succeeded"
+    assert succeeded.json()["output"] == "hi!"
+    assert [e["kind"] for e in events.json()["events"]] == [
+        "run_started",
+        "task_finished",
+        "run_finished",
+    ]
+
+
+async def test_a_sub_run_starts_and_a_run_fails_over_http(
+    http: httpx.AsyncClient,
+) -> None:
+    caller: JsonValue = {
+        "name": "caller",
+        "version": "1.0.0",
+        "steps": {"call": {"flow": "main", "fixed_params": {"word": "x"}}},
+    }
+    await http.post("/flows", json={"flows": [MAIN, caller]})
+    run_id = (await http.post("/flows/caller/runs", json={"inputs": {}})).json()["id"]
+
+    sub_run = await http.post(
+        f"/runs/{run_id}/sub-runs", json={"address": {"step": "call", "scope": []}}
+    )
+    failed = await http.post(f"/runs/{run_id}/fail", json={"reason": "boom"})
+
+    assert sub_run.status_code == 201
+    assert sub_run.json()["parent_id"] == run_id
+    assert sub_run.json()["flow"] == "main"
+    assert failed.status_code == 204
+    sub_run_id = sub_run.json()["id"]
+    assert (await http.get(f"/runs/{sub_run_id}")).json()["status"] == "failed"
+    assert (await http.get(f"/runs/{run_id}")).json()["reason"] == "boom"
+
+
+async def test_a_start_refused_for_an_inactive_run_is_a_409(
+    http: httpx.AsyncClient,
+) -> None:
+    run_id = await _started(http)
+    await http.post(f"/runs/{run_id}/tasks", json={"address": WORK})
+    picked = await http.post("/queues/default/tasks/next", params={"timeout": 1})
+    task_id = picked.json()["task"]["id"]
+    await http.post(f"/runs/{run_id}/cancel")
+
+    started = await http.post(f"/flow-tasks/{task_id}/started")
+
+    assert (started.status_code, _error(started)) == (409, "RunStateError")
+
+
+@pytest.mark.parametrize(
+    "path", ["/events", "/queues/default/tasks/next"], ids=["events", "tasks"]
+)
+async def test_the_long_poll_deadline_caps_a_longer_request(
+    http: httpx.AsyncClient, path: str
+) -> None:
+    """The manager's own deadline answers, at two seconds here, not the hour asked."""
+    loop = asyncio.get_running_loop()
+    begun = loop.time()
+
+    method = "GET" if path == "/events" else "POST"
+    response = await http.request(method, path, params={"timeout": 3600})
+
+    assert response.status_code == (200 if path == "/events" else 204)
+    assert loop.time() - begun < 10
+
+
+async def test_scheduler_and_worker_requests_are_validated(
+    http: httpx.AsyncClient,
+) -> None:
+    run_id = await _started(http)
+    await http.post(f"/runs/{run_id}/tasks", json={"address": WORK})
+    picked = await http.post("/queues/default/tasks/next", params={"timeout": 1})
+    task_id = picked.json()["task"]["id"]
+
+    not_an_address = await http.post(
+        f"/runs/{run_id}/tasks", json={"address": {"step": 1, "scope": "x"}}
+    )
+    bool_in_scope = await http.post(
+        f"/runs/{run_id}/tasks",
+        json={"address": {"step": "work", "scope": [["rounds", True]]}},
+    )
+    not_a_task = await http.post(
+        f"/runs/{run_id}/tasks", json={"address": {"step": "nothing", "scope": []}}
+    )
+    not_a_reference = await http.post(f"/runs/{run_id}/succeed", json={"output": "x"})
+    no_such_step = await http.post(
+        f"/runs/{run_id}/succeed", json={"output": "tasks.nothing"}
+    )
+    no_reason = await http.post(f"/runs/{run_id}/fail", json={})
+    bad_lease = await http.post(
+        f"/flow-tasks/{task_id}/heartbeat", json={"lease_seconds": 0}
+    )
+    huge_lease = await http.post(
+        f"/flow-tasks/{task_id}/heartbeat",
+        content=b'{"lease_seconds": 1e400}',
+        headers={"content-type": "application/json"},
+    )
+    infinite_lease = await http.post(
+        "/queues/default/tasks/next", params={"timeout": 0, "lease_seconds": "inf"}
+    )
+    bad_after = await http.get("/events", params={"after": -1})
+    unknown_task = await http.post(f"/flow-tasks/{uuid.uuid4()}/started")
+
+    for response in (not_an_address, bool_in_scope, not_a_task, not_a_reference):
+        assert (response.status_code, _error(response)) == (422, "InvalidValueError")
+    for response in (no_such_step, no_reason, bad_lease, huge_lease, infinite_lease):
+        assert (response.status_code, _error(response)) == (422, "InvalidValueError")
+    assert (bad_after.status_code, _error(bad_after)) == (422, "InvalidValueError")
+    assert (unknown_task.status_code, _error(unknown_task)) == (
+        404,
+        "TaskNotFoundError",
+    )
+
+
+async def test_a_result_the_manager_refuses_fails_the_task(
+    http: httpx.AsyncClient,
+) -> None:
+    run_id = await _started(http)
+    await http.post(f"/runs/{run_id}/tasks", json={"address": WORK})
+    picked = await http.post("/queues/default/tasks/next", params={"timeout": 1})
+    task_id = picked.json()["task"]["id"]
+
+    finished = await http.post(
+        f"/flow-tasks/{task_id}/finished", json={"result": {"$datetime": "no"}}
+    )
+    state = await http.get(f"/runs/{run_id}/state")
+
+    assert finished.status_code == 204
+    (step,) = state.json()["steps"]
+    assert step["outcome"] == "failed"

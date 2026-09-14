@@ -3,6 +3,11 @@
 
 """The manager's HTTP surface for flows: a translation onto ``FlowManager``.
 
+Flows and runs for whoever deploys and starts them; events, tasks and sub-runs
+for the scheduler; task definitions, long-polled tasks, starts, heartbeats and
+results for workers. The worker routes live under ``/flow-tasks`` while the
+task API keeps ``/tasks``.
+
 Bodies and responses are the ``neorc_core._wire`` forms, so the direct and
 HTTP clients send the same JSON. A request body is read as bytes, capped, and
 checked for nesting depth before it is parsed, and only then handed to a model:
@@ -17,14 +22,21 @@ from __future__ import annotations
 import json
 from typing import Annotated, Any, TypeVar
 
-from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi import APIRouter, Depends, Query, Request, Response, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ValidationError
 
-from neorc_core import FlowManager, InvalidValueError, PayloadTooLargeError, RunId
+from neorc_core import (
+    FlowManager,
+    InvalidValueError,
+    PayloadTooLargeError,
+    RunId,
+    TaskId,
+)
 from neorc_core import _wire as wire
 from neorc_core._values import ensure_json_depth
-from neorc_core.flows import Version
+from neorc_core.flows import Address, Reference, Version
+from neorc_core.ports._queue_client import DEFAULT_LEASE_SECONDS
 
 MAX_BODY_BYTES = 16 * 1024 * 1024
 """The largest request body, well above the payload limit core enforces.
@@ -165,3 +177,166 @@ async def cancel_run(flows: Flows, run_id: RunId) -> Response:
 async def run_state(flows: Flows, run_id: RunId) -> dict[str, Any]:
     """What a run's tasks and sub-flow runs have produced so far."""
     return wire.run_state_to(await flows.run_state(run_id))
+
+
+# The scheduler's requests.
+
+
+class AddressRequest(BaseModel):
+    address: dict[str, Any]
+
+
+class SucceedRequest(BaseModel):
+    output: str | None = None
+
+
+class FailRequest(BaseModel):
+    reason: str
+
+
+def _address(data: dict[str, Any]) -> Address:
+    """An address from its wire form; ``InvalidValueError`` if it is not one."""
+    step = data.get("step")
+    scope = data.get("scope")
+    if (
+        not isinstance(step, str)
+        or not isinstance(scope, list)
+        or not all(
+            isinstance(level, list)
+            and len(level) == 2
+            and isinstance(level[0], str)
+            and isinstance(level[1], int)
+            and not isinstance(level[1], bool)
+            for level in scope
+        )
+    ):
+        raise InvalidValueError(f"request body: {data!r} is not an address")
+    return wire.address_from(data)
+
+
+def _waited(request: Request, timeout: float | None) -> float:
+    """How long a long poll waits: the caller's ask, capped at the manager's deadline.
+
+    The deadline stays under the idle timeout of any proxy in front of the
+    service; a caller that hits it simply asks again.
+    """
+    limit: float = request.app.state.long_poll_timeout
+    return limit if timeout is None else min(timeout, limit)
+
+
+@router.get("/events")
+async def wait_for_events(
+    request: Request,
+    flows: Flows,
+    after: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=1000)] = 100,
+    timeout: Annotated[float | None, Query(ge=0)] = None,
+) -> dict[str, list[dict[str, Any]]]:
+    """Events after a sequence, long-polled; an empty list when the wait ends."""
+    events = await flows.wait_for_events(
+        after, timeout=_waited(request, timeout), limit=limit
+    )
+    return {"events": [wire.event_to(event) for event in events]}
+
+
+@router.post("/runs/{run_id}/tasks", status_code=status.HTTP_201_CREATED)
+async def publish_task(request: Request, flows: Flows, run_id: RunId) -> JSONResponse:
+    """Publish the task at an address in a run."""
+    body = await read_body(request, AddressRequest)
+    task = await flows.publish_task(run_id, _address(body.address))
+    return JSONResponse(wire.task_to(task), status_code=status.HTTP_201_CREATED)
+
+
+@router.post("/runs/{run_id}/sub-runs", status_code=status.HTTP_201_CREATED)
+async def start_sub_run(request: Request, flows: Flows, run_id: RunId) -> JSONResponse:
+    """Start the sub-flow run at an address in a run."""
+    body = await read_body(request, AddressRequest)
+    run = await flows.start_sub_run(run_id, _address(body.address))
+    return JSONResponse(wire.run_to(run), status_code=status.HTTP_201_CREATED)
+
+
+@router.post("/runs/{run_id}/succeed")
+async def succeed_run(request: Request, flows: Flows, run_id: RunId) -> dict[str, Any]:
+    """Mark a run succeeded, with the value of its output reference."""
+    body = await read_body(request, SucceedRequest)
+    output = None
+    if body.output is not None:
+        try:
+            output = Reference.parse(body.output)
+        except ValueError as exc:
+            raise InvalidValueError(f"request body: {exc}") from None
+    return wire.run_to(await flows.succeed_run(run_id, output))
+
+
+@router.post("/runs/{run_id}/fail", status_code=status.HTTP_204_NO_CONTENT)
+async def fail_run(request: Request, flows: Flows, run_id: RunId) -> Response:
+    """Fail a run and the rest of its tree."""
+    body = await read_body(request, FailRequest)
+    await flows.fail_run(run_id, body.reason)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# Workers.
+
+
+class HeartbeatRequest(BaseModel):
+    lease_seconds: float = DEFAULT_LEASE_SECONDS
+
+
+class FinishedRequest(BaseModel):
+    result: Any = None
+    error: str | None = None
+
+
+@router.get("/queues/{queue}/tasks")
+async def task_definitions(flows: Flows, queue: str) -> dict[str, list[dict[str, Any]]]:
+    """Every task on a queue in the latest flows, for a worker to check."""
+    steps = await flows.task_definitions(queue)
+    return {"tasks": [wire.task_step_to(step) for step in steps]}
+
+
+@router.post("/queues/{queue}/tasks/next")
+async def pick_next_task(
+    request: Request,
+    flows: Flows,
+    queue: str,
+    timeout: Annotated[float | None, Query(ge=0)] = None,
+    lease_seconds: Annotated[float, Query(gt=0)] = DEFAULT_LEASE_SECONDS,
+) -> Response:
+    """Long-poll for a task on a queue. 204 when the wait ends empty."""
+    # A worker that left mid-poll must not be leased a task: the wait asks
+    # whether the client is still there before every claim.
+    delivery = await flows.pick_next_task(
+        queue,
+        timeout=_waited(request, timeout),
+        lease_seconds=lease_seconds,
+        abandoned=request.is_disconnected,
+    )
+    if delivery is None:
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    return JSONResponse(wire.delivery_to(delivery))
+
+
+@router.post("/flow-tasks/{task_id}/started", status_code=status.HTTP_204_NO_CONTENT)
+async def report_started(flows: Flows, task_id: TaskId) -> Response:
+    """A worker began a task it holds; 409 if its run is no longer active."""
+    await flows.report_started(task_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/flow-tasks/{task_id}/heartbeat")
+async def extend_lease(
+    request: Request, flows: Flows, task_id: TaskId
+) -> dict[str, str]:
+    """A worker keeping the task it holds; when its lease now lapses."""
+    body = await read_body(request, HeartbeatRequest)
+    expires_at = await flows.extend_lease(task_id, lease_seconds=body.lease_seconds)
+    return {"lease_expires_at": expires_at.isoformat()}
+
+
+@router.post("/flow-tasks/{task_id}/finished", status_code=status.HTTP_204_NO_CONTENT)
+async def report_finished(request: Request, flows: Flows, task_id: TaskId) -> Response:
+    """A worker's result in its JSON form, or its failure."""
+    body = await read_body(request, FinishedRequest)
+    await flows.report_finished(task_id, result=body.result, error=body.error)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
