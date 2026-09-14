@@ -129,6 +129,12 @@ one version, cut from a single tag on `main`.
   one would. Task errors and run reasons, which are messages, are stored with
   NUL replaced instead.
 
+- `neorc-core`: the `Store` port lists, for a status page: `list_runs`,
+  newest first with filters and a page cursor, `flow_versions`, `run_tasks`
+  and `sub_runs`; `Manager` exposes them. Runs and tasks carry the times the
+  store created, started and finished them, on the wire too. `MemoryStore`
+  implements all of it; the Postgres store follows.
+
 ### Changed
 
 - The flow classes take the task API's names: `FlowManager` is `Manager`,

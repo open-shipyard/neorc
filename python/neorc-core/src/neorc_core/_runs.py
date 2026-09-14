@@ -78,6 +78,10 @@ class Run:
     """The flow's output, once the run succeeded with one."""
     reason: str | None = None
     """Why the run failed or was cancelled."""
+    created_at: datetime | None = None
+    """When the store started the run. Stores set it; a run built by hand may not."""
+    finished_at: datetime | None = None
+    """When the run left ``ACTIVE``, whatever the status it ended in."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,6 +101,12 @@ class Task:
     result: JsonValue = None
     """The handler's return value, in its JSON form, once the task succeeded."""
     error: str | None = None
+    created_at: datetime | None = None
+    """When the store published the task. Every store sets it."""
+    started_at: datetime | None = None
+    """When a worker first began executing it."""
+    finished_at: datetime | None = None
+    """When it succeeded or failed."""
 
 
 @dataclass(frozen=True, slots=True)

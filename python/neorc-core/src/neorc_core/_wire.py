@@ -70,6 +70,15 @@ def params_from(wire: Mapping[str, str]) -> dict[str, Reference]:
     return {name: Reference.parse(text) for name, text in wire.items()}
 
 
+def datetime_to(moment: datetime | None) -> str | None:
+    """A timestamp as ISO 8601 text with its offset, or ``None``."""
+    return moment.isoformat() if moment is not None else None
+
+
+def datetime_from(text: str | None) -> datetime | None:
+    return datetime.fromisoformat(text) if text is not None else None
+
+
 def run_to(run: Run) -> Wire:
     return {
         "id": str(run.id),
@@ -84,6 +93,8 @@ def run_to(run: Run) -> Wire:
         ),
         "output": run.output,
         "reason": run.reason,
+        "created_at": datetime_to(run.created_at),
+        "finished_at": datetime_to(run.finished_at),
     }
 
 
@@ -101,6 +112,8 @@ def run_from(wire: Wire) -> Run:
         ),
         output=wire["output"],
         reason=wire["reason"],
+        created_at=datetime_from(wire["created_at"]),
+        finished_at=datetime_from(wire["finished_at"]),
     )
 
 
@@ -153,11 +166,12 @@ def task_to(task: Task) -> Wire:
         "fixed_params": dict(task.fixed_params),
         "status": task.status.value,
         "attempts": task.attempts,
-        "lease_expires_at": (
-            task.lease_expires_at.isoformat() if task.lease_expires_at else None
-        ),
+        "lease_expires_at": datetime_to(task.lease_expires_at),
         "result": task.result,
         "error": task.error,
+        "created_at": datetime_to(task.created_at),
+        "started_at": datetime_to(task.started_at),
+        "finished_at": datetime_to(task.finished_at),
     }
 
 
@@ -172,13 +186,12 @@ def task_from(wire: Wire) -> Task:
         fixed_params=wire["fixed_params"],
         status=TaskStatus(wire["status"]),
         attempts=wire["attempts"],
-        lease_expires_at=(
-            datetime.fromisoformat(wire["lease_expires_at"])
-            if wire["lease_expires_at"]
-            else None
-        ),
+        lease_expires_at=datetime_from(wire["lease_expires_at"]),
         result=wire["result"],
         error=wire["error"],
+        created_at=datetime_from(wire["created_at"]),
+        started_at=datetime_from(wire["started_at"]),
+        finished_at=datetime_from(wire["finished_at"]),
     )
 
 

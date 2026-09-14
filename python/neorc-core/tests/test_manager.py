@@ -291,3 +291,37 @@ async def test_a_run_cannot_succeed_before_its_output_exists(
         await flows.succeed_run(run.id, Reference.parse("tasks.work"))
 
     assert (await flows.get_run(run.id)).status is RunStatus.ACTIVE
+
+
+# Listing, for a status page.
+
+
+async def test_the_manager_lists_flows_versions_runs_tasks_and_sub_runs(
+    flows: Manager, store: Store
+) -> None:
+    await flows.upload_flows([single(version="1.0.0")])
+    await flows.upload_flows([single(version="1.1.0")])
+    first = await flows.start_run("a", {})
+    second = await flows.start_run("a", {})
+    task = await flows.publish_task(first.id, Address("work"))
+
+    assert [str(f.version) for f in await flows.flow_versions("a")] == [
+        "1.1.0",
+        "1.0.0",
+    ]
+    assert [run.id for run in await flows.list_runs()] == [second.id, first.id]
+    assert [run.id for run in await flows.list_runs(limit=1)] == [second.id]
+    assert [run.id for run in await flows.list_runs(before=second.id)] == [first.id]
+    assert await flows.run_tasks(first.id) == [task]
+    assert await flows.sub_runs(first.id) == []
+
+
+async def test_listing_refuses_what_cannot_name_a_flow_or_a_page(
+    flows: Manager,
+) -> None:
+    with pytest.raises(InvalidValueError, match="not a flow name"):
+        await flows.flow_versions("../etc")
+    with pytest.raises(InvalidValueError, match="not a flow name"):
+        await flows.list_runs(flow="a/b")
+    with pytest.raises(InvalidValueError, match="limit"):
+        await flows.list_runs(limit=0)
