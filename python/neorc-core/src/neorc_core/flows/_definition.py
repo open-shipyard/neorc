@@ -19,6 +19,9 @@ from neorc_core._values import JsonValue
 
 _VERSION = re.compile(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)")
 
+MAX_VERSION_PART = 2**31 - 1
+"""The largest number in a version: what a store's ``integer`` column holds."""
+
 DEFAULT_QUEUE = "default"
 
 
@@ -73,11 +76,22 @@ class Reference:
 
 @dataclass(frozen=True, order=True, slots=True)
 class Version:
-    """A flow version: ``MAJOR.MINOR.PATCH``, compared numerically."""
+    """A flow version: ``MAJOR.MINOR.PATCH``, compared numerically.
+
+    Each part is at most ``MAX_VERSION_PART``, so every store holds the same
+    versions: ``ValueError`` otherwise.
+    """
 
     major: int
     minor: int
     patch: int
+
+    def __post_init__(self) -> None:
+        for part in (self.major, self.minor, self.patch):
+            if not 0 <= part <= MAX_VERSION_PART:
+                raise ValueError(
+                    f"version part {part} is not between 0 and {MAX_VERSION_PART}"
+                )
 
     @classmethod
     def parse(cls, text: str) -> Version:

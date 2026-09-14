@@ -268,6 +268,10 @@ def test_queue_defaults_to_default() -> None:
         ("version: 1.0.0\nname: f\nsteps: {t: {handler: m:f}}", "first two fields"),
         ("name: f\nversion: 1.0\nsteps: {t: {handler: m:f}}", "must be a string"),
         ("name: f\nversion: 1.0.0-beta\nsteps: {t: {handler: m:f}}", "not a version"),
+        (
+            "name: f\nversion: 1.0.2147483648\nsteps: {t: {handler: m:f}}",
+            "not between 0 and 2147483647",
+        ),
         ("name: my-flow\nversion: 1.0.0\nsteps: {t: {handler: m:f}}", "not a name"),
         ("name: f\nversion: 1.0.0\nsteps: {}", "non-empty mapping"),
         ("name: f\nversion: 1.0.0\ncolor: red\nsteps: {t: {handler: m:f}}", "'color'"),
@@ -278,6 +282,7 @@ def test_queue_defaults_to_default() -> None:
         "name-not-first",
         "float-version",
         "prerelease",
+        "version-part-too-large",
         "bad-name",
         "no-steps",
         "unknown-field",
@@ -287,6 +292,15 @@ def test_queue_defaults_to_default() -> None:
 )
 def test_flow_shape_problems(text: str, expected: str) -> None:
     assert expected in problems(text)
+
+
+def test_a_version_part_is_bounded_however_it_is_made() -> None:
+    """What a store's integer column holds, so every store takes the same versions."""
+    assert Version.parse("2147483647.0.0") == Version(2147483647, 0, 0)
+    with pytest.raises(ValueError, match="between 0 and"):
+        Version(0, 2147483648, 0)
+    with pytest.raises(ValueError, match="between 0 and"):
+        Version(-1, 0, 0)
 
 
 @pytest.mark.parametrize(

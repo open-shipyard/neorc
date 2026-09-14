@@ -95,6 +95,27 @@ class StoreContract:
         assert await self.upload(store) is False
         assert (await store.get_run(run.id)).status is RunStatus.ACTIVE
 
+    async def test_a_reformatted_upload_is_the_same_version(self, store: Store) -> None:
+        """Key order is formatting: the structure decides, not the text as sent."""
+        content: JsonValue = {
+            "name": "a",
+            "version": "1.0.0",
+            "steps": {"work": {"handler": "tasks:work", "fixed_params": {"n": 1}}},
+        }
+        reformatted: JsonValue = {
+            "steps": {"work": {"fixed_params": {"n": 1}, "handler": "tasks:work"}},
+            "version": "1.0.0",
+            "name": "a",
+        }
+        await store.store_flows([StoredFlow(_flow(content), content)])
+        run = await self.start(store)
+
+        stored = await store.store_flows([StoredFlow(_flow(reformatted), reformatted)])
+
+        assert stored == [False]
+        assert (await store.get_run(run.id)).status is RunStatus.ACTIVE
+        assert (await store.get_flow("a")).content == content
+
     async def test_changed_content_on_a_stored_version_is_rejected(
         self, store: Store
     ) -> None:

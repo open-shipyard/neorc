@@ -26,7 +26,7 @@ from neorc_core import Manager
 from neorc_core.local import MemoryTaskNotifier, MemoryTaskStore
 
 if TYPE_CHECKING:
-    from neorc.postgres import PostgresTaskNotifier, PostgresTaskStore
+    from neorc.postgres import PostgresStore, PostgresTaskNotifier, PostgresTaskStore
 
 # Before a test module imports the contract suites, so their asserts explain a
 # failure the way asserts in test modules do.
@@ -91,6 +91,15 @@ async def pg_store(pg_schema: str) -> AsyncIterator[PostgresTaskStore]:
     from neorc.postgres import PostgresTaskStore
 
     async with PostgresTaskStore(pg_schema) as store:
+        yield store
+
+
+@pytest.fixture
+async def pg_flow_store(pg_schema: str) -> AsyncIterator[PostgresStore]:
+    """An open store for flows on empty flow tables."""
+    from neorc.postgres import PostgresStore
+
+    async with PostgresStore(pg_schema) as store:
         yield store
 
 
