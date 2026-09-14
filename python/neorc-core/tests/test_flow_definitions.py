@@ -414,6 +414,36 @@ def test_output_must_refer_to_a_task_or_sub_flow() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("content", "path"),
+    [
+        ({"steps": {"t": {"handler": "m:f\x00"}}}, "flow.steps.t.handler"),
+        (
+            {"steps": {"t": {"handler": "m:f", "fixed_params": {"x": "\x00"}}}},
+            "flow.steps.t.fixed_params.x",
+        ),
+        ({"steps": {"t\x00": {"handler": "\x00"}}}, "flow.steps: key 't\\x00'"),
+        ({"unknown": ["\x00"]}, "flow.unknown[0]"),
+    ],
+    ids=["handler", "fixed-param", "key", "unknown-field"],
+)
+def test_text_no_store_can_hold_is_refused_on_its_own(
+    content: dict[str, object], path: str
+) -> None:
+    """A NUL anywhere in the structure, which is stored whole, is the one problem."""
+    with pytest.raises(FlowDefinitionError) as caught:
+        parse_flow({"name": "f", "version": "1.0.0", **content})
+
+    (problem,) = caught.value.problems
+    assert problem.startswith(path)
+    assert "text holds NUL" in problem
+    assert "\x00" not in problem
+
+
+def test_nul_in_a_flow_file_is_refused() -> None:
+    assert "text holds NUL" in problems(flow('t: {handler: "m:f\\0"}'))
+
+
 def test_every_problem_is_reported_at_once() -> None:
     reported = problems(
         flow(

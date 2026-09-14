@@ -98,6 +98,38 @@ def test_invalid_value_is_a_value_error() -> None:
         encode({1, 2})
 
 
+@pytest.mark.parametrize(
+    "value",
+    [
+        "a\x00b",
+        {"key\x00": 1},
+        {"nested": ["\x00"]},
+        "\ud800",
+        {"\udfff": 1},
+    ],
+    ids=["nul", "nul-in-key", "nul-nested", "lone-surrogate", "surrogate-key"],
+)
+def test_text_no_store_can_hold_is_rejected_either_way(value: JsonValue) -> None:
+    """NUL and lone surrogates: Postgres text cannot store them, so nobody may."""
+    with pytest.raises(InvalidValueError):
+        encode(value)
+    with pytest.raises(InvalidValueError):
+        decode(value)
+
+
+def test_nul_in_json_text_is_rejected_when_loading() -> None:
+    with pytest.raises(InvalidValueError, match="NUL"):
+        loads('{"a": "x\\u0000y"}')
+
+
+def test_the_error_names_the_path_and_holds_no_nul_itself() -> None:
+    with pytest.raises(InvalidValueError, match=r"^input 'x'\.a\[1\]: text holds NUL"):
+        encode({"a": ["fine", "bad\x00"]}, path="input 'x'")
+    with pytest.raises(InvalidValueError) as caught:
+        decode({"k\x00": 1})
+    assert "\x00" not in str(caught.value)
+
+
 def test_size_limit_counts_utf8_bytes() -> None:
     fits = "x" * (MAX_PAYLOAD_BYTES - 2)
     ensure_fits(dumps(fits))

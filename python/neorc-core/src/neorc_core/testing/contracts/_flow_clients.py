@@ -157,6 +157,21 @@ class ManagerClientContract(_Clients):
         with pytest.raises(InvalidValueError):
             await manager_client.start_run("main", {"word": "red"})
 
+    async def test_text_no_store_can_hold_is_refused(
+        self, manager_client: ManagerClient
+    ) -> None:
+        """NUL in an input or a flow: refused here, as the deployed store would."""
+        await manager_client.upload_flows([MAIN, ECHO])
+        assert isinstance(ECHO, dict)
+
+        with pytest.raises(InvalidValueError, match="NUL"):
+            await manager_client.start_run("main", {"word": "re\x00d", "when": WHEN})
+        with pytest.raises(FlowDefinitionError, match="NUL"):
+            await manager_client.upload_flows(
+                [{**ECHO, "version": "1.1.0", "output": "tasks.say\x00"}]
+            )
+        assert (await manager_client.get_flow("echo")).version == Version(1, 0, 0)
+
     async def test_events_are_waited_for(self, manager_client: ManagerClient) -> None:
         assert await manager_client.wait_for_events(0, timeout=0) == []
         run_id = await self.started(manager_client)
@@ -352,6 +367,32 @@ class FlowQueueClientContract(_Clients):
 
         with pytest.raises(InvalidValueError):
             await queue_client.report_finished(delivery.task.id, result=result)
+
+    async def test_a_result_holding_nul_fails_the_task(
+        self, manager_client: ManagerClient, queue_client: FlowQueueClient
+    ) -> None:
+        """JSON carries NUL, so it reaches the manager, where no store may take it."""
+        run_id = await self.started(manager_client)
+        await manager_client.publish_task(run_id, WORK)
+        delivery = await self.take(queue_client)
+
+        await queue_client.report_finished(delivery.task.id, result=["ok", "\x00"])
+
+        state = await manager_client.run_state(run_id)
+        assert state.steps[WORK].outcome is Outcome.FAILED
+
+    async def test_an_error_holding_nul_is_taken(
+        self, manager_client: ManagerClient, queue_client: FlowQueueClient
+    ) -> None:
+        """A message is not a value: it is stored, NUL replaced, and fails the task."""
+        run_id = await self.started(manager_client)
+        await manager_client.publish_task(run_id, WORK)
+        delivery = await self.take(queue_client)
+
+        await queue_client.report_finished(delivery.task.id, error="bad\x00byte")
+
+        state = await manager_client.run_state(run_id)
+        assert state.steps[WORK].outcome is Outcome.FAILED
 
     async def test_a_task_of_a_cancelled_run_is_refused_its_start(
         self, manager_client: ManagerClient, queue_client: FlowQueueClient

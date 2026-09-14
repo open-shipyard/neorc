@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import uuid
 from datetime import UTC, datetime
 
@@ -357,6 +358,45 @@ class StoreContract:
         assert (await store.get_run(root.id)).status is RunStatus.CANCELLED
         assert (await store.get_run(unrelated.id)).status is RunStatus.ACTIVE
 
+    async def test_a_reason_is_stored_with_nul_replaced(self, store: Store) -> None:
+        """A reason is a message, not a value: kept, its NUL replaced."""
+        await self.upload(store)
+        failed = await self.start(store)
+        cancelled = await self.start(store)
+
+        await store.fail_run_tree(failed.id, "boom\x00!")
+        await store.cancel_run_tree(cancelled.id, "\x00")
+
+        assert (await store.get_run(failed.id)).reason == "boom�!"
+        assert (await store.get_run(cancelled.id)).reason == "�"
+
+    async def test_numbers_read_back_as_they_were_written(self, store: Store) -> None:
+        """What JSON tells apart, the store keeps apart: no numeric normalisation."""
+        await self.upload(store)
+        inputs: dict[str, JsonValue] = {
+            "big": 1e16,
+            "negative_zero": -0.0,
+            "huge": 10**20,
+            "whole": 1.0,
+        }
+
+        run = await store.start_run("a", Version(1, 0, 0), inputs)
+        task_id = await self.publish(store, run)
+        await store.claim_task("default", lease_seconds=30)
+        await store.finish_task(task_id, result=list(inputs.values()))
+
+        read = (await store.get_run(run.id)).inputs
+        result = (await store.get_task(task_id)).result
+        assert isinstance(result, list)
+        for value in (read["big"], result[0]):
+            assert isinstance(value, float) and value == 1e16
+        for value in (read["negative_zero"], result[1]):
+            assert isinstance(value, float) and math.copysign(1, value) == -1
+        for value in (read["huge"], result[2]):
+            assert isinstance(value, int) and value == 10**20
+        for value in (read["whole"], result[3]):
+            assert isinstance(value, float)
+
     async def test_an_unknown_run_is_reported_as_missing(self, store: Store) -> None:
         missing = uuid.uuid4()
         with pytest.raises(RunNotFoundError):
@@ -509,6 +549,17 @@ class StoreContract:
 
         assert failed.status is TaskStatus.FAILED
         assert failed.error == "ValueError: nope"
+
+    async def test_an_error_is_stored_with_nul_replaced(self, store: Store) -> None:
+        await self.upload(store)
+        run = await self.start(store)
+        task_id = await self.publish(store, run)
+        await store.claim_task("default", lease_seconds=30)
+
+        failed = await store.finish_task(task_id, error="Error: \x00 in \ud800")
+
+        assert failed.error == "Error: � in �"
+        assert (await store.get_task(task_id)).error == "Error: � in �"
 
     async def test_task_transitions_are_enforced(self, store: Store) -> None:
         await self.upload(store)

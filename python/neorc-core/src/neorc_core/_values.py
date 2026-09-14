@@ -31,23 +31,44 @@ MAX_JSON_DEPTH = 200
 DATETIME_TAG = "$datetime"
 RESERVED_PREFIX = "$"
 
+NUL = "\u0000"
+"""The one character a string may not hold: Postgres ``text`` cannot store it."""
 
-def encode(value: Any) -> JsonValue:
+
+def encode(value: Any, *, path: str = "value") -> JsonValue:
     """Turn a user value into its JSON form, tagging datetimes.
 
     Raises ``InvalidValueError`` for anything neorc does not carry: sets,
-    tuples, dates, naive datetimes, non-finite floats, non-string keys and keys
-    starting with ``$``.
+    tuples, dates, naive datetimes, non-finite floats, non-string keys, keys
+    starting with ``$``, and text no store can hold (see ``check_text``).
+    ``path`` names the value in the error.
     """
-    return _encode(value, "value")
+    return _encode(value, path)
 
 
-def decode(value: JsonValue) -> Any:
+def decode(value: JsonValue, *, path: str = "value") -> Any:
     """Turn a JSON form back into a user value, untagging datetimes.
 
-    Raises ``InvalidValueError`` for a malformed tag or any other ``$`` key.
+    Raises ``InvalidValueError`` for a malformed tag, any other ``$`` key, and
+    text no store can hold. ``path`` names the value in the error.
     """
-    return _decode(value, "value")
+    return _decode(value, path)
+
+
+def check_text(text: str, path: str) -> None:
+    """Raise ``InvalidValueError`` if ``text`` cannot be stored or sent.
+
+    NUL has no place in these values, and Postgres ``text`` and ``jsonb``
+    cannot hold it; a lone surrogate cannot be encoded as UTF-8. Every store
+    refuses both, so a value the in-memory store takes is one the deployed
+    store takes too.
+    """
+    if NUL in text:
+        raise InvalidValueError(f"{path}: text holds NUL (U+0000)")
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise InvalidValueError(f"{path}: text is not valid UTF-8: {exc}") from None
 
 
 def dumps(value: Any) -> str:
@@ -107,7 +128,10 @@ pass rather than being retried from every later quote, which is quadratic.
 
 def _encode(value: Any, path: str) -> JsonValue:
     # bool before int: a bool is an int in Python.
-    if value is None or isinstance(value, bool | str):
+    if value is None or isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        check_text(value, path)
         return value
     if isinstance(value, int):
         return value
@@ -141,6 +165,8 @@ def _decode(value: JsonValue, path: str) -> Any:
             _check_key(key, path)
             decoded[key] = _decode(item, f"{path}.{key}")
         return decoded
+    if isinstance(value, str):
+        check_text(value, path)
     return value
 
 
@@ -149,6 +175,7 @@ def _check_key(key: object, path: str) -> None:
         raise InvalidValueError(f"{path}: key {key!r} is not a string")
     if key.startswith(RESERVED_PREFIX):
         raise InvalidValueError(f"{path}: key {key!r} is reserved for neorc")
+    check_text(key, f"{path}: key {key!r}")
 
 
 def _parse_datetime(text: JsonValue, path: str) -> datetime:

@@ -190,6 +190,7 @@ async def test_inputs_of_their_declared_types_start_a_run(
             {"s": "x", "n": 1, "b": True, "d": {"$datetime": "2026-09-13T10:00:00"}},
             "'d' is not a datetime",
         ),
+        ({"s": "x\x00", "n": 1, "b": True, "d": NOW}, "input 's': text holds NUL"),
     ],
     ids=[
         "missing",
@@ -200,6 +201,7 @@ async def test_inputs_of_their_declared_types_start_a_run(
         "int-boolean",
         "untagged-datetime",
         "naive-datetime",
+        "nul",
     ],
 )
 async def test_inputs_are_checked_against_their_declared_types(

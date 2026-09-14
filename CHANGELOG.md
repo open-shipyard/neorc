@@ -71,5 +71,15 @@ one version, cut from a single tag on `main`.
 - Workers stop on `SIGINT` and `SIGTERM`, cutting an idle long poll short so
   shutdown does not outlast a supervisor's grace period. A task already being
   executed is always allowed to finish.
+- `neorc.postgres`: the tables for flows — `neorc_flow_versions`,
+  `neorc_runs`, `neorc_flow_tasks` and `neorc_events` — created by
+  `create_schema` next to `neorc_tasks`, with the row mapping to and from the
+  core's dataclasses. Values are stored as their compact JSON text, so numbers
+  read back exactly as written; a flow version's content is canonical JSON.
+- `neorc-core`: a string holding NUL, in a value or anywhere in a flow
+  definition, is refused in core before any store sees it, because Postgres
+  `text` cannot hold it and the in-memory store must refuse what the deployed
+  one would. Task errors and run reasons, which are messages, are stored with
+  NUL replaced instead.
 
 [Unreleased]: https://github.com/open-shipyard/neorc/commits/main
