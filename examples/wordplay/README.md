@@ -14,7 +14,52 @@ written as a tagged value, and has no output, so it prints `null`:
                    "requested_at": {"$datetime": "2026-09-13T10:00:00+00:00"}}'
 
 [python/neorc-core/tests/test_examples.py](../../python/neorc-core/tests/test_examples.py)
-runs both flows and asserts what they produce.
+runs both flows and asserts what they produce, in memory;
+[python/neorc/tests/test_end_to_end.py](../../python/neorc/tests/test_end_to_end.py)
+runs them deployed, as below.
+
+## Deployed
+
+The same flows on a manager, a scheduler and a worker per queue. Run each step
+from the repository root in its own terminal, after `uv sync`; the first two
+are the same as in [hello](../hello/README.md#deployed).
+
+1. Postgres (skip if you have one; set `NEORC_DATABASE_URL` to it instead):
+
+       uv run python examples/hello/postgres.py
+
+2. The manager:
+
+       export NEORC_DATABASE_URL=...   # from step 1
+       uv run neorc manager start --host 127.0.0.1 --create-schema
+
+3. Upload the flows:
+
+       uv run neorc flows upload --manager-address 127.0.0.1:8420 \
+           examples/wordplay/flows
+
+4. The scheduler:
+
+       uv run neorc scheduler start --manager-address 127.0.0.1:8420
+
+5. Two workers, one per queue: `score_words` runs on `scoring`, the rest on
+   `default`. Both serve the code in this directory:
+
+       uv run neorc worker start --manager-address 127.0.0.1:8420 \
+           --code-location examples/wordplay
+
+       uv run neorc worker start --manager-address 127.0.0.1:8420 \
+           --code-location examples/wordplay --queue scoring
+
+6. Start a run:
+
+       curl -X POST 127.0.0.1:8420/flows/word_picker/runs \
+           -H 'content-type: application/json' \
+           -d '{"inputs": {"sentence": "potato tomate berry watermelon", "preferred_letter": "t"}}'
+
+   The response carries the run's `id`; once it has succeeded,
+   `curl 127.0.0.1:8420/runs/<id>` shows `"output": ["potato", "tomate"]`, and
+   `curl 127.0.0.1:8420/runs/<id>/state` every step's result.
 
 [`flow_example.py`](../../docs/specs/flow_example.py) written the neorc way: the
 `while` and `for` loops move into flow files, and `tasks.py` keeps only plain

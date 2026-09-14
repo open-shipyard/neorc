@@ -5,7 +5,9 @@
 
 Nothing here is stubbed. If this passes, the pieces fit: a publisher enqueues
 over HTTP, the manager stores in Postgres, workers on their own clients claim
-without collisions, and the work comes back done.
+without collisions, and the work comes back done. The example scenarios of
+``neorc_core.testing.examples`` run here as they run in memory, with a
+scheduler and one worker per queue on the HTTP clients.
 """
 
 from __future__ import annotations
@@ -13,16 +15,21 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import socket
-from collections.abc import AsyncIterator
+import sys
+from collections.abc import AsyncIterator, Iterator
+from pathlib import Path
 
 import pytest
 import uvicorn
 
-from neorc.http import HttpQueueClient
+from neorc.http import HttpFlowQueueClient, HttpManagerClient, HttpQueueClient
 from neorc.manager import build_app
-from neorc_core import Task, TaskStatus, Worker
+from neorc_core import FlowWorker, Scheduler, Task, TaskStatus, Worker
+from neorc_core.testing import examples
 
 pytestmark = pytest.mark.postgres
+
+EXAMPLES = Path(__file__).parents[3] / "examples"
 
 
 def _free_port() -> int:
@@ -33,10 +40,10 @@ def _free_port() -> int:
 
 
 @pytest.fixture
-async def manager_address(database_url: str) -> AsyncIterator[str]:
+async def manager_address(pg_schema: str) -> AsyncIterator[str]:
     """A manager service listening on a real port, backed by a real database."""
     port = _free_port()
-    app = build_app(database_url, create_schema=True, long_poll_timeout=2)
+    app = build_app(pg_schema, create_schema=True, long_poll_timeout=2)
     config = uvicorn.Config(
         app, host="127.0.0.1", port=port, log_level="warning", lifespan="on"
     )
@@ -212,3 +219,78 @@ async def test_a_worker_waiting_on_an_empty_queue_starts_the_moment_work_arrives
         await asyncio.wait_for(running, timeout=40)
 
         assert elapsed < 2
+
+
+# The examples, deployed.
+
+
+@pytest.fixture
+def own_tasks_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Each example has a ``tasks`` module: import this one's, not another's."""
+    monkeypatch.setattr(sys, "path", list(sys.path))
+    monkeypatch.delitem(sys.modules, "tasks", raising=False)
+    yield
+    sys.modules.pop("tasks", None)
+
+
+@contextlib.asynccontextmanager
+async def deployed(
+    manager_address: str, example: str, queues: list[str]
+) -> AsyncIterator[HttpManagerClient]:
+    """A scheduler and a worker per queue on the HTTP clients, for the block."""
+    async with contextlib.AsyncExitStack() as stack:
+        client = await stack.enter_async_context(
+            HttpManagerClient(manager_address, poll_timeout=2)
+        )
+        scheduler = Scheduler(
+            await stack.enter_async_context(
+                HttpManagerClient(manager_address, poll_timeout=2)
+            ),
+            poll_timeout=2,
+        )
+        workers = [
+            FlowWorker(
+                await stack.enter_async_context(
+                    HttpFlowQueueClient(manager_address, poll_timeout=2)
+                ),
+                queue=queue,
+                code_location=EXAMPLES / example,
+                poll_timeout=2,
+                lease_seconds=5,
+            )
+            for queue in queues
+        ]
+        running = [asyncio.create_task(scheduler.run())]
+        running += [asyncio.create_task(worker.run()) for worker in workers]
+        try:
+            yield client
+        finally:
+            scheduler.stop()
+            for worker in workers:
+                worker.stop()
+            await asyncio.wait_for(
+                asyncio.gather(*running, return_exceptions=True), timeout=30
+            )
+
+
+@pytest.mark.usefixtures("own_tasks_module")
+@pytest.mark.parametrize("flow", ["a", "b"])
+async def test_hello_runs_deployed(
+    manager_address: str, flow: str, capfd: pytest.CaptureFixture[str]
+) -> None:
+    async with deployed(manager_address, "hello", ["default"]) as client:
+        await examples.hello(client, EXAMPLES, flow)
+
+    assert capfd.readouterr().out == f"{flow}\n"
+
+
+@pytest.mark.usefixtures("own_tasks_module")
+async def test_word_picker_runs_deployed(manager_address: str) -> None:
+    async with deployed(manager_address, "wordplay", ["default", "scoring"]) as client:
+        await examples.word_picker(client, EXAMPLES)
+
+
+@pytest.mark.usefixtures("own_tasks_module")
+async def test_word_picker_rounds_runs_deployed(manager_address: str) -> None:
+    async with deployed(manager_address, "wordplay", ["default", "scoring"]) as client:
+        await examples.word_picker_rounds(client, EXAMPLES)

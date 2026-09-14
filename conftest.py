@@ -31,6 +31,7 @@ if TYPE_CHECKING:
 # Before a test module imports the contract suites, so their asserts explain a
 # failure the way asserts in test modules do.
 pytest.register_assert_rewrite("neorc_core.testing.contracts")
+pytest.register_assert_rewrite("neorc_core.testing.examples")
 
 DATABASE_URL_ENV = "NEORC_TEST_DATABASE_URL"
 

@@ -3,5 +3,7 @@
 
 """Helpers for testing neorc and its adapters. Needs pytest and pytest-asyncio.
 
+``contracts`` holds the suites every adapter must pass; ``examples`` the
+scenarios that run the repository's examples through any ``ManagerClient``.
 The in-memory adapters themselves live in ``neorc_core.local``.
 """
