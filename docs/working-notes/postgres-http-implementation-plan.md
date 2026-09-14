@@ -32,7 +32,7 @@ than Postgres.
 | 4  | Manager routes for flows and runs                 | done   |
 | 5  | Manager routes for the scheduler and workers      | done   |
 | 6  | HTTP clients for flows                            | done   |
-| 7  | Manager service on Postgres, two channels         | todo   |
+| 7  | Manager service on Postgres, two channels         | done   |
 | 8  | `flows upload`, `scheduler start`, `worker start` | todo   |
 | 9  | The examples end to end, deployed                 | todo   |
 | 10 | Remove the task API                               | todo   |

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 
+import psycopg
 import pytest
 
 from neorc.postgres import PostgresTaskNotifier, PostgresTaskStore
@@ -114,3 +115,106 @@ async def test_a_waiting_worker_is_woken_by_a_publish(
     assert picked is not None
     # Woken by the announcement, not by falling out of the poll timeout.
     assert loop.time() - started < 2
+
+
+async def _cut(database_url: str, query_like: str) -> None:
+    """End every server backend running a query like ``query_like``: a dropped link."""
+    async with await psycopg.AsyncConnection.connect(
+        database_url, autocommit=True
+    ) as conn:
+        await conn.execute(
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity"
+            " WHERE pid <> pg_backend_pid() AND query LIKE %s",
+            (query_like,),
+        )
+
+
+async def test_an_announcement_survives_its_connection_breaking(
+    database_url: str, pg_notifier: PostgresTaskNotifier
+) -> None:
+    """A hint must not turn a committed write into an error: reconnect and send."""
+    async with (
+        PostgresTaskNotifier(database_url) as elsewhere,
+        pg_notifier.subscribe() as subscription,
+    ):
+        await elsewhere.notify()  # so the sending connection has run a query
+        assert await subscription.wait(timeout=5) is True
+        await _cut(database_url, "SELECT pg_notify%")
+        await asyncio.sleep(0.1)
+
+        await asyncio.gather(*(elsewhere.notify() for _ in range(20)))
+
+        assert await subscription.wait(timeout=5) is True
+        # One sending connection, reopened; none left behind.
+        async with await psycopg.AsyncConnection.connect(database_url) as conn:
+            cursor = await conn.execute(
+                "SELECT count(*) FROM pg_stat_activity WHERE query LIKE %s",
+                ("SELECT pg_notify%",),
+            )
+            row = await cursor.fetchone()
+        assert row is not None and row[0] <= 2  # this notifier's, and the fixture's
+
+
+async def test_a_mark_to_announce_never_waits_on_the_link(
+    database_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The write has committed; a stuck link costs waiters latency, not callers."""
+    stuck = asyncio.Event()
+
+    class Stuck:
+        closed = False
+
+        async def execute(self, *args: object) -> None:
+            stuck.set()
+            await asyncio.sleep(3600)
+
+        async def close(self) -> None:
+            self.closed = True
+
+    async def connect_stuck() -> Stuck:
+        return Stuck()
+
+    notifier = PostgresTaskNotifier(database_url)
+    async with notifier, notifier.subscribe() as subscription:
+        await notifier.notify()  # so the sending connection has run a query
+        assert await subscription.wait(timeout=5) is True
+        monkeypatch.setattr(notifier, "_connect", connect_stuck)
+        await _cut(database_url, "SELECT pg_notify%")
+        await asyncio.sleep(0.1)
+
+        loop = asyncio.get_running_loop()
+        begun = loop.time()
+        await notifier.notify()
+        await notifier.notify()
+        elapsed = loop.time() - begun
+
+        assert elapsed < 0.5
+        await asyncio.wait_for(stuck.wait(), timeout=5)
+    # aclose returned: a stuck announcement does not hold the manager's shutdown.
+
+
+async def test_a_listener_that_breaks_is_reopened_and_wakes_its_waiters(
+    database_url: str,
+    pg_notifier: PostgresTaskNotifier,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from neorc.postgres import _notifier
+
+    monkeypatch.setattr(_notifier, "RECONNECT_SECONDS", 0.05)
+    async with (
+        PostgresTaskNotifier(database_url) as elsewhere,
+        pg_notifier.subscribe() as subscription,
+    ):
+        await _cut(database_url, "LISTEN %")  # every listener, server-side
+        # Reopening wakes waiters once, for what was missed meanwhile.
+        assert await subscription.wait(timeout=5) is True
+
+        async def announce() -> None:
+            await asyncio.sleep(0.2)
+            await elsewhere.notify()
+
+        async with asyncio.TaskGroup() as group:
+            group.create_task(announce())
+            woken = await subscription.wait(timeout=5)
+
+    assert woken is True
