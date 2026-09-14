@@ -107,9 +107,27 @@ export const RETRY_MS = 2000;
 export function useLiveEvents(): void {
   const client = useQueryClient();
   useEffect(() => {
-    const controller = new AbortController();
-    void follow(client, controller.signal);
-    return () => controller.abort();
+    // A hidden tab polls nothing: a browser allows only a few connections to
+    // a host, shared by every tab, and a long poll holds one. A tab shown
+    // again starts over, which refetches everything it may have missed.
+    let controller: AbortController | null = null;
+    const start = () => {
+      if (controller === null && !document.hidden) {
+        controller = new AbortController();
+        void follow(client, controller.signal);
+      }
+    };
+    const stop = () => {
+      controller?.abort();
+      controller = null;
+    };
+    const onVisibility = () => (document.hidden ? stop() : start());
+    document.addEventListener("visibilitychange", onVisibility);
+    start();
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      stop();
+    };
   }, [client]);
 }
 

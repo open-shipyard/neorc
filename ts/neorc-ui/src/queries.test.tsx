@@ -1,8 +1,9 @@
-import { QueryClient, QueryObserver } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, QueryObserver } from "@tanstack/react-query";
+import { renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ApiEvent } from "./api";
-import { follow, keys, refresh } from "./queries";
+import { follow, keys, refresh, useLiveEvents } from "./queries";
 import { ACTIVE, SUCCEEDED, event } from "./test/fixtures";
 import { mockApi, neverAnswers } from "./test/render";
 
@@ -144,5 +145,43 @@ describe("refresh", () => {
 
     expect(calls).toBe(2);
     unsubscribe();
+  });
+});
+
+describe("useLiveEvents", () => {
+  it("polls only while the tab is shown, starting over when it is shown again", async () => {
+    const api = mockApi({
+      "/events/latest": { sequence: 5 },
+      "/events": () => neverAnswers(),
+    });
+    let hidden = false;
+    Object.defineProperty(document, "hidden", { configurable: true, get: () => hidden });
+    const client = new QueryClient();
+
+    const { unmount } = renderHook(() => useLiveEvents(), {
+      wrapper: ({ children }) => (
+        <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      ),
+    });
+    await vi.waitFor(() => expect(api.calls).toHaveLength(2));
+    const poll = api.calls[1]?.init?.signal;
+    expect(poll?.aborted).toBe(false);
+
+    hidden = true;
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(poll?.aborted).toBe(true);
+
+    hidden = false;
+    document.dispatchEvent(new Event("visibilitychange"));
+    await vi.waitFor(() => expect(api.calls).toHaveLength(4));
+    expect(asked(api).map((call) => call.path)).toEqual([
+      "/events/latest",
+      "/events",
+      "/events/latest",
+      "/events",
+    ]);
+
+    unmount();
+    expect(api.calls[3]?.init?.signal?.aborted).toBe(true);
   });
 });

@@ -105,7 +105,8 @@ export function RunsPage({ flow, status }: { flow?: string; status?: string }) {
       {runs.hasNextPage && (
         <button
           type="button"
-          onClick={() => void runs.fetchNextPage()}
+          // Not at the cost of a refetch an event started: see queries.ts.
+          onClick={() => void runs.fetchNextPage({ cancelRefetch: false })}
           disabled={runs.isFetchingNextPage}
         >
           {runs.isFetchingNextPage ? "Loading…" : "Older runs"}
