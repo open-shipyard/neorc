@@ -3,9 +3,9 @@
 
 """The manager's HTTP routes: a translation onto ``Manager``.
 
-Flows and runs for whoever deploys and starts them; events, tasks and sub-runs
-for the scheduler; task definitions, long-polled tasks, starts, heartbeats and
-results for workers.
+Flows and runs for whoever deploys and starts them, and the listings a status
+page reads; events, tasks and sub-runs for the scheduler; task definitions,
+long-polled tasks, starts, heartbeats and results for workers.
 
 Bodies and responses are the ``neorc_core._wire`` forms, so the direct and
 HTTP clients send the same JSON. A request body is read as bytes, capped, and
@@ -30,12 +30,14 @@ from neorc_core import (
     Manager,
     PayloadTooLargeError,
     RunId,
+    RunStatus,
     TaskId,
 )
 from neorc_core import _wire as wire
 from neorc_core._values import ensure_json_depth
 from neorc_core.flows import Address, Reference, Version
 from neorc_core.ports._clients import DEFAULT_LEASE_SECONDS
+from neorc_core.ports._store import DEFAULT_PAGE
 
 MAX_BODY_BYTES = 16 * 1024 * 1024
 """The largest request body, well above the payload limit core enforces.
@@ -43,6 +45,9 @@ MAX_BODY_BYTES = 16 * 1024 * 1024
 Only to protect the process: the size rules stay in core, where they apply to
 what the in-memory manager receives too.
 """
+
+MAX_PAGE = 500
+"""The most runs one page of ``GET /runs`` may ask for."""
 
 
 def _get_manager(request: Request) -> Manager:
@@ -121,7 +126,31 @@ class StartRunRequest(BaseModel):
     inputs: dict[str, Any]
 
 
-router = APIRouter()
+class ErrorResponse(BaseModel):
+    """What a refused request answers, whatever its status; see ``neorc._errors``.
+
+    ``error`` names the core exception, so a client raises the same one;
+    ``problems`` lists each fault of an invalid flow set.
+    """
+
+    error: str
+    detail: str
+    problems: list[str] | None = None
+
+
+_ERROR = {"model": ErrorResponse, "description": "The exception the manager raised"}
+
+# Every refusal has this one body, so the schema says so instead of FastAPI's
+# default 422 shape, which the application never sends; the UI generates its
+# types from the schema.
+router = APIRouter(
+    responses={
+        status.HTTP_404_NOT_FOUND: _ERROR,
+        status.HTTP_409_CONFLICT: _ERROR,
+        status.HTTP_413_CONTENT_TOO_LARGE: _ERROR,
+        status.HTTP_422_UNPROCESSABLE_CONTENT: _ERROR,
+    }
+)
 
 
 def _flow_response(flow: Any) -> dict[str, Any]:
@@ -135,10 +164,22 @@ async def upload_flows(request: Request, manager: Managed) -> dict[str, list[boo
     return {"stored": await manager.upload_flows(body.flows)}
 
 
+@router.get("/flows")
+async def list_flows(manager: Managed) -> dict[str, list[dict[str, Any]]]:
+    """The latest version of every flow, by name."""
+    return {"flows": [_flow_response(f) for f in await manager.latest_flows()]}
+
+
 @router.get("/flows/{name}")
 async def get_latest_flow(manager: Managed, name: str) -> dict[str, Any]:
     """A flow's latest version, with its content as uploaded."""
     return _flow_response(await manager.get_flow(name))
+
+
+@router.get("/flows/{name}/versions")
+async def flow_versions(manager: Managed, name: str) -> dict[str, list[dict[str, Any]]]:
+    """Every stored version of a flow, newest first."""
+    return {"versions": [_flow_response(f) for f in await manager.flow_versions(name)]}
 
 
 @router.get("/flows/{name}/versions/{version}")
@@ -159,10 +200,38 @@ async def start_run(request: Request, manager: Managed, name: str) -> JSONRespon
     return JSONResponse(wire.run_to(run), status_code=status.HTTP_201_CREATED)
 
 
+@router.get("/runs")
+async def list_runs(
+    manager: Managed,
+    flow: str | None = None,
+    status: RunStatus | None = None,
+    root_only: bool = True,
+    before: RunId | None = None,
+    limit: Annotated[int, Query(ge=1, le=MAX_PAGE)] = DEFAULT_PAGE,
+) -> dict[str, list[dict[str, Any]]]:
+    """A page of runs, newest first; ``before`` is the last run of the previous page."""
+    runs = await manager.list_runs(
+        flow=flow, status=status, root_only=root_only, before=before, limit=limit
+    )
+    return {"runs": [wire.run_to(run) for run in runs]}
+
+
 @router.get("/runs/{run_id}")
 async def get_run(manager: Managed, run_id: RunId) -> dict[str, Any]:
     """A run, for a status query."""
     return wire.run_to(await manager.get_run(run_id))
+
+
+@router.get("/runs/{run_id}/tasks")
+async def run_tasks(manager: Managed, run_id: RunId) -> dict[str, list[dict[str, Any]]]:
+    """A run's tasks, in the order they were published."""
+    return {"tasks": [wire.task_to(t) for t in await manager.run_tasks(run_id)]}
+
+
+@router.get("/runs/{run_id}/sub-runs")
+async def sub_runs(manager: Managed, run_id: RunId) -> dict[str, list[dict[str, Any]]]:
+    """A run's direct sub-flow runs, in the order they started."""
+    return {"runs": [wire.run_to(r) for r in await manager.sub_runs(run_id)]}
 
 
 @router.post("/runs/{run_id}/cancel", status_code=status.HTTP_204_NO_CONTENT)
@@ -322,6 +391,12 @@ async def pick_next_task(
     if delivery is None:
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     return JSONResponse(wire.delivery_to(delivery))
+
+
+@router.get("/tasks/{task_id}")
+async def get_task(manager: Managed, task_id: TaskId) -> dict[str, Any]:
+    """A task, for a status query."""
+    return wire.task_to(await manager.get_task(task_id))
 
 
 @router.post("/tasks/{task_id}/started", status_code=status.HTTP_204_NO_CONTENT)

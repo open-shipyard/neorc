@@ -347,3 +347,82 @@ async def test_a_result_the_manager_refuses_fails_the_task(
     assert finished.status_code == 204
     (step,) = state.json()["steps"]
     assert step["outcome"] == "failed"
+
+
+# The listings a status page reads.
+
+
+async def test_flows_versions_runs_tasks_and_sub_runs_are_listed(
+    http: httpx.AsyncClient,
+) -> None:
+    caller: JsonValue = {
+        "name": "caller",
+        "version": "1.0.0",
+        "steps": {"call": {"flow": "main", "fixed_params": {"word": "x"}}},
+    }
+    await http.post("/flows", json={"flows": [MAIN, caller]})
+    assert isinstance(MAIN, dict)
+    await http.post("/flows", json={"flows": [{**MAIN, "version": "1.1.0"}]})
+    first = (await http.post("/flows/caller/runs", json={"inputs": {}})).json()["id"]
+    second = await _started(http)
+    await http.post(f"/runs/{second}/tasks", json={"address": WORK})
+    sub_run = await http.post(
+        f"/runs/{first}/sub-runs", json={"address": {"step": "call", "scope": []}}
+    )
+    await http.post(f"/runs/{second}/cancel")
+
+    flows = await http.get("/flows")
+    versions = await http.get("/flows/main/versions")
+    runs = await http.get("/runs")
+    page = await http.get("/runs", params={"limit": 1})
+    rest = await http.get("/runs", params={"limit": 1, "before": second})
+    cancelled = await http.get("/runs", params={"status": "cancelled"})
+    everything = await http.get("/runs", params={"root_only": "false", "flow": "main"})
+    tasks = await http.get(f"/runs/{second}/tasks")
+    children = await http.get(f"/runs/{first}/sub-runs")
+    task_id = tasks.json()["tasks"][0]["id"]
+    task = await http.get(f"/tasks/{task_id}")
+
+    assert flows.status_code == 200
+    assert [(f["name"], f["version"]) for f in flows.json()["flows"]] == [
+        ("caller", "1.0.0"),
+        ("main", "1.1.0"),
+    ]
+    assert [v["version"] for v in versions.json()["versions"]] == ["1.1.0", "1.0.0"]
+    assert [r["id"] for r in runs.json()["runs"]] == [second, first]
+    assert [r["id"] for r in page.json()["runs"]] == [second]
+    assert [r["id"] for r in rest.json()["runs"]] == [first]
+    assert [r["id"] for r in cancelled.json()["runs"]] == [second]
+    assert {r["id"] for r in everything.json()["runs"]} == {
+        second,
+        sub_run.json()["id"],
+    }
+    assert [t["address"] for t in tasks.json()["tasks"]] == [WORK]
+    assert tasks.json()["tasks"][0]["created_at"] is not None
+    assert [r["id"] for r in children.json()["runs"]] == [sub_run.json()["id"]]
+    assert task.status_code == 200 and task.json()["id"] == task_id
+
+
+async def test_listing_requests_are_validated_and_misses_are_404(
+    http: httpx.AsyncClient,
+) -> None:
+    await http.post("/flows", json={"flows": [MAIN]})
+    missing = uuid.uuid4()
+
+    no_versions = await http.get("/flows/nothing/versions")
+    no_tasks = await http.get(f"/runs/{missing}/tasks")
+    no_children = await http.get(f"/runs/{missing}/sub-runs")
+    no_task = await http.get(f"/tasks/{missing}")
+    no_before = await http.get("/runs", params={"before": str(missing)})
+    bad_before = await http.get("/runs", params={"before": "yesterday"})
+    bad_status = await http.get("/runs", params={"status": "done"})
+    bad_limit = await http.get("/runs", params={"limit": 0})
+    huge_limit = await http.get("/runs", params={"limit": 10_000})
+    bad_flow = await http.get("/runs", params={"flow": "a/b"})
+
+    assert (no_versions.status_code, _error(no_versions)) == (404, "FlowNotFoundError")
+    for response in (no_tasks, no_children, no_before):
+        assert (response.status_code, _error(response)) == (404, "RunNotFoundError")
+    assert (no_task.status_code, _error(no_task)) == (404, "TaskNotFoundError")
+    for response in (bad_before, bad_status, bad_limit, huge_limit, bad_flow):
+        assert (response.status_code, _error(response)) == (422, "InvalidValueError")
