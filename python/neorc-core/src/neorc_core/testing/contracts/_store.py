@@ -636,6 +636,142 @@ class StoreContract:
         with pytest.raises(TaskNotFoundError):
             await store.finish_task(missing, result=1)
 
+    # Listing and times.
+
+    async def test_runs_are_listed_newest_first_by_page(self, store: Store) -> None:
+        await self.upload(store)
+        runs = [await self.start(store) for _ in range(5)]
+        newest_first = list(reversed(runs))
+
+        everything = await store.list_runs()
+        first = await store.list_runs(limit=2)
+        second = await store.list_runs(limit=2, before=first[-1].id)
+        last = await store.list_runs(limit=2, before=second[-1].id)
+
+        assert everything == newest_first
+        assert first + second + last == newest_first
+        assert await store.list_runs(before=last[-1].id) == []
+        with pytest.raises(RunNotFoundError):
+            await store.list_runs(before=uuid.uuid4())
+
+    async def test_runs_are_filtered_by_flow_status_and_depth(
+        self, store: Store
+    ) -> None:
+        root, active, finished = await self.tree(store)
+        await self.upload(store, "c")
+        other = await self.start(store, "c")
+        await store.cancel_run_tree(other.id, "by hand")
+
+        roots = await store.list_runs()
+        everything = await store.list_runs(root_only=False)
+        of_b = await store.list_runs(flow="b", root_only=False)
+        succeeded = await store.list_runs(status=RunStatus.SUCCEEDED, root_only=False)
+        cancelled_c = await store.list_runs(flow="c", status=RunStatus.CANCELLED)
+
+        assert {run.id for run in roots} == {root.id, other.id}
+        assert {run.id for run in everything} == {
+            root.id,
+            active.id,
+            finished.id,
+            other.id,
+        }
+        assert {run.id for run in of_b} == {active.id, finished.id}
+        assert [run.id for run in succeeded] == [finished.id]
+        assert [run.id for run in cancelled_c] == [other.id]
+        assert await store.list_runs(flow="nobody") == []
+
+    async def test_a_flows_versions_are_listed_newest_first(self, store: Store) -> None:
+        await self.upload(store, version="1.0.0")
+        await self.upload(store, version="1.2.0", handler="tasks:other")
+        await self.upload(store, version="1.10.0")
+        await self.upload(store, "b")
+
+        versions = await store.flow_versions("a")
+
+        assert [str(flow.version) for flow in versions] == ["1.10.0", "1.2.0", "1.0.0"]
+        assert versions[1].content == _content("a", "1.2.0", "tasks:other")
+        with pytest.raises(FlowNotFoundError):
+            await store.flow_versions("nobody")
+
+    async def test_a_runs_tasks_are_listed_in_publishing_order(
+        self, store: Store
+    ) -> None:
+        await self.upload(store)
+        run = await self.start(store)
+        other = await self.start(store)
+        published = [
+            await self.publish(store, run, Address(name)) for name in ("c", "a", "b")
+        ]
+        await self.publish(store, other, Address("elsewhere"))
+        await store.claim_task("default", lease_seconds=30)
+
+        tasks = await store.run_tasks(run.id)
+
+        assert [task.id for task in tasks] == published
+        assert tasks[0].status is TaskStatus.CLAIMED
+        assert await store.run_tasks(other.id) != []
+        with pytest.raises(RunNotFoundError):
+            await store.run_tasks(uuid.uuid4())
+
+    async def test_a_runs_sub_runs_are_its_direct_children(self, store: Store) -> None:
+        root, active, finished = await self.tree(store)
+
+        children = await store.sub_runs(root.id)
+
+        # ``active`` started first; ``finished`` is read as it is now, succeeded.
+        assert [run.id for run in children] == [active.id, finished.id]
+        assert [run.status for run in children] == [
+            RunStatus.ACTIVE,
+            RunStatus.SUCCEEDED,
+        ]
+        assert await store.sub_runs(active.id) == []
+        with pytest.raises(RunNotFoundError):
+            await store.sub_runs(uuid.uuid4())
+
+    async def test_the_store_times_runs_and_tasks(self, store: Store) -> None:
+        """Times come from the store's clock, with a zone, and follow the events."""
+        await self.upload(store)
+        run = await self.start(store)
+        task_id = await self.publish(store, run)
+        claimed = await store.claim_task("default", lease_seconds=30)
+        started = await store.start_task(task_id)
+        finished = await store.finish_task(task_id, result=1)
+        succeeded = await store.succeed_run(run.id, None)
+        cancelled = await self.start(store)
+        await store.cancel_run_tree(cancelled.id, "by hand")
+
+        assert run.created_at is not None and run.finished_at is None
+        assert run.created_at.tzinfo is not None
+        assert succeeded.finished_at is not None
+        assert run.created_at <= succeeded.finished_at
+        assert (await store.get_run(run.id)).finished_at == succeeded.finished_at
+        assert (await store.get_run(cancelled.id)).finished_at is not None
+
+        published = await store.get_task(task_id)
+        assert claimed is not None
+        assert claimed.created_at is not None and claimed.started_at is None
+        assert run.created_at <= claimed.created_at
+        assert started.started_at is not None and started.finished_at is None
+        assert finished.started_at == started.started_at
+        assert finished.finished_at is not None
+        assert claimed.created_at <= started.started_at <= finished.finished_at
+        assert published.finished_at == finished.finished_at
+
+    async def test_a_task_refused_its_start_is_timed_as_finished(
+        self, store: Store
+    ) -> None:
+        await self.upload(store)
+        run = await self.start(store)
+        task_id = await self.publish(store, run)
+        await store.claim_task("default", lease_seconds=30)
+        await store.cancel_run_tree(run.id, "by hand")
+
+        with pytest.raises(RunStateError):
+            await store.start_task(task_id)
+
+        task = await store.get_task(task_id)
+        assert task.started_at is None and task.finished_at is not None
+
     # State and events.
 
     async def test_a_runs_state_holds_its_tasks_and_sub_flow_runs(

@@ -88,6 +88,7 @@ from neorc_core._runs import (
 from neorc_core._values import JsonValue, dumps_json
 from neorc_core.flows import Address, Reference, RunState, Version
 from neorc_core.ports._clients import DEFAULT_LEASE_SECONDS
+from neorc_core.ports._store import DEFAULT_PAGE
 
 _LOCK_SPACE = 0x6E656F72  # "neor": keeps clear of other advisory locks in the database
 UPLOAD_LOCK = (_LOCK_SPACE, 1)
@@ -293,6 +294,28 @@ class PostgresStore(Pooled, Store):
         async with self.pool.connection() as conn:
             cursor = await conn.execute(_SELECT_LATEST_FLOWS)
             return [flow_from_row(row) for row in await cursor.fetchall()]
+
+    # The listing queries arrive with the timestamp columns, in the next step.
+
+    async def flow_versions(self, name: str) -> list[StoredFlow]:
+        raise NotImplementedError("flow_versions is not on Postgres yet")
+
+    async def list_runs(
+        self,
+        *,
+        flow: str | None = None,
+        status: RunStatus | None = None,
+        root_only: bool = True,
+        before: RunId | None = None,
+        limit: int = DEFAULT_PAGE,
+    ) -> list[Run]:
+        raise NotImplementedError("list_runs is not on Postgres yet")
+
+    async def run_tasks(self, run_id: RunId) -> list[Task]:
+        raise NotImplementedError("run_tasks is not on Postgres yet")
+
+    async def sub_runs(self, run_id: RunId) -> list[Run]:
+        raise NotImplementedError("sub_runs is not on Postgres yet")
 
     async def start_run(
         self,

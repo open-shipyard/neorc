@@ -37,7 +37,7 @@ from neorc_core._task import LEASED_STATUSES, TaskId, TaskStatus, ensure_transit
 from neorc_core._values import JsonValue
 from neorc_core.flows import Address, Reference, RunState, Version
 from neorc_core.ports._clients import DEFAULT_LEASE_SECONDS
-from neorc_core.ports._store import Store
+from neorc_core.ports._store import DEFAULT_PAGE, Store
 
 
 class MemoryStore(Store):
@@ -85,6 +85,51 @@ class MemoryStore(Store):
                 if versions
             ]
 
+    async def flow_versions(self, name: str) -> list[StoredFlow]:
+        async with self._lock:
+            versions = self._flows.get(name)
+            if not versions:
+                raise FlowNotFoundError(f"no flow {name!r}")
+            return [versions[v] for v in sorted(versions, reverse=True)]
+
+    async def list_runs(
+        self,
+        *,
+        flow: str | None = None,
+        status: RunStatus | None = None,
+        root_only: bool = True,
+        before: RunId | None = None,
+        limit: int = DEFAULT_PAGE,
+    ) -> list[Run]:
+        async with self._lock:
+            # The dictionary keeps the order runs started in: the order to list
+            # and page by, since the clock may give two runs the same time.
+            started = list(self._runs.values())
+            if before is not None:
+                self._run(before)
+                started = started[: [run.id for run in started].index(before)]
+            started.reverse()
+            runs = [
+                run
+                for run in started
+                if (flow is None or run.flow == flow)
+                and (status is None or run.status is status)
+                and (not root_only or run.parent_id is None)
+            ]
+            return runs[:limit]
+
+    async def run_tasks(self, run_id: RunId) -> list[Task]:
+        async with self._lock:
+            self._run(run_id)
+            # Publishing order: the dictionary keeps it.
+            return [task for task in self._tasks.values() if task.run_id == run_id]
+
+    async def sub_runs(self, run_id: RunId) -> list[Run]:
+        async with self._lock:
+            self._run(run_id)
+            # In the order they started: the dictionary keeps it.
+            return [run for run in self._runs.values() if run.parent_id == run_id]
+
     async def start_run(
         self,
         flow: str,
@@ -123,6 +168,7 @@ class MemoryStore(Store):
                 root_id=root_id,
                 parent_id=parent_id,
                 parent_address=parent_address,
+                created_at=datetime.now(UTC),
             )
             self._runs[run_id] = run
             self._append(run_id, EventKind.RUN_STARTED)
@@ -143,7 +189,12 @@ class MemoryStore(Store):
         async with self._lock:
             run = self._run(run_id)
             ensure_active(run)
-            succeeded = replace(run, status=RunStatus.SUCCEEDED, output=output)
+            succeeded = replace(
+                run,
+                status=RunStatus.SUCCEEDED,
+                output=output,
+                finished_at=datetime.now(UTC),
+            )
             self._runs[run_id] = succeeded
             self._append(run_id, EventKind.RUN_FINISHED)
             return succeeded
@@ -180,6 +231,7 @@ class MemoryStore(Store):
                 handler=handler,
                 params=dict(params),
                 fixed_params=dict(fixed_params),
+                created_at=datetime.now(UTC),
             )
             self._tasks[task_id] = task
             return task
@@ -206,15 +258,19 @@ class MemoryStore(Store):
             task = self._task(task_id)
             ensure_transition(task.status, TaskStatus.RUNNING)
             run = self._run(task.run_id)
+            now = datetime.now(UTC)
             if run.status is not RunStatus.ACTIVE:
                 self._tasks[task_id] = replace(
                     task,
                     status=TaskStatus.FAILED,
                     error=f"run {run.id} is {run.status.value}",
                     lease_expires_at=None,
+                    finished_at=now,
                 )
                 ensure_active(run)
-            started = replace(task, status=TaskStatus.RUNNING)
+            started = replace(
+                task, status=TaskStatus.RUNNING, started_at=task.started_at or now
+            )
             self._tasks[task_id] = started
             return started
 
@@ -244,6 +300,7 @@ class MemoryStore(Store):
                 result=result if error is None else None,
                 error=storable_text(error) if error is not None else None,
                 lease_expires_at=None,
+                finished_at=datetime.now(UTC),
             )
             self._tasks[task_id] = finished
             self._append(task.run_id, EventKind.TASK_FINISHED)
@@ -284,9 +341,12 @@ class MemoryStore(Store):
 
     def _finish_tree(self, root_id: RunId, status: RunStatus, reason: str) -> None:
         reason = storable_text(reason)
+        now = datetime.now(UTC)
         for run in list(self._runs.values()):
             if run.root_id == root_id and run.status is RunStatus.ACTIVE:
-                self._runs[run.id] = replace(run, status=status, reason=reason)
+                self._runs[run.id] = replace(
+                    run, status=status, reason=reason, finished_at=now
+                )
                 self._append(run.id, EventKind.RUN_FINISHED)
 
 

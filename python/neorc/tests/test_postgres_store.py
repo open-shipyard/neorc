@@ -50,10 +50,49 @@ from neorc_core.testing.contracts import StoreContract
 pytestmark = pytest.mark.postgres
 
 
+_NOT_YET = pytest.mark.xfail(
+    strict=True, reason="the listing queries and timestamps come in the next step"
+)
+
+
 class TestPostgresStore(StoreContract):
     @pytest.fixture
     def store(self, pg_store: PostgresStore) -> Store:
         return pg_store
+
+    @_NOT_YET
+    async def test_runs_are_listed_newest_first_by_page(self, store: Store) -> None:
+        await super().test_runs_are_listed_newest_first_by_page(store)
+
+    @_NOT_YET
+    async def test_runs_are_filtered_by_flow_status_and_depth(
+        self, store: Store
+    ) -> None:
+        await super().test_runs_are_filtered_by_flow_status_and_depth(store)
+
+    @_NOT_YET
+    async def test_a_flows_versions_are_listed_newest_first(self, store: Store) -> None:
+        await super().test_a_flows_versions_are_listed_newest_first(store)
+
+    @_NOT_YET
+    async def test_a_runs_tasks_are_listed_in_publishing_order(
+        self, store: Store
+    ) -> None:
+        await super().test_a_runs_tasks_are_listed_in_publishing_order(store)
+
+    @_NOT_YET
+    async def test_a_runs_sub_runs_are_its_direct_children(self, store: Store) -> None:
+        await super().test_a_runs_sub_runs_are_its_direct_children(store)
+
+    @_NOT_YET
+    async def test_the_store_times_runs_and_tasks(self, store: Store) -> None:
+        await super().test_the_store_times_runs_and_tasks(store)
+
+    @_NOT_YET
+    async def test_a_task_refused_its_start_is_timed_as_finished(
+        self, store: Store
+    ) -> None:
+        await super().test_a_task_refused_its_start_is_timed_as_finished(store)
 
 
 async def test_transactions_run_in_read_committed_whatever_the_default(

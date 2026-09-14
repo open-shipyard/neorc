@@ -15,15 +15,23 @@ from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 
-from neorc_core._runs import Event, Run, RunId, StoredFlow, Task
+from neorc_core._runs import Event, Run, RunId, RunStatus, StoredFlow, Task
 from neorc_core._task import TaskId
 from neorc_core._values import JsonValue
 from neorc_core.flows import Address, Reference, RunState, Version
 from neorc_core.ports._clients import DEFAULT_LEASE_SECONDS
 
+DEFAULT_PAGE = 50
+"""How many runs ``list_runs`` returns unless told otherwise."""
+
 
 class Store(ABC):
-    """Durable storage for flow versions, runs, their tasks and their events."""
+    """Durable storage for flow versions, runs, their tasks and their events.
+
+    The store keeps the clock: it sets ``created_at``, ``started_at`` and
+    ``finished_at`` on runs and tasks as it creates, starts and finishes them,
+    so the times agree with the rows they describe.
+    """
 
     @abstractmethod
     async def store_flows(self, uploads: Sequence[StoredFlow]) -> list[bool]:
@@ -48,6 +56,52 @@ class Store(ABC):
     @abstractmethod
     async def latest_flows(self) -> list[StoredFlow]:
         """The latest version of every stored flow, by name."""
+        raise NotImplementedError
+
+    @abstractmethod
+    async def flow_versions(self, name: str) -> list[StoredFlow]:
+        """Every stored version of a flow, newest first.
+
+        Raises ``FlowNotFoundError`` if there is no such flow.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    async def list_runs(
+        self,
+        *,
+        flow: str | None = None,
+        status: RunStatus | None = None,
+        root_only: bool = True,
+        before: RunId | None = None,
+        limit: int = DEFAULT_PAGE,
+    ) -> list[Run]:
+        """Up to ``limit`` runs, newest first: the reverse of the order they started.
+
+        The store keeps that order itself, since a clock can give two runs the
+        same ``created_at``; the time is for display. ``flow`` and ``status``
+        keep only the runs of that flow or in that status; ``root_only``
+        leaves sub-flow runs out. ``before`` is the id of the last run of the
+        previous page: the next page holds the runs started before it, so pages
+        never overlap or skip. Raises ``RunNotFoundError`` if there is no run
+        ``before``.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    async def run_tasks(self, run_id: RunId) -> list[Task]:
+        """A run's tasks, in the order they were published.
+
+        Raises ``RunNotFoundError`` if there is no such run.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    async def sub_runs(self, run_id: RunId) -> list[Run]:
+        """A run's direct sub-flow runs, in the order they started.
+
+        Raises ``RunNotFoundError`` if there is no such run.
+        """
         raise NotImplementedError
 
     @abstractmethod

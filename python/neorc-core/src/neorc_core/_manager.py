@@ -52,7 +52,7 @@ from neorc_core.flows import (
 )
 from neorc_core.flows._validation import check_output
 from neorc_core.ports._clients import DEFAULT_LEASE_SECONDS, check_lease_seconds
-from neorc_core.ports._store import Store
+from neorc_core.ports._store import DEFAULT_PAGE, Store
 from neorc_core.ports._task_notifier import TaskNotifier
 
 CANCELLED_BY_HAND = "cancelled by hand"
@@ -120,6 +120,37 @@ class Manager:
     async def latest_flows(self) -> list[StoredFlow]:
         """The latest version of every flow."""
         return await self._store.latest_flows()
+
+    async def flow_versions(self, name: str) -> list[StoredFlow]:
+        """Every stored version of a flow, newest first."""
+        _lookup(name, "flow name")
+        return await self._store.flow_versions(name)
+
+    async def list_runs(
+        self,
+        *,
+        flow: str | None = None,
+        status: RunStatus | None = None,
+        root_only: bool = True,
+        before: RunId | None = None,
+        limit: int = DEFAULT_PAGE,
+    ) -> list[Run]:
+        """A page of runs, newest first, as ``Store.list_runs`` gives it."""
+        if flow is not None:
+            _lookup(flow, "flow name")
+        if limit < 1:
+            raise InvalidValueError(f"limit is at least 1, not {limit}")
+        return await self._store.list_runs(
+            flow=flow, status=status, root_only=root_only, before=before, limit=limit
+        )
+
+    async def run_tasks(self, run_id: RunId) -> list[Task]:
+        """A run's tasks, in publishing order, for a status query."""
+        return await self._store.run_tasks(run_id)
+
+    async def sub_runs(self, run_id: RunId) -> list[Run]:
+        """A run's direct sub-flow runs, in the order they started."""
+        return await self._store.sub_runs(run_id)
 
     async def start_run(self, flow: str, inputs: Mapping[str, JsonValue]) -> Run:
         """Start a run of ``flow``'s latest version.
