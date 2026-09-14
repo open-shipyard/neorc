@@ -1,0 +1,14 @@
+# Dependency updates for the UI. The rules, and why the cooldown, are in
+# contributing/js-dependencies.md: no version published fewer than 10 days ago,
+# because compromised releases are usually withdrawn within days.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /ts/neorc-ui
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 10
+    groups:
+      ui:
+        patterns: ["*"]

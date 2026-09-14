@@ -1,0 +1,4 @@
+node_modules/
+dist/
+# Generated from openapi.json by `npm run generate`.
+src/api/schema.d.ts

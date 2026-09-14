@@ -1,6 +1,57 @@
 {
   "components": {
     "schemas": {
+      "AddressResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "scope": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ],
+              "type": "array"
+            },
+            "title": "Scope",
+            "type": "array"
+          },
+          "step": {
+            "title": "Step",
+            "type": "string"
+          }
+        },
+        "required": [
+          "step",
+          "scope"
+        ],
+        "title": "AddressResponse",
+        "type": "object"
+      },
+      "DeliveryResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "inputs": {
+            "additionalProperties": true,
+            "title": "Inputs",
+            "type": "object"
+          },
+          "task": {
+            "$ref": "#/components/schemas/TaskResponse"
+          }
+        },
+        "required": [
+          "task",
+          "inputs"
+        ],
+        "title": "DeliveryResponse",
+        "type": "object"
+      },
       "ErrorResponse": {
         "description": "What a refused request answers, whatever its status; see ``neorc._errors``.\n\n``error`` names the core exception, so a client raises the same one;\n``problems`` lists each fault of an invalid flow set.",
         "properties": {
@@ -34,6 +85,279 @@
         "title": "ErrorResponse",
         "type": "object"
       },
+      "EventKind": {
+        "description": "What happened to a run, for the scheduler to act on.",
+        "enum": [
+          "run_started",
+          "task_finished",
+          "run_finished"
+        ],
+        "title": "EventKind",
+        "type": "string"
+      },
+      "EventListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/EventResponse"
+            },
+            "title": "Events",
+            "type": "array"
+          }
+        },
+        "required": [
+          "events"
+        ],
+        "title": "EventListResponse",
+        "type": "object"
+      },
+      "EventResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/EventKind"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "sequence": {
+            "title": "Sequence",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sequence",
+          "run_id",
+          "kind"
+        ],
+        "title": "EventResponse",
+        "type": "object"
+      },
+      "FlowListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "flows": {
+            "items": {
+              "$ref": "#/components/schemas/FlowResponse"
+            },
+            "title": "Flows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "flows"
+        ],
+        "title": "FlowListResponse",
+        "type": "object"
+      },
+      "FlowResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "title": "Content"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "version",
+          "content"
+        ],
+        "title": "FlowResponse",
+        "type": "object"
+      },
+      "FlowVersionsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "versions": {
+            "items": {
+              "$ref": "#/components/schemas/FlowResponse"
+            },
+            "title": "Versions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "versions"
+        ],
+        "title": "FlowVersionsResponse",
+        "type": "object"
+      },
+      "HeartbeatResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "lease_expires_at": {
+            "title": "Lease Expires At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "lease_expires_at"
+        ],
+        "title": "HeartbeatResponse",
+        "type": "object"
+      },
+      "Outcome": {
+        "description": "How far a task or sub-flow run has got.",
+        "enum": [
+          "running",
+          "succeeded",
+          "failed"
+        ],
+        "title": "Outcome",
+        "type": "string"
+      },
+      "RunListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/RunResponse"
+            },
+            "title": "Runs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "runs"
+        ],
+        "title": "RunListResponse",
+        "type": "object"
+      },
+      "RunResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "flow": {
+            "title": "Flow",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "inputs": {
+            "additionalProperties": true,
+            "title": "Inputs",
+            "type": "object"
+          },
+          "output": {
+            "title": "Output"
+          },
+          "parent_address": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AddressResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "root_id": {
+            "title": "Root Id",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RunStatus"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "flow",
+          "version",
+          "inputs",
+          "status",
+          "root_id",
+          "parent_id",
+          "parent_address",
+          "output",
+          "reason",
+          "created_at",
+          "finished_at"
+        ],
+        "title": "RunResponse",
+        "type": "object"
+      },
+      "RunStateResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "inputs": {
+            "additionalProperties": true,
+            "title": "Inputs",
+            "type": "object"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/StepResponse"
+            },
+            "title": "Steps",
+            "type": "array"
+          }
+        },
+        "required": [
+          "inputs",
+          "steps"
+        ],
+        "title": "RunStateResponse",
+        "type": "object"
+      },
       "RunStatus": {
         "description": "Where a run is. A run starts ``ACTIVE`` and ends in one of the others.",
         "enum": [
@@ -44,6 +368,248 @@
         ],
         "title": "RunStatus",
         "type": "string"
+      },
+      "StepResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "address": {
+            "$ref": "#/components/schemas/AddressResponse"
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/Outcome"
+          },
+          "value": {
+            "title": "Value"
+          }
+        },
+        "required": [
+          "address",
+          "outcome",
+          "value"
+        ],
+        "title": "StepResponse",
+        "type": "object"
+      },
+      "TaskDefinitionsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/TaskStepResponse"
+            },
+            "title": "Tasks",
+            "type": "array"
+          }
+        },
+        "required": [
+          "tasks"
+        ],
+        "title": "TaskDefinitionsResponse",
+        "type": "object"
+      },
+      "TaskListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/TaskResponse"
+            },
+            "title": "Tasks",
+            "type": "array"
+          }
+        },
+        "required": [
+          "tasks"
+        ],
+        "title": "TaskListResponse",
+        "type": "object"
+      },
+      "TaskResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "address": {
+            "$ref": "#/components/schemas/AddressResponse"
+          },
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "fixed_params": {
+            "additionalProperties": true,
+            "title": "Fixed Params",
+            "type": "object"
+          },
+          "handler": {
+            "title": "Handler",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "lease_expires_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lease Expires At"
+          },
+          "params": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Params",
+            "type": "object"
+          },
+          "queue": {
+            "title": "Queue",
+            "type": "string"
+          },
+          "result": {
+            "title": "Result"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TaskStatus"
+          }
+        },
+        "required": [
+          "id",
+          "run_id",
+          "address",
+          "queue",
+          "handler",
+          "params",
+          "fixed_params",
+          "status",
+          "attempts",
+          "lease_expires_at",
+          "result",
+          "error",
+          "created_at",
+          "started_at",
+          "finished_at"
+        ],
+        "title": "TaskResponse",
+        "type": "object"
+      },
+      "TaskStatus": {
+        "description": "Where a task is in its lifecycle.\n\nA task is published ``PENDING``, becomes ``CLAIMED`` when a worker leases\nit, ``RUNNING`` once that worker reports it started, and ends ``SUCCEEDED``\nor ``FAILED``. A lease that lapses takes a ``CLAIMED`` or ``RUNNING`` task\nback to claimable without passing through a terminal status.",
+        "enum": [
+          "pending",
+          "claimed",
+          "running",
+          "succeeded",
+          "failed"
+        ],
+        "title": "TaskStatus",
+        "type": "string"
+      },
+      "TaskStepResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "fixed_params": {
+            "additionalProperties": true,
+            "title": "Fixed Params",
+            "type": "object"
+          },
+          "handler": {
+            "title": "Handler",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Params",
+            "type": "object"
+          },
+          "queue": {
+            "title": "Queue",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "handler",
+          "queue",
+          "params",
+          "fixed_params"
+        ],
+        "title": "TaskStepResponse",
+        "type": "object"
+      },
+      "UploadResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "stored": {
+            "items": {
+              "type": "boolean"
+            },
+            "title": "Stored",
+            "type": "array"
+          }
+        },
+        "required": [
+          "stored"
+        ],
+        "title": "UploadResponse",
+        "type": "object"
       }
     }
   },
@@ -104,15 +670,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "items": {
-                      "additionalProperties": true,
-                      "type": "object"
-                    },
-                    "type": "array"
-                  },
-                  "title": "Response Wait For Events Events Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/EventListResponse"
                 }
               }
             },
@@ -171,15 +729,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "items": {
-                      "additionalProperties": true,
-                      "type": "object"
-                    },
-                    "type": "array"
-                  },
-                  "title": "Response List Flows Flows Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/FlowListResponse"
                 }
               }
             },
@@ -236,14 +786,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "items": {
-                      "type": "boolean"
-                    },
-                    "type": "array"
-                  },
-                  "title": "Response Upload Flows Flows Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/UploadResponse"
                 }
               }
             },
@@ -313,9 +856,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Get Latest Flow Flows  Name  Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/FlowResponse"
                 }
               }
             },
@@ -384,7 +925,9 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/RunResponse"
+                }
               }
             },
             "description": "Successful Response"
@@ -453,15 +996,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "items": {
-                      "additionalProperties": true,
-                      "type": "object"
-                    },
-                    "type": "array"
-                  },
-                  "title": "Response Flow Versions Flows  Name  Versions Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/FlowVersionsResponse"
                 }
               }
             },
@@ -540,9 +1075,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Get Flow Version Flows  Name  Versions  Version  Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/FlowResponse"
                 }
               }
             },
@@ -635,15 +1168,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "items": {
-                      "additionalProperties": true,
-                      "type": "object"
-                    },
-                    "type": "array"
-                  },
-                  "title": "Response Task Definitions Queues  Queue  Tasks Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/TaskDefinitionsResponse"
                 }
               }
             },
@@ -740,10 +1265,15 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/DeliveryResponse"
+                }
               }
             },
             "description": "Successful Response"
+          },
+          "204": {
+            "description": "The wait ended with no task"
           },
           "404": {
             "content": {
@@ -871,15 +1401,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "items": {
-                      "additionalProperties": true,
-                      "type": "object"
-                    },
-                    "type": "array"
-                  },
-                  "title": "Response List Runs Runs Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/RunListResponse"
                 }
               }
             },
@@ -950,9 +1472,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Get Run Runs  Run Id  Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/RunResponse"
                 }
               }
             },
@@ -1151,9 +1671,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Run State Runs  Run Id  State Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/RunStateResponse"
                 }
               }
             },
@@ -1224,15 +1742,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "items": {
-                      "additionalProperties": true,
-                      "type": "object"
-                    },
-                    "type": "array"
-                  },
-                  "title": "Response Sub Runs Runs  Run Id  Sub Runs Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/RunListResponse"
                 }
               }
             },
@@ -1300,7 +1810,9 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/RunResponse"
+                }
               }
             },
             "description": "Successful Response"
@@ -1370,9 +1882,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Succeed Run Runs  Run Id  Succeed Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/RunResponse"
                 }
               }
             },
@@ -1443,15 +1953,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "items": {
-                      "additionalProperties": true,
-                      "type": "object"
-                    },
-                    "type": "array"
-                  },
-                  "title": "Response Run Tasks Runs  Run Id  Tasks Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/TaskListResponse"
                 }
               }
             },
@@ -1519,7 +2021,9 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/TaskResponse"
+                }
               }
             },
             "description": "Successful Response"
@@ -1589,9 +2093,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Get Task Tasks  Task Id  Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/TaskResponse"
                 }
               }
             },
@@ -1726,11 +2228,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Extend Lease Tasks  Task Id  Heartbeat Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/HeartbeatResponse"
                 }
               }
             },

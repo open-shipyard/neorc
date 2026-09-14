@@ -25,6 +25,8 @@ is released from a single tag, so all packages share one version.
 
     python/neorc-core/    core primitives
     python/neorc/         top-level package, builds on neorc-core
+    python/neorc-ui/      the built web UI as a distribution: assets, no code
+    ts/neorc-ui/          the web UI's source: React, TypeScript, Vite
 
 The Python packages form a [uv workspace](https://docs.astral.sh/uv/concepts/projects/workspaces/)
 whose root is the `pyproject.toml` at the top of the repository: it holds the
@@ -35,6 +37,12 @@ depends on a sibling by naming it in its own `dependencies`; the root
 Packages in other languages get a sibling top-level directory (`rust/`, `ts/`)
 with their own tooling. Dependencies under `ts/` follow
 [contributing/js-dependencies.md](contributing/js-dependencies.md).
+
+The web UI is built from `ts/neorc-ui` into `python/neorc-ui`, whose wheel
+carries the assets and nothing else. CI and the release build it; a wheel
+built from a checkout builds it too, which needs Node.js. Python work never
+does: `uv sync` installs `neorc-ui` without assets, and the manager's tests
+mount a stand-in directory.
 
 Where code and tests go between `neorc-core` and the adapters in `neorc` is set
 by [contributing/in-memory-first.md](contributing/in-memory-first.md): logic
@@ -72,6 +80,25 @@ Run the same checks as CI before opening a pull request:
     uv run ruff format --check
     uv run mypy
     uv run pytest
+
+## Working on the web UI
+
+Node.js at the version in `ts/neorc-ui/.nvmrc`, installed as
+[contributing/dev-environment.md](contributing/dev-environment.md) says. Then,
+in `ts/neorc-ui`:
+
+    nvm install
+    npm ci
+    npm run dev
+
+`npm run dev` serves the app and proxies the API to a `neorc manager start`
+on `127.0.0.1:8420`. The checks CI runs are `npm run lint`, `npm run
+typecheck` and `npm run build`; the build also writes `bundled-packages.txt`,
+which is committed, and fails on a license outside the allowlist or a bundle
+over the size budget. When the manager's routes change, refresh the schema
+the UI's types come from:
+
+    uv run python scripts/export_openapi.py
 
 ## Tests that need Postgres
 
