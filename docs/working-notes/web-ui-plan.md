@@ -239,6 +239,10 @@ pipeline.
   the bundle and added the largest dependency tree in it for a picture that
   the outline gives more plainly, which `contributing/js-dependencies.md`
   weighs against. Revisit if a graph earns its place.
+  Revisited: [web-ui-graph-and-style-plan.md](web-ui-graph-and-style-plan.md)
+  added the graph as a second view beside this outline, on React Flow and
+  dagre, because a reader wanted to see a run's shape, zoom and pan; the
+  bundle doubled, as weighed here, and stays a third of the budget.
 - Each task instance: status, queue, handler, attempts, lease expiry, params,
   result and error, and its times; values pretty-printed, `$datetime` shown as
   a date.

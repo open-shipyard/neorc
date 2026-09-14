@@ -5,9 +5,10 @@
 
 A manager on uvicorn and Postgres serves the assets ``ts/neorc-ui`` built, a
 scheduler and workers run ``examples/wordplay`` over HTTP, and Chromium, driven
-by Playwright, starts a run from the form, watches it succeed, and cancels
-another. Skipped without a built UI or a browser: CI builds and installs both
-for one Python, and contributing/dev-environment.md says how to locally.
+by Playwright, starts a run from the form, watches it succeed, looks at it as
+a graph, and cancels another. Skipped without a built UI or a browser: CI
+builds and installs both for one Python, and contributing/dev-environment.md
+says how to locally.
 """
 
 from __future__ import annotations
@@ -108,11 +109,14 @@ async def test_a_run_is_started_watched_and_another_cancelled_in_the_browser(
     expect.set_options(timeout=10_000)
     heading = page.get_by_role("heading", level=1)
 
-    # The flows are listed, with the one uploaded, under the banner.
+    # The flows are listed, with the one uploaded, under the banner; the
+    # sidebar lists them too, so the table is asked.
     await page.goto(f"{ui_address}/ui/")
     await expect(page.get_by_role("note")).to_contain_text("No authentication")
-    await page.get_by_role("link", name="Flows").click()
-    await expect(page.get_by_role("link", name="word_picker_rounds")).to_be_visible()
+    main_nav = page.get_by_role("navigation", name="Main")
+    await main_nav.get_by_role("link", name="Flows").click()
+    table = page.get_by_role("table")
+    await expect(table.get_by_role("link", name="word_picker_rounds")).to_be_visible()
 
     # A run started from the form, with every declared input, watched to its
     # end: with a worker on the scoring queue for as long as that takes.
@@ -127,6 +131,28 @@ async def test_a_run_is_started_watched_and_another_cancelled_in_the_browser(
     await expect(report).to_contain_text("potato**")
     await expect(report).to_contain_text("tomate**")
 
+    # The same run as a graph: a node per step instance, the fan-out's
+    # branches side by side, zoomable, a task's details from its node.
+    await page.get_by_role("link", name="Graph").click()
+    canvas = page.get_by_label("Run graph")
+    await expect(canvas.get_by_text("branch 1", exact=True)).to_be_visible()
+    await expect(canvas.get_by_text("branch 2", exact=True)).to_be_visible()
+    await expect(canvas.locator(".react-flow__node")).to_have_count(22)
+    await expect(canvas.locator(".react-flow__edge")).to_have_count(17)
+    await canvas.get_by_text("report", exact=True).click()
+    panel = page.get_by_role("complementary", name="report details")
+    await expect(panel).to_contain_text("potato**")
+    await panel.get_by_role("button", name="Close").click()
+    await expect(panel).to_have_count(0)
+    # Zooming out keeps every node on the canvas, whatever the window's size.
+    viewport = canvas.locator(".react-flow__viewport")
+    before = await viewport.get_attribute("style")
+    await canvas.get_by_role("button", name="Zoom Out").click()
+    await expect(viewport).not_to_have_attribute("style", before or "")
+    # Back to the outline, which the next run opens with: the choice is kept.
+    await page.get_by_role("link", name="Outline").click()
+    await expect(page.get_by_role("region", name="decorate branch 2")).to_be_visible()
+
     # Another run, which cannot finish with nobody serving the scoring queue,
     # cancelled from its page.
     await _start_word_picker_rounds(page, ui_address)
@@ -138,7 +164,7 @@ async def test_a_run_is_started_watched_and_another_cancelled_in_the_browser(
     await expect(page.locator("dd", has_text="cancelled by hand")).to_be_visible()
 
     # The runs list has both, newest first.
-    await page.get_by_role("link", name="Runs").click()
+    await main_nav.get_by_role("link", name="Runs").click()
     rows = page.get_by_role("row")
     await expect(rows).to_have_count(3)
     await expect(rows.nth(1)).to_contain_text("cancelled")

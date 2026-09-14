@@ -161,7 +161,7 @@ The second, `tmp/Screenshot from 2026-09-13 22-14-52.png`, a run:
 | 3  | The graph view on React Flow, and the view switch     | done   |
 | 4  | The shell: sidebar, rail, profile placeholder, tokens | done   |
 | 5  | The runs list and the run page, restyled              | done   |
-| 6  | Browser test, docs and changelog                      | todo   |
+| 6  | Browser test, docs and changelog                      | done   |
 
 ### 1. The two packages, and nothing else
 
