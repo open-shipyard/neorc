@@ -11,6 +11,7 @@ state is — kept here so every store makes them the same way.
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -19,7 +20,7 @@ from enum import StrEnum
 
 from neorc_core._errors import FlowDefinitionError, FlowVersionError, RunStateError
 from neorc_core._task import TaskId, TaskStatus
-from neorc_core._values import JsonValue
+from neorc_core._values import NUL, JsonValue
 from neorc_core.flows import (
     Address,
     FlowDefinition,
@@ -153,7 +154,7 @@ def check_upload(
     versions = {flow.version: flow for flow in stored}
     same = versions.get(definition.version)
     if same is not None:
-        if _canonical(same.content) == _canonical(content):
+        if canonical_content(same.content) == canonical_content(content):
             return False
         raise FlowVersionError(
             f"{definition.name} {definition.version} is already stored with "
@@ -167,12 +168,28 @@ def check_upload(
     return True
 
 
-def _canonical(content: JsonValue) -> str:
-    """JSON text that is the same exactly when the structures are.
+def canonical_content(content: JsonValue) -> str:
+    """A flow's content as JSON text that is the same exactly when the structures are.
 
-    Python's ``==`` holds ``1``, ``1.0`` and ``True`` equal; JSON does not.
+    Keys sorted, no insignificant whitespace: how an upload is compared with a
+    stored version, and how a deployed store keeps it. Python's ``==`` holds
+    ``1``, ``1.0`` and ``True`` equal; JSON does not.
     """
     return json.dumps(content, sort_keys=True, separators=(",", ":"))
+
+
+def storable_text(text: str) -> str:
+    """``text`` with what no store can hold replaced, so its ``text`` column can.
+
+    For task errors and run reasons, which are messages, not values: a handler's
+    exception text may hold anything, and dropping the message would be worse
+    than changing a character of it. NUL and lone surrogates become U+FFFD.
+    """
+    return _SURROGATE.sub("�", text.replace(NUL, "�"))
+
+
+_SURROGATE = re.compile("[\ud800-\udfff]")
+"""A lone surrogate: what a str may hold that UTF-8 cannot encode."""
 
 
 def check_uploads(

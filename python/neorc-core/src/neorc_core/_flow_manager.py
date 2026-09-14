@@ -356,6 +356,11 @@ def check_inputs(definition: FlowDefinition, inputs: Mapping[str, JsonValue]) ->
             problems.append(f"{definition.name} has no input {name!r}")
         elif not _is_of_type(value, declared):
             problems.append(f"input {name!r} is not a {declared.value}: {value!r}")
+        else:
+            try:  # a value of the right type may still be one no store holds
+                _values.decode(value, path=f"input {name!r}")
+            except InvalidValueError as exc:
+                problems.append(str(exc))
     if problems:
         raise InvalidValueError(f"{definition.name}: " + "; ".join(problems))
 

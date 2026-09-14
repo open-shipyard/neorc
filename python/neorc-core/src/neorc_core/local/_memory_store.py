@@ -29,6 +29,7 @@ from neorc_core._runs import (
     check_uploads,
     ensure_active,
     run_state_of,
+    storable_text,
     sub_run_id_for,
     task_id_for,
 )
@@ -241,7 +242,7 @@ class MemoryStore(Store):
                 task,
                 status=status,
                 result=result if error is None else None,
-                error=error,
+                error=storable_text(error) if error is not None else None,
                 lease_expires_at=None,
             )
             self._tasks[task_id] = finished
@@ -282,6 +283,7 @@ class MemoryStore(Store):
         self._events.append(Event(len(self._events) + 1, run_id, kind))
 
     def _finish_tree(self, root_id: RunId, status: RunStatus, reason: str) -> None:
+        reason = storable_text(reason)
         for run in list(self._runs.values()):
             if run.root_id == root_id and run.status is RunStatus.ACTIVE:
                 self._runs[run.id] = replace(run, status=status, reason=reason)

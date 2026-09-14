@@ -70,15 +70,27 @@ def database_url(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
 
 
 @pytest.fixture
-async def pg_store(database_url: str) -> AsyncIterator[PostgresTaskStore]:
-    """An open store on an empty tasks table."""
-    from neorc.postgres import PostgresTaskStore, create_schema
-    from neorc.postgres._schema import TASKS_TABLE
+async def pg_schema(database_url: str) -> str:
+    """The database URL, its neorc tables created and emptied."""
+    import psycopg
+
+    from neorc.postgres import create_schema
+    from neorc.postgres._schema import TABLES
 
     await create_schema(database_url)
-    async with PostgresTaskStore(database_url) as store:
-        async with store.pool.connection() as conn:
-            await conn.execute(f"TRUNCATE {TASKS_TABLE}")
+    async with await psycopg.AsyncConnection.connect(
+        database_url, autocommit=True
+    ) as conn:
+        await conn.execute(f"TRUNCATE {', '.join(TABLES)}")
+    return database_url
+
+
+@pytest.fixture
+async def pg_store(pg_schema: str) -> AsyncIterator[PostgresTaskStore]:
+    """An open store on an empty tasks table."""
+    from neorc.postgres import PostgresTaskStore
+
+    async with PostgresTaskStore(pg_schema) as store:
         yield store
 
 

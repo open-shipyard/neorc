@@ -218,7 +218,15 @@ def validate_flow_set(definitions: Iterable[FlowDefinition]) -> None:
 
 
 def parse_flow(data: Any) -> FlowDefinition:
-    """Build a validated flow definition from its JSON structure."""
+    """Build a validated flow definition from its JSON structure.
+
+    The whole structure is what a store keeps, so before anything else every
+    string in it, key or value, known field or not, must be one a store can
+    hold: text holding NUL is refused on its own, as a value is.
+    """
+    unstorable = _unstorable_text(data, "flow")
+    if unstorable:
+        raise FlowDefinitionError(unstorable)
     parser = _Parser()
     definition = parser.flow(data)
     if definition is None or parser.problems:
@@ -227,6 +235,28 @@ def parse_flow(data: Any) -> FlowDefinition:
     if problems:
         raise FlowDefinitionError(problems)
     return definition
+
+
+def _unstorable_text(data: Any, path: str) -> list[str]:
+    """Every string in ``data``, key or value, that no store can hold, by path."""
+    problems: list[str] = []
+    if isinstance(data, str):
+        try:
+            _values.check_text(data, path)
+        except InvalidValueError as exc:
+            problems.append(str(exc))
+    elif isinstance(data, Mapping):
+        for key, value in data.items():
+            if isinstance(key, str):
+                bad_key = _unstorable_text(key, f"{path}: key {key!r}")
+                if bad_key:  # the key would put the text into every path below
+                    problems.extend(bad_key)
+                    continue
+            problems.extend(_unstorable_text(value, f"{path}.{key}"))
+    elif isinstance(data, list):
+        for index, item in enumerate(data):
+            problems.extend(_unstorable_text(item, f"{path}[{index}]"))
+    return problems
 
 
 class _Parser:
