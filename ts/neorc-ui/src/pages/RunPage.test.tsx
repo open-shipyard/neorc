@@ -1,11 +1,11 @@
-import { fireEvent, screen, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { shortId } from "../format";
 import { RECORDED, recordedRoutes } from "../test/recorded";
 import { ACTIVE, CANCELLED } from "../test/fixtures";
 import { mockApi, refusal, renderWithClient } from "../test/render";
-import { RunPage } from "./RunPage";
+import { RunPage, VIEW_KEY } from "./RunPage";
 
 describe("RunPage on a recorded word_picker_rounds run", () => {
   it("shows the run, and every step with what the run did there", async () => {
@@ -192,5 +192,91 @@ describe("cancelling a run", () => {
 
     await screen.findByRole("heading", { level: 1 });
     expect(screen.queryByRole("button", { name: "Cancel run" })).not.toBeInTheDocument();
+  });
+});
+
+describe("the graph view", () => {
+  it("draws a node per step instance in its iteration or branch, edges between them", async () => {
+    mockApi(recordedRoutes());
+    const { run, sub_runs } = RECORDED;
+
+    renderWithClient(<RunPage id={run.id} view="graph" />);
+
+    const canvas = await screen.findByLabelText("Run graph");
+    await waitFor(() => expect(canvas.querySelectorAll(".react-flow__node")).toHaveLength(22));
+    await waitFor(() => expect(canvas.querySelectorAll(".react-flow__edge")).toHaveLength(17));
+    expect(within(canvas).getAllByText("picker")).toHaveLength(2);
+    expect(within(canvas).getAllByText("pad")).toHaveLength(4);
+    // runs iteration 1, and padding iteration 1 in each of decorate's two branches.
+    expect(within(canvas).getAllByText("iteration 1")).toHaveLength(3);
+    expect(within(canvas).getAllByText("branch 2")).toHaveLength(1);
+    expect(within(canvas).getAllByText("fan-out over tasks.final_words")).toHaveLength(2);
+    expect(within(canvas).getAllByLabelText("succeeded")).toHaveLength(14);
+    expect(within(canvas).getByRole("link", { name: `run ${shortId(sub_runs[1]!.id)}` })).toHaveAttribute(
+      "href",
+      `#/runs/${sub_runs[1]!.id}`,
+    );
+    // The outline is not there as well: one view at a time.
+    expect(screen.queryByRole("region", { name: "runs iteration 1" })).not.toBeInTheDocument();
+    const switcher = screen.getByRole("navigation", { name: "View" });
+    expect(within(switcher).getByRole("link", { name: "Graph" })).toHaveAttribute("aria-current", "true");
+    expect(within(switcher).getByRole("link", { name: "Outline" })).toHaveAttribute(
+      "href",
+      `#/runs/${run.id}?view=outline`,
+    );
+  });
+
+  it("opens a task's details beside the graph when its node is clicked", async () => {
+    mockApi(recordedRoutes());
+    const { run } = RECORDED;
+
+    renderWithClient(<RunPage id={run.id} view="graph" />);
+    const canvas = await screen.findByLabelText("Run graph");
+    fireEvent.click(await within(canvas).findByText("report"));
+
+    const panel = await screen.findByRole("complementary", { name: "report details" });
+    expect(within(panel).getByText("tasks:report")).toBeInTheDocument();
+    expect(within(panel).getByText(/potato\*\*/)).toBeInTheDocument();
+
+    fireEvent.click(within(panel).getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
+  });
+
+  it("draws a run that has published nothing yet, containers not entered", async () => {
+    const { run, flows } = RECORDED;
+    mockApi({
+      ...recordedRoutes(),
+      [`/runs/${run.id}`]: { ...run, status: "active" as const, finished_at: null, output: null },
+      [`/runs/${run.id}/tasks`]: { tasks: [] },
+      [`/runs/${run.id}/sub-runs`]: { runs: [] },
+      [`/flows/word_picker_rounds/versions/${flows["word_picker_rounds"]?.version}`]:
+        flows["word_picker_rounds"],
+    });
+
+    renderWithClient(<RunPage id={run.id} view="graph" />);
+
+    const canvas = await screen.findByLabelText("Run graph");
+    await waitFor(() => expect(canvas.querySelectorAll(".react-flow__node")).toHaveLength(9));
+    expect(within(canvas).getAllByText("not entered yet")).toHaveLength(3);
+    expect(within(canvas).getAllByLabelText("none")).toHaveLength(6);
+  });
+
+  it("is remembered for the next run opened, and the address wins", async () => {
+    mockApi(recordedRoutes());
+    const { run } = RECORDED;
+
+    const first = renderWithClient(<RunPage id={run.id} view="graph" />);
+    await screen.findByLabelText("Run graph");
+    expect(localStorage.getItem(VIEW_KEY)).toBe("graph");
+    first.unmount();
+
+    const second = renderWithClient(<RunPage id={run.id} />);
+    expect(await screen.findByLabelText("Run graph")).toBeInTheDocument();
+    second.unmount();
+
+    renderWithClient(<RunPage id={run.id} view="outline" />);
+    expect(await screen.findByRole("region", { name: "runs iteration 1" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Run graph")).not.toBeInTheDocument();
+    expect(localStorage.getItem(VIEW_KEY)).toBe("outline");
   });
 });

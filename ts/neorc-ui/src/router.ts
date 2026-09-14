@@ -2,11 +2,14 @@
 // files under one prefix and needs no fallback route.
 import { useSyncExternalStore } from "react";
 
+/** How a run's steps are shown: the outline, or the graph. */
+export type RunView = "outline" | "graph";
+
 export type Route =
   | { name: "runs"; flow?: string; status?: string }
   | { name: "flows" }
   | { name: "flow"; flow: string; version?: string }
-  | { name: "run"; id: string }
+  | { name: "run"; id: string; view?: RunView }
   | { name: "unknown"; hash: string };
 
 export function parseHash(hash: string): Route {
@@ -33,7 +36,13 @@ export function parseHash(hash: string): Route {
     };
   }
   if (parts.length === 2 && parts[0] === "runs" && parts[1]) {
-    return { name: "run", id: safeDecode(parts[1]) ?? parts[1] };
+    const view = params.get("view");
+    return {
+      name: "run",
+      id: safeDecode(parts[1]) ?? parts[1],
+      // Any other value is not a view: the page falls back to its own choice.
+      view: view === "outline" || view === "graph" ? view : undefined,
+    };
   }
   return { name: "unknown", hash };
 }
@@ -63,8 +72,10 @@ export function href(route: Route): string {
         ? `${base}?version=${encodeURIComponent(route.version)}`
         : base;
     }
-    case "run":
-      return `#/runs/${encodeURIComponent(route.id)}`;
+    case "run": {
+      const base = `#/runs/${encodeURIComponent(route.id)}`;
+      return route.view ? `${base}?view=${route.view}` : base;
+    }
     case "unknown":
       return route.hash;
   }

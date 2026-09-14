@@ -73,10 +73,11 @@ export interface Graph {
 // Sizes in pixels, agreed with the node components: the layout needs them
 // before anything is drawn, and jsdom measures nothing.
 export const LEAF_HEIGHT = 58;
-export const LEAF_MIN_WIDTH = 160;
-export const LEAF_MAX_WIDTH = 320;
-const CHAR_WIDTH = 8;
-const LEAF_PADDING = 32;
+export const LEAF_MIN_WIDTH = 200;
+export const LEAF_MAX_WIDTH = 400;
+const CHAR_WIDTH = 7.5;
+/** Room beside the text: padding, the status dot, the duration. */
+const LEAF_PADDING = 110;
 /** A container's title bar, above its children. */
 export const CONTAINER_HEADER = 32;
 export const CONTAINER_PADDING = 16;

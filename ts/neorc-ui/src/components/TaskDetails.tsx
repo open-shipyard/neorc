@@ -1,10 +1,10 @@
 import type { Task } from "../api";
 import { formatDuration, formatTime, formatValue } from "../format";
 
-/** Everything the manager knows about one task instance, folded away. */
-export function TaskDetails({ task }: { task: Task }) {
+/** Everything the manager knows about one task instance, folded away unless `open`. */
+export function TaskDetails({ task, open = false }: { task: Task; open?: boolean }) {
   return (
-    <details className="task-details">
+    <details className="task-details" open={open}>
       <summary>details</summary>
       <dl className="facts">
         <dt>Handler</dt>

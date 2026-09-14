@@ -32,7 +32,7 @@ function Page({ route }: { route: ReturnType<typeof useRoute> }) {
         />
       );
     case "run":
-      return <RunPage key={route.id} id={route.id} />;
+      return <RunPage key={route.id} id={route.id} view={route.view} />;
     case "unknown":
       return (
         <p role="alert">
