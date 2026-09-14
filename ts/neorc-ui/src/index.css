@@ -198,3 +198,53 @@ input {
   background: var(--paper);
   color: var(--ink);
 }
+
+.tree {
+  list-style: none;
+  padding-left: 0;
+  margin: 0;
+}
+
+.tree .tree {
+  padding-left: 1rem;
+  border-left: 2px solid var(--line);
+}
+
+.step {
+  margin: 0.4rem 0;
+}
+
+.instance {
+  margin: 0.3rem 0 0.3rem 0.5rem;
+}
+
+.instance h4,
+.task-details h4 {
+  margin: 0.4rem 0 0.2rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.instance.not-yet {
+  opacity: 0.7;
+}
+
+.badge-none {
+  background: transparent;
+  color: var(--muted);
+  border: 1px dashed var(--line);
+}
+
+.task-details {
+  margin: 0.25rem 0 0.5rem 1.5rem;
+  font-size: 0.9rem;
+}
+
+.task-details summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+pre.error {
+  color: var(--bad);
+}

@@ -1,0 +1,3018 @@
+{
+  "flows": {
+    "word_picker": {
+      "content": {
+        "inputs": {
+          "preferred_letter": "string",
+          "sentence": "string"
+        },
+        "name": "word_picker",
+        "output": "tasks.keep_matching_words",
+        "steps": {
+          "compose_payload": {
+            "handler": "tasks:compose_payload",
+            "params": {
+              "sentence": "inputs.sentence"
+            },
+            "queue": "default"
+          },
+          "grading": {
+            "fan_out": {
+              "range": 3
+            },
+            "steps": {
+              "score_words": {
+                "handler": "tasks:score_words",
+                "params": {
+                  "index": "neorc.index",
+                  "latest_round": "tasks.latest_round",
+                  "preferred_letter": "inputs.preferred_letter"
+                },
+                "queue": "scoring"
+              }
+            }
+          },
+          "keep_matching_words": {
+            "handler": "tasks:keep_matching_words",
+            "params": {
+              "all_scores": "tasks.score_words"
+            },
+            "queue": "default"
+          },
+          "latest_round": {
+            "handler": "tasks:pick_last",
+            "params": {
+              "values": "tasks.collect_words"
+            },
+            "queue": "default"
+          },
+          "rounds": {
+            "loop": {
+              "exit_condition": "enough_rounds",
+              "max_cycles": 10
+            },
+            "steps": {
+              "collect_words": {
+                "handler": "tasks:collect_words",
+                "params": {
+                  "all_rounds": "tasks.extract_word"
+                },
+                "queue": "default"
+              },
+              "enough_rounds": {
+                "handler": "tasks:enough_rounds",
+                "params": {
+                  "collections": "tasks.collect_words"
+                },
+                "queue": "default"
+              },
+              "picking": {
+                "fan_out": {
+                  "range": 3
+                },
+                "steps": {
+                  "extract_word": {
+                    "handler": "tasks:extract_word",
+                    "params": {
+                      "picks": "tasks.pick_word"
+                    },
+                    "queue": "default"
+                  },
+                  "pick_word": {
+                    "handler": "tasks:pick_word",
+                    "params": {
+                      "index": "neorc.index",
+                      "payload": "tasks.compose_payload"
+                    },
+                    "queue": "default"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "version": "1.0.0"
+      },
+      "name": "word_picker",
+      "version": "1.0.0"
+    },
+    "word_picker_rounds": {
+      "content": {
+        "inputs": {
+          "preferred_letter": "string",
+          "requested_at": "datetime",
+          "sentence": "string"
+        },
+        "name": "word_picker_rounds",
+        "steps": {
+          "decorate": {
+            "fan_out": {
+              "over": "tasks.final_words"
+            },
+            "steps": {
+              "padding": {
+                "loop": {
+                  "exit_condition": "long_enough",
+                  "max_cycles": 5
+                },
+                "steps": {
+                  "long_enough": {
+                    "fixed_params": {
+                      "min_length": 8
+                    },
+                    "handler": "tasks:long_enough",
+                    "params": {
+                      "pads": "tasks.pad"
+                    },
+                    "queue": "default"
+                  },
+                  "pad": {
+                    "fixed_params": {
+                      "pad_char": "*"
+                    },
+                    "handler": "tasks:pad",
+                    "params": {
+                      "loop_count": "neorc.loop_count",
+                      "word": "neorc.item"
+                    },
+                    "queue": "default"
+                  }
+                }
+              }
+            }
+          },
+          "final_words": {
+            "handler": "tasks:pick_last",
+            "params": {
+              "values": "flows.picker"
+            },
+            "queue": "default"
+          },
+          "report": {
+            "handler": "tasks:report",
+            "params": {
+              "attempts": "neorc.attempts",
+              "flow_run_id": "neorc.flow_run_id",
+              "padded": "tasks.pad",
+              "requested_at": "inputs.requested_at",
+              "task_id": "neorc.task_id"
+            },
+            "queue": "default"
+          },
+          "runs": {
+            "loop": {
+              "exit_condition": "ran_enough",
+              "max_cycles": 4
+            },
+            "steps": {
+              "picker": {
+                "flow": "word_picker",
+                "params": {
+                  "preferred_letter": "inputs.preferred_letter",
+                  "sentence": "inputs.sentence"
+                }
+              },
+              "ran_enough": {
+                "handler": "tasks:ran_enough",
+                "params": {
+                  "loop_count": "neorc.loop_count",
+                  "picker_results": "flows.picker"
+                },
+                "queue": "default"
+              }
+            }
+          }
+        },
+        "version": "1.0.0"
+      },
+      "name": "word_picker_rounds",
+      "version": "1.0.0"
+    }
+  },
+  "run": {
+    "created_at": "2026-09-14T13:16:42.253053+00:00",
+    "finished_at": "2026-09-14T13:16:42.396781+00:00",
+    "flow": "word_picker_rounds",
+    "id": "a722548d-43f0-4696-bf4f-62ba5c81772f",
+    "inputs": {
+      "preferred_letter": "t",
+      "requested_at": {
+        "$datetime": "2026-09-13T10:00:00+00:00"
+      },
+      "sentence": "potato tomate berry watermelon"
+    },
+    "output": null,
+    "parent_address": null,
+    "parent_id": null,
+    "reason": null,
+    "root_id": "a722548d-43f0-4696-bf4f-62ba5c81772f",
+    "status": "succeeded",
+    "version": "1.0.0"
+  },
+  "sub_run_tasks": {
+    "f8d4f8d9-9d9e-5bfe-878e-3233622583e1": [
+      {
+        "address": {
+          "scope": [],
+          "step": "compose_payload"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.322116+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.322982+00:00",
+        "fixed_params": {},
+        "handler": "tasks:compose_payload",
+        "id": "fe30f9d1-9f7d-59e0-87a4-896a97d4d057",
+        "lease_expires_at": null,
+        "params": {
+          "sentence": "inputs.sentence"
+        },
+        "queue": "default",
+        "result": "dummy composed payload from user input: potato tomate berry watermelon",
+        "run_id": "f8d4f8d9-9d9e-5bfe-878e-3233622583e1",
+        "started_at": "2026-09-14T13:16:42.322456+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              1
+            ],
+            [
+              "picking",
+              1
+            ]
+          ],
+          "step": "pick_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.323590+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.324462+00:00",
+        "fixed_params": {},
+        "handler": "tasks:pick_word",
+        "id": "2eecd95f-7923-5ad5-90e0-c38892d885c2",
+        "lease_expires_at": null,
+        "params": {
+          "index": "neorc.index",
+          "payload": "tasks.compose_payload"
+        },
+        "queue": "default",
+        "result": "my preferred word is potato",
+        "run_id": "f8d4f8d9-9d9e-5bfe-878e-3233622583e1",
+        "started_at": "2026-09-14T13:16:42.324219+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              1
+            ],
+            [
+              "picking",
+              2
+            ]
+          ],
+          "step": "pick_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.323693+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.325791+00:00",
+        "fixed_params": {},
+        "handler": "tasks:pick_word",
+        "id": "c3b55606-7f08-5551-bb94-d4b3d370fa49",
+        "lease_expires_at": null,
+        "params": {
+          "index": "neorc.index",
+          "payload": "tasks.compose_payload"
+        },
+        "queue": "default",
+        "result": "my preferred word is tomate",
+        "run_id": "f8d4f8d9-9d9e-5bfe-878e-3233622583e1",
+        "started_at": "2026-09-14T13:16:42.325230+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              1
+            ],
+            [
+              "picking",
+              3
+            ]
+          ],
+          "step": "pick_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.323780+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.327399+00:00",
+        "fixed_params": {},
+        "handler": "tasks:pick_word",
+        "id": "1832e6d5-caf2-5f26-97b1-a5eb8cedc5bb",
+        "lease_expires_at": null,
+        "params": {
+          "index": "neorc.index",
+          "payload": "tasks.compose_payload"
+        },
+        "queue": "default",
+        "result": "my preferred word is berry",
+        "run_id": "f8d4f8d9-9d9e-5bfe-878e-3233622583e1",
+        "started_at": "2026-09-14T13:16:42.326783+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              1
+            ],
+            [
+              "picking",
+              1
+            ]
+          ],
+          "step": "extract_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.325183+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.328714+00:00",
+        "fixed_params": {},
+        "handler": "tasks:extract_word",
+        "id": "44e9aab0-007e-5b1c-80f0-bdba0c144e5d",
+        "lease_expires_at": null,
+        "params": {
+          "picks": "tasks.pick_word"
+        },
+        "queue": "default",
+        "result": "potato",
+        "run_id": "f8d4f8d9-9d9e-5bfe-878e-3233622583e1",
+        "started_at": "2026-09-14T13:16:42.328251+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              1
+            ],
+            [
+              "picking",
+              2
+            ]
+          ],
+          "step": "extract_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.326719+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.329970+00:00",
+        "fixed_params": {},
+        "handler": "tasks:extract_word",
+        "id": "5513cfe7-a78e-5867-8f39-49154dce41bf",
+        "lease_expires_at": null,
+        "params": {
+          "picks": "tasks.pick_word"
+        },
+        "queue": "default",
+        "result": "tomate",
+        "run_id": "f8d4f8d9-9d9e-5bfe-878e-3233622583e1",
+        "started_at": "2026-09-14T13:16:42.329366+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              1
+            ],
+            [
+              "picking",
+              3
+            ]
+          ],
+          "step": "extract_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.328199+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.331355+00:00",
+        "fixed_params": {},
+        "handler": "tasks:extract_word",
+        "id": "35b6a277-f52e-59aa-99a4-87faf4b16c79",
+        "lease_expires_at": null,
+        "params": {
+          "picks": "tasks.pick_word"
+        },
+        "queue": "default",
+        "result": "berry",
+        "run_id": "f8d4f8d9-9d9e-5bfe-878e-3233622583e1",
+        "started_at": "2026-09-14T13:16:42.330761+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              1
+            ]
+          ],
+          "step": "collect_words"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.332778+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.333735+00:00",
+        "fixed_params": {},
+        "handler": "tasks:collect_words",
+        "id": "551952ba-7d06-5d1a-924f-744bbb197307",
+        "lease_expires_at": null,
+        "params": {
+          "all_rounds": "tasks.extract_word"
+        },
+        "queue": "default",
+        "result": {
+          "len": 1,
+          "selected_words": [
+            "berry",
+            "potato",
+            "tomate"
+          ]
+        },
+        "run_id": "f8d4f8d9-9d9e-5bfe-878e-3233622583e1",
+        "started_at": "2026-09-14T13:16:42.333380+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              1
+            ]
+          ],
+          "step": "enough_rounds"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.334606+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.335319+00:00",
+        "fixed_params": {},
+        "handler": "tasks:enough_rounds",
+        "id": "43b51206-7e8d-5eb8-8f29-5ecbe816f1d8",
+        "lease_expires_at": null,
+        "params": {
+          "collections": "tasks.collect_words"
+        },
+        "queue": "default",
+        "result": false,
+        "run_id": "f8d4f8d9-9d9e-5bfe-878e-3233622583e1",
+        "started_at": "2026-09-14T13:16:42.335080+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              2
+            ],
+            [
+              "picking",
+              1
+            ]
+          ],
+          "step": "pick_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.336105+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.336937+00:00",
+        "fixed_params": {},
+        "handler": "tasks:pick_word",
+        "id": "baf2fc3e-cef1-523c-9b4b-deb4c19c4e0c",
+        "lease_expires_at": null,
+        "params": {
+          "index": "neorc.index",
+          "payload": "tasks.compose_payload"
+        },
+        "queue": "default",
+        "result": "my preferred word is potato",
+        "run_id": "f8d4f8d9-9d9e-5bfe-878e-3233622583e1",
+        "started_at": "2026-09-14T13:16:42.336721+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              2
+            ],
+            [
+              "picking",
+              2
+            ]
+          ],
+          "step": "pick_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.336203+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.338319+00:00",
+        "fixed_params": {},
+        "handler": "tasks:pick_word",
+        "id": "753d2fc3-ce7a-5379-9182-92acbc5600df",
+        "lease_expires_at": null,
+        "params": {
+          "index": "neorc.index",
+          "payload": "tasks.compose_payload"
+        },
+        "queue": "default",
+        "result": "my preferred word is tomate",
+        "run_id": "f8d4f8d9-9d9e-5bfe-878e-3233622583e1",
+        "started_at": "2026-09-14T13:16:42.337937+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              2
+            ],
+            [
+              "picking",
+              3
+            ]
+          ],
+          "step": "pick_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.336294+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.339920+00:00",
+        "fixed_params": {},
+        "handler": "tasks:pick_word",
+        "id": "95477da4-c421-58e5-ba66-48a69501daf7",
+        "lease_expires_at": null,
+        "params": {
+          "index": "neorc.index",
+          "payload": "tasks.compose_payload"
+        },
+        "queue": "default",
+        "result": "my preferred word is berry",
+        "run_id": "f8d4f8d9-9d9e-5bfe-878e-3233622583e1",
+        "started_at": "2026-09-14T13:16:42.339396+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              2
+            ],
+            [
+              "picking",
+              1
+            ]
+          ],
+          "step": "extract_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.337886+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.341141+00:00",
+        "fixed_params": {},
+        "handler": "tasks:extract_word",
+        "id": "b3ed872c-1f5f-5d41-a5af-7fd0ce00b152",
+        "lease_expires_at": null,
+        "params": {
+          "picks": "tasks.pick_word"
+        },
+        "queue": "default",
+        "result": "potato",
+        "run_id": "f8d4f8d9-9d9e-5bfe-878e-3233622583e1",
+        "started_at": "2026-09-14T13:16:42.340777+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              2
+            ],
+            [
+              "picking",
+              2
+            ]
+          ],
+          "step": "extract_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.339348+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.342308+00:00",
+        "fixed_params": {},
+        "handler": "tasks:extract_word",
+        "id": "0253746a-c95b-56c9-b6e3-6ef5caebfd2d",
+        "lease_expires_at": null,
+        "params": {
+          "picks": "tasks.pick_word"
+        },
+        "queue": "default",
+        "result": "tomate",
+        "run_id": "f8d4f8d9-9d9e-5bfe-878e-3233622583e1",
+        "started_at": "2026-09-14T13:16:42.341980+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              2
+            ],
+            [
+              "picking",
+              3
+            ]
+          ],
+          "step": "extract_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.340726+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.343570+00:00",
+        "fixed_params": {},
+        "handler": "tasks:extract_word",
+        "id": "523b094a-5f09-5fc9-93e9-84d5aa8c15bd",
+        "lease_expires_at": null,
+        "params": {
+          "picks": "tasks.pick_word"
+        },
+        "queue": "default",
+        "result": "berry",
+        "run_id": "f8d4f8d9-9d9e-5bfe-878e-3233622583e1",
+        "started_at": "2026-09-14T13:16:42.343220+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              2
+            ]
+          ],
+          "step": "collect_words"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.344301+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.344907+00:00",
+        "fixed_params": {},
+        "handler": "tasks:collect_words",
+        "id": "c993a1aa-34f3-57e1-b9f0-567d92a374fd",
+        "lease_expires_at": null,
+        "params": {
+          "all_rounds": "tasks.extract_word"
+        },
+        "queue": "default",
+        "result": {
+          "len": 2,
+          "selected_words": [
+            "berry",
+            "potato",
+            "tomate"
+          ]
+        },
+        "run_id": "f8d4f8d9-9d9e-5bfe-878e-3233622583e1",
+        "started_at": "2026-09-14T13:16:42.344685+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              2
+            ]
+          ],
+          "step": "enough_rounds"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.345686+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.346283+00:00",
+        "fixed_params": {},
+        "handler": "tasks:enough_rounds",
+        "id": "aec8261a-c0b3-5fd9-9303-95a966236d8a",
+        "lease_expires_at": null,
+        "params": {
+          "collections": "tasks.collect_words"
+        },
+        "queue": "default",
+        "result": false,
+        "run_id": "f8d4f8d9-9d9e-5bfe-878e-3233622583e1",
+        "started_at": "2026-09-14T13:16:42.346069+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              3
+            ],
+            [
+              "picking",
+              1
+            ]
+          ],
+          "step": "pick_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.347070+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.347871+00:00",
+        "fixed_params": {},
+        "handler": "tasks:pick_word",
+        "id": "68b1806a-ddb8-5c24-b18c-261d48198603",
+        "lease_expires_at": null,
+        "params": {
+          "index": "neorc.index",
+          "payload": "tasks.compose_payload"
+        },
+        "queue": "default",
+        "result": "my preferred word is potato",
+        "run_id": "f8d4f8d9-9d9e-5bfe-878e-3233622583e1",
+        "started_at": "2026-09-14T13:16:42.347667+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              3
+            ],
+            [
+              "picking",
+              2
+            ]
+          ],
+          "step": "pick_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.347174+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.349347+00:00",
+        "fixed_params": {},
+        "handler": "tasks:pick_word",
+        "id": "10c89d11-f2f6-572b-a068-5daa2cf8ace0",
+        "lease_expires_at": null,
+        "params": {
+          "index": "neorc.index",
+          "payload": "tasks.compose_payload"
+        },
+        "queue": "default",
+        "result": "my preferred word is tomate",
+        "run_id": "f8d4f8d9-9d9e-5bfe-878e-3233622583e1",
+        "started_at": "2026-09-14T13:16:42.348957+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              3
+            ],
+            [
+              "picking",
+              3
+            ]
+          ],
+          "step": "pick_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.347273+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.350776+00:00",
+        "fixed_params": {},
+        "handler": "tasks:pick_word",
+        "id": "35d75be8-b01d-506b-b5fe-c56345974f6d",
+        "lease_expires_at": null,
+        "params": {
+          "index": "neorc.index",
+          "payload": "tasks.compose_payload"
+        },
+        "queue": "default",
+        "result": "my preferred word is berry",
+        "run_id": "f8d4f8d9-9d9e-5bfe-878e-3233622583e1",
+        "started_at": "2026-09-14T13:16:42.350398+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              3
+            ],
+            [
+              "picking",
+              1
+            ]
+          ],
+          "step": "extract_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.348904+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.352291+00:00",
+        "fixed_params": {},
+        "handler": "tasks:extract_word",
+        "id": "9d947d3c-0d69-5a3d-ac00-568ea6e528b3",
+        "lease_expires_at": null,
+        "params": {
+          "picks": "tasks.pick_word"
+        },
+        "queue": "default",
+        "result": "potato",
+        "run_id": "f8d4f8d9-9d9e-5bfe-878e-3233622583e1",
+        "started_at": "2026-09-14T13:16:42.351905+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              3
+            ],
+            [
+              "picking",
+              2
+            ]
+          ],
+          "step": "extract_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.350348+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.353796+00:00",
+        "fixed_params": {},
+        "handler": "tasks:extract_word",
+        "id": "ce0b5306-89ba-5367-b91d-4a47293045c9",
+        "lease_expires_at": null,
+        "params": {
+          "picks": "tasks.pick_word"
+        },
+        "queue": "default",
+        "result": "tomate",
+        "run_id": "f8d4f8d9-9d9e-5bfe-878e-3233622583e1",
+        "started_at": "2026-09-14T13:16:42.353245+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              3
+            ],
+            [
+              "picking",
+              3
+            ]
+          ],
+          "step": "extract_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.351849+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.355314+00:00",
+        "fixed_params": {},
+        "handler": "tasks:extract_word",
+        "id": "0b334fe2-8cdb-59c1-a1b0-47e0607d6bd5",
+        "lease_expires_at": null,
+        "params": {
+          "picks": "tasks.pick_word"
+        },
+        "queue": "default",
+        "result": "berry",
+        "run_id": "f8d4f8d9-9d9e-5bfe-878e-3233622583e1",
+        "started_at": "2026-09-14T13:16:42.354868+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              3
+            ]
+          ],
+          "step": "collect_words"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.356276+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.357028+00:00",
+        "fixed_params": {},
+        "handler": "tasks:collect_words",
+        "id": "d97fb0ab-f6bf-5004-88fc-c605410e0473",
+        "lease_expires_at": null,
+        "params": {
+          "all_rounds": "tasks.extract_word"
+        },
+        "queue": "default",
+        "result": {
+          "len": 3,
+          "selected_words": [
+            "berry",
+            "potato",
+            "tomate"
+          ]
+        },
+        "run_id": "f8d4f8d9-9d9e-5bfe-878e-3233622583e1",
+        "started_at": "2026-09-14T13:16:42.356802+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              3
+            ]
+          ],
+          "step": "enough_rounds"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.357986+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.358695+00:00",
+        "fixed_params": {},
+        "handler": "tasks:enough_rounds",
+        "id": "83ae6c37-2308-5a4b-a6d3-0c9c7bda50be",
+        "lease_expires_at": null,
+        "params": {
+          "collections": "tasks.collect_words"
+        },
+        "queue": "default",
+        "result": false,
+        "run_id": "f8d4f8d9-9d9e-5bfe-878e-3233622583e1",
+        "started_at": "2026-09-14T13:16:42.358452+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              4
+            ],
+            [
+              "picking",
+              1
+            ]
+          ],
+          "step": "pick_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.359653+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.360555+00:00",
+        "fixed_params": {},
+        "handler": "tasks:pick_word",
+        "id": "ede9a484-093c-5065-b1f6-85a98c0293d7",
+        "lease_expires_at": null,
+        "params": {
+          "index": "neorc.index",
+          "payload": "tasks.compose_payload"
+        },
+        "queue": "default",
+        "result": "my preferred word is potato",
+        "run_id": "f8d4f8d9-9d9e-5bfe-878e-3233622583e1",
+        "started_at": "2026-09-14T13:16:42.360324+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              4
+            ],
+            [
+              "picking",
+              2
+            ]
+          ],
+          "step": "pick_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.359769+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.362172+00:00",
+        "fixed_params": {},
+        "handler": "tasks:pick_word",
+        "id": "882ce34c-c1d0-5ebf-84cc-8d9f19151105",
+        "lease_expires_at": null,
+        "params": {
+          "index": "neorc.index",
+          "payload": "tasks.compose_payload"
+        },
+        "queue": "default",
+        "result": "my preferred word is tomate",
+        "run_id": "f8d4f8d9-9d9e-5bfe-878e-3233622583e1",
+        "started_at": "2026-09-14T13:16:42.361730+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              4
+            ],
+            [
+              "picking",
+              3
+            ]
+          ],
+          "step": "pick_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.359876+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.363876+00:00",
+        "fixed_params": {},
+        "handler": "tasks:pick_word",
+        "id": "33e657ad-1acc-5767-87d9-5b8a4ef90df2",
+        "lease_expires_at": null,
+        "params": {
+          "index": "neorc.index",
+          "payload": "tasks.compose_payload"
+        },
+        "queue": "default",
+        "result": "my preferred word is berry",
+        "run_id": "f8d4f8d9-9d9e-5bfe-878e-3233622583e1",
+        "started_at": "2026-09-14T13:16:42.363439+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              4
+            ],
+            [
+              "picking",
+              1
+            ]
+          ],
+          "step": "extract_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.361677+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.365576+00:00",
+        "fixed_params": {},
+        "handler": "tasks:extract_word",
+        "id": "43d2df59-e5f5-5a9c-bed9-4c123d39e271",
+        "lease_expires_at": null,
+        "params": {
+          "picks": "tasks.pick_word"
+        },
+        "queue": "default",
+        "result": "potato",
+        "run_id": "f8d4f8d9-9d9e-5bfe-878e-3233622583e1",
+        "started_at": "2026-09-14T13:16:42.365147+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              4
+            ],
+            [
+              "picking",
+              2
+            ]
+          ],
+          "step": "extract_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.363384+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.367053+00:00",
+        "fixed_params": {},
+        "handler": "tasks:extract_word",
+        "id": "b17c4c11-b490-57ca-a572-cbd61d8643ae",
+        "lease_expires_at": null,
+        "params": {
+          "picks": "tasks.pick_word"
+        },
+        "queue": "default",
+        "result": "tomate",
+        "run_id": "f8d4f8d9-9d9e-5bfe-878e-3233622583e1",
+        "started_at": "2026-09-14T13:16:42.366690+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              4
+            ],
+            [
+              "picking",
+              3
+            ]
+          ],
+          "step": "extract_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.365092+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.368607+00:00",
+        "fixed_params": {},
+        "handler": "tasks:extract_word",
+        "id": "f1f529b2-a233-526c-a9e3-1c54a2525318",
+        "lease_expires_at": null,
+        "params": {
+          "picks": "tasks.pick_word"
+        },
+        "queue": "default",
+        "result": "berry",
+        "run_id": "f8d4f8d9-9d9e-5bfe-878e-3233622583e1",
+        "started_at": "2026-09-14T13:16:42.368174+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              4
+            ]
+          ],
+          "step": "collect_words"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.369689+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.370396+00:00",
+        "fixed_params": {},
+        "handler": "tasks:collect_words",
+        "id": "577dbd47-37b4-54ab-8afd-dc33312a100e",
+        "lease_expires_at": null,
+        "params": {
+          "all_rounds": "tasks.extract_word"
+        },
+        "queue": "default",
+        "result": {
+          "len": 4,
+          "selected_words": [
+            "berry",
+            "potato",
+            "tomate"
+          ]
+        },
+        "run_id": "f8d4f8d9-9d9e-5bfe-878e-3233622583e1",
+        "started_at": "2026-09-14T13:16:42.370133+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              4
+            ]
+          ],
+          "step": "enough_rounds"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.371465+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.372153+00:00",
+        "fixed_params": {},
+        "handler": "tasks:enough_rounds",
+        "id": "61e8389a-c57d-55db-8545-141011c3b225",
+        "lease_expires_at": null,
+        "params": {
+          "collections": "tasks.collect_words"
+        },
+        "queue": "default",
+        "result": true,
+        "run_id": "f8d4f8d9-9d9e-5bfe-878e-3233622583e1",
+        "started_at": "2026-09-14T13:16:42.371949+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [],
+          "step": "latest_round"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.373293+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.374020+00:00",
+        "fixed_params": {},
+        "handler": "tasks:pick_last",
+        "id": "a8312535-4c01-52f5-b38e-7cdde4a5f3bb",
+        "lease_expires_at": null,
+        "params": {
+          "values": "tasks.collect_words"
+        },
+        "queue": "default",
+        "result": {
+          "len": 4,
+          "selected_words": [
+            "berry",
+            "potato",
+            "tomate"
+          ]
+        },
+        "run_id": "f8d4f8d9-9d9e-5bfe-878e-3233622583e1",
+        "started_at": "2026-09-14T13:16:42.373797+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "grading",
+              1
+            ]
+          ],
+          "step": "score_words"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.375086+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.376218+00:00",
+        "fixed_params": {},
+        "handler": "tasks:score_words",
+        "id": "9094efa0-74a3-54d1-8e00-dba9a5600628",
+        "lease_expires_at": null,
+        "params": {
+          "index": "neorc.index",
+          "latest_round": "tasks.latest_round",
+          "preferred_letter": "inputs.preferred_letter"
+        },
+        "queue": "scoring",
+        "result": {
+          "berry": 0,
+          "potato": 2,
+          "tomate": 2
+        },
+        "run_id": "f8d4f8d9-9d9e-5bfe-878e-3233622583e1",
+        "started_at": "2026-09-14T13:16:42.375897+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "grading",
+              2
+            ]
+          ],
+          "step": "score_words"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.375214+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.378223+00:00",
+        "fixed_params": {},
+        "handler": "tasks:score_words",
+        "id": "46d9940e-b22d-516e-9315-2c597ce9a963",
+        "lease_expires_at": null,
+        "params": {
+          "index": "neorc.index",
+          "latest_round": "tasks.latest_round",
+          "preferred_letter": "inputs.preferred_letter"
+        },
+        "queue": "scoring",
+        "result": {
+          "berry": 0,
+          "potato": 2,
+          "tomate": 2
+        },
+        "run_id": "f8d4f8d9-9d9e-5bfe-878e-3233622583e1",
+        "started_at": "2026-09-14T13:16:42.377786+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "grading",
+              3
+            ]
+          ],
+          "step": "score_words"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.375333+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.379892+00:00",
+        "fixed_params": {},
+        "handler": "tasks:score_words",
+        "id": "4a8eaf06-9140-572c-a02f-1efb80fa4f6f",
+        "lease_expires_at": null,
+        "params": {
+          "index": "neorc.index",
+          "latest_round": "tasks.latest_round",
+          "preferred_letter": "inputs.preferred_letter"
+        },
+        "queue": "scoring",
+        "result": {
+          "berry": 0,
+          "potato": 2,
+          "tomate": 2
+        },
+        "run_id": "f8d4f8d9-9d9e-5bfe-878e-3233622583e1",
+        "started_at": "2026-09-14T13:16:42.379502+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [],
+          "step": "keep_matching_words"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.381157+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.381901+00:00",
+        "fixed_params": {},
+        "handler": "tasks:keep_matching_words",
+        "id": "a81cf679-50e8-57fa-b7d1-875ab0c6ea16",
+        "lease_expires_at": null,
+        "params": {
+          "all_scores": "tasks.score_words"
+        },
+        "queue": "default",
+        "result": [
+          "potato",
+          "tomate"
+        ],
+        "run_id": "f8d4f8d9-9d9e-5bfe-878e-3233622583e1",
+        "started_at": "2026-09-14T13:16:42.381693+00:00",
+        "status": "succeeded"
+      }
+    ],
+    "fea573e1-2ed0-528f-bfa4-8bd010570675": [
+      {
+        "address": {
+          "scope": [],
+          "step": "compose_payload"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.256751+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.258372+00:00",
+        "fixed_params": {},
+        "handler": "tasks:compose_payload",
+        "id": "0cb9298d-9140-53f1-9080-c2909475b736",
+        "lease_expires_at": null,
+        "params": {
+          "sentence": "inputs.sentence"
+        },
+        "queue": "default",
+        "result": "dummy composed payload from user input: potato tomate berry watermelon",
+        "run_id": "fea573e1-2ed0-528f-bfa4-8bd010570675",
+        "started_at": "2026-09-14T13:16:42.257184+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              1
+            ],
+            [
+              "picking",
+              1
+            ]
+          ],
+          "step": "pick_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.258962+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.259868+00:00",
+        "fixed_params": {},
+        "handler": "tasks:pick_word",
+        "id": "c5d6466a-cffb-5449-a590-8ad2fbd6360e",
+        "lease_expires_at": null,
+        "params": {
+          "index": "neorc.index",
+          "payload": "tasks.compose_payload"
+        },
+        "queue": "default",
+        "result": "my preferred word is potato",
+        "run_id": "fea573e1-2ed0-528f-bfa4-8bd010570675",
+        "started_at": "2026-09-14T13:16:42.259562+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              1
+            ],
+            [
+              "picking",
+              2
+            ]
+          ],
+          "step": "pick_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.259063+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.261059+00:00",
+        "fixed_params": {},
+        "handler": "tasks:pick_word",
+        "id": "3e4b4a72-09c6-5c9e-8e8a-71a6d873d584",
+        "lease_expires_at": null,
+        "params": {
+          "index": "neorc.index",
+          "payload": "tasks.compose_payload"
+        },
+        "queue": "default",
+        "result": "my preferred word is tomate",
+        "run_id": "fea573e1-2ed0-528f-bfa4-8bd010570675",
+        "started_at": "2026-09-14T13:16:42.260634+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              1
+            ],
+            [
+              "picking",
+              3
+            ]
+          ],
+          "step": "pick_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.259152+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.262166+00:00",
+        "fixed_params": {},
+        "handler": "tasks:pick_word",
+        "id": "db0491bc-feaf-5784-8cdf-ca2bfca7a6bd",
+        "lease_expires_at": null,
+        "params": {
+          "index": "neorc.index",
+          "payload": "tasks.compose_payload"
+        },
+        "queue": "default",
+        "result": "my preferred word is berry",
+        "run_id": "fea573e1-2ed0-528f-bfa4-8bd010570675",
+        "started_at": "2026-09-14T13:16:42.261794+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              1
+            ],
+            [
+              "picking",
+              1
+            ]
+          ],
+          "step": "extract_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.260587+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.263287+00:00",
+        "fixed_params": {},
+        "handler": "tasks:extract_word",
+        "id": "33e7ebb2-44e4-515b-8e22-e822d216410e",
+        "lease_expires_at": null,
+        "params": {
+          "picks": "tasks.pick_word"
+        },
+        "queue": "default",
+        "result": "potato",
+        "run_id": "fea573e1-2ed0-528f-bfa4-8bd010570675",
+        "started_at": "2026-09-14T13:16:42.262911+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              1
+            ],
+            [
+              "picking",
+              2
+            ]
+          ],
+          "step": "extract_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.261747+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.264279+00:00",
+        "fixed_params": {},
+        "handler": "tasks:extract_word",
+        "id": "d38ec33f-b1ee-5ba4-ad60-c985e20c13da",
+        "lease_expires_at": null,
+        "params": {
+          "picks": "tasks.pick_word"
+        },
+        "queue": "default",
+        "result": "tomate",
+        "run_id": "fea573e1-2ed0-528f-bfa4-8bd010570675",
+        "started_at": "2026-09-14T13:16:42.263938+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              1
+            ],
+            [
+              "picking",
+              3
+            ]
+          ],
+          "step": "extract_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.262863+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.265358+00:00",
+        "fixed_params": {},
+        "handler": "tasks:extract_word",
+        "id": "add78605-6b57-5c98-a69d-30948b27f0ad",
+        "lease_expires_at": null,
+        "params": {
+          "picks": "tasks.pick_word"
+        },
+        "queue": "default",
+        "result": "berry",
+        "run_id": "fea573e1-2ed0-528f-bfa4-8bd010570675",
+        "started_at": "2026-09-14T13:16:42.264969+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              1
+            ]
+          ],
+          "step": "collect_words"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.266010+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.266670+00:00",
+        "fixed_params": {},
+        "handler": "tasks:collect_words",
+        "id": "a9fd4f6a-0287-5dba-a04d-6dff02493eed",
+        "lease_expires_at": null,
+        "params": {
+          "all_rounds": "tasks.extract_word"
+        },
+        "queue": "default",
+        "result": {
+          "len": 1,
+          "selected_words": [
+            "berry",
+            "potato",
+            "tomate"
+          ]
+        },
+        "run_id": "fea573e1-2ed0-528f-bfa4-8bd010570675",
+        "started_at": "2026-09-14T13:16:42.266363+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              1
+            ]
+          ],
+          "step": "enough_rounds"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.267266+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.267892+00:00",
+        "fixed_params": {},
+        "handler": "tasks:enough_rounds",
+        "id": "042bb798-b62f-5d4a-b8a9-867957ab08b0",
+        "lease_expires_at": null,
+        "params": {
+          "collections": "tasks.collect_words"
+        },
+        "queue": "default",
+        "result": false,
+        "run_id": "fea573e1-2ed0-528f-bfa4-8bd010570675",
+        "started_at": "2026-09-14T13:16:42.267675+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              2
+            ],
+            [
+              "picking",
+              1
+            ]
+          ],
+          "step": "pick_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.268548+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.269362+00:00",
+        "fixed_params": {},
+        "handler": "tasks:pick_word",
+        "id": "1ebd01a5-eb1f-57a7-9ef4-3bcd221b1579",
+        "lease_expires_at": null,
+        "params": {
+          "index": "neorc.index",
+          "payload": "tasks.compose_payload"
+        },
+        "queue": "default",
+        "result": "my preferred word is potato",
+        "run_id": "fea573e1-2ed0-528f-bfa4-8bd010570675",
+        "started_at": "2026-09-14T13:16:42.269144+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              2
+            ],
+            [
+              "picking",
+              2
+            ]
+          ],
+          "step": "pick_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.268648+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.270806+00:00",
+        "fixed_params": {},
+        "handler": "tasks:pick_word",
+        "id": "6d5cbbcb-a0e8-56cd-aab4-3d2fc656149a",
+        "lease_expires_at": null,
+        "params": {
+          "index": "neorc.index",
+          "payload": "tasks.compose_payload"
+        },
+        "queue": "default",
+        "result": "my preferred word is tomate",
+        "run_id": "fea573e1-2ed0-528f-bfa4-8bd010570675",
+        "started_at": "2026-09-14T13:16:42.270272+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              2
+            ],
+            [
+              "picking",
+              3
+            ]
+          ],
+          "step": "pick_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.268741+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.272085+00:00",
+        "fixed_params": {},
+        "handler": "tasks:pick_word",
+        "id": "c76bd9e9-17de-5a6f-8269-a0df1eaf1cb8",
+        "lease_expires_at": null,
+        "params": {
+          "index": "neorc.index",
+          "payload": "tasks.compose_payload"
+        },
+        "queue": "default",
+        "result": "my preferred word is berry",
+        "run_id": "fea573e1-2ed0-528f-bfa4-8bd010570675",
+        "started_at": "2026-09-14T13:16:42.271698+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              2
+            ],
+            [
+              "picking",
+              1
+            ]
+          ],
+          "step": "extract_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.270225+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.273348+00:00",
+        "fixed_params": {},
+        "handler": "tasks:extract_word",
+        "id": "ddfc6fd8-e702-5cf9-b1ee-52b61d49f4bc",
+        "lease_expires_at": null,
+        "params": {
+          "picks": "tasks.pick_word"
+        },
+        "queue": "default",
+        "result": "potato",
+        "run_id": "fea573e1-2ed0-528f-bfa4-8bd010570675",
+        "started_at": "2026-09-14T13:16:42.272971+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              2
+            ],
+            [
+              "picking",
+              2
+            ]
+          ],
+          "step": "extract_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.271647+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.274473+00:00",
+        "fixed_params": {},
+        "handler": "tasks:extract_word",
+        "id": "f5857876-590a-5dd4-a3eb-8fe5fbd4e046",
+        "lease_expires_at": null,
+        "params": {
+          "picks": "tasks.pick_word"
+        },
+        "queue": "default",
+        "result": "tomate",
+        "run_id": "fea573e1-2ed0-528f-bfa4-8bd010570675",
+        "started_at": "2026-09-14T13:16:42.274128+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              2
+            ],
+            [
+              "picking",
+              3
+            ]
+          ],
+          "step": "extract_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.272920+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.275625+00:00",
+        "fixed_params": {},
+        "handler": "tasks:extract_word",
+        "id": "a4949ece-1e52-5d67-a4da-14bfeca5d35a",
+        "lease_expires_at": null,
+        "params": {
+          "picks": "tasks.pick_word"
+        },
+        "queue": "default",
+        "result": "berry",
+        "run_id": "fea573e1-2ed0-528f-bfa4-8bd010570675",
+        "started_at": "2026-09-14T13:16:42.275253+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              2
+            ]
+          ],
+          "step": "collect_words"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.276351+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.276970+00:00",
+        "fixed_params": {},
+        "handler": "tasks:collect_words",
+        "id": "d79b29f7-b5a2-566b-a8d7-786aa3d78773",
+        "lease_expires_at": null,
+        "params": {
+          "all_rounds": "tasks.extract_word"
+        },
+        "queue": "default",
+        "result": {
+          "len": 2,
+          "selected_words": [
+            "berry",
+            "potato",
+            "tomate"
+          ]
+        },
+        "run_id": "fea573e1-2ed0-528f-bfa4-8bd010570675",
+        "started_at": "2026-09-14T13:16:42.276730+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              2
+            ]
+          ],
+          "step": "enough_rounds"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.277730+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.278372+00:00",
+        "fixed_params": {},
+        "handler": "tasks:enough_rounds",
+        "id": "d307fb16-67e1-5e03-8d5c-75026ac6096e",
+        "lease_expires_at": null,
+        "params": {
+          "collections": "tasks.collect_words"
+        },
+        "queue": "default",
+        "result": false,
+        "run_id": "fea573e1-2ed0-528f-bfa4-8bd010570675",
+        "started_at": "2026-09-14T13:16:42.278156+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              3
+            ],
+            [
+              "picking",
+              1
+            ]
+          ],
+          "step": "pick_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.279157+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.279947+00:00",
+        "fixed_params": {},
+        "handler": "tasks:pick_word",
+        "id": "610eeaa3-b72d-53ee-9f4a-32fdb3b11a6a",
+        "lease_expires_at": null,
+        "params": {
+          "index": "neorc.index",
+          "payload": "tasks.compose_payload"
+        },
+        "queue": "default",
+        "result": "my preferred word is potato",
+        "run_id": "fea573e1-2ed0-528f-bfa4-8bd010570675",
+        "started_at": "2026-09-14T13:16:42.279740+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              3
+            ],
+            [
+              "picking",
+              2
+            ]
+          ],
+          "step": "pick_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.279257+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.281309+00:00",
+        "fixed_params": {},
+        "handler": "tasks:pick_word",
+        "id": "c26633b7-c6a8-5542-977e-c86093775f18",
+        "lease_expires_at": null,
+        "params": {
+          "index": "neorc.index",
+          "payload": "tasks.compose_payload"
+        },
+        "queue": "default",
+        "result": "my preferred word is tomate",
+        "run_id": "fea573e1-2ed0-528f-bfa4-8bd010570675",
+        "started_at": "2026-09-14T13:16:42.280930+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              3
+            ],
+            [
+              "picking",
+              3
+            ]
+          ],
+          "step": "pick_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.279350+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.282969+00:00",
+        "fixed_params": {},
+        "handler": "tasks:pick_word",
+        "id": "c2dcf4ca-03f2-5ed8-9e7a-27a0beb43c58",
+        "lease_expires_at": null,
+        "params": {
+          "index": "neorc.index",
+          "payload": "tasks.compose_payload"
+        },
+        "queue": "default",
+        "result": "my preferred word is berry",
+        "run_id": "fea573e1-2ed0-528f-bfa4-8bd010570675",
+        "started_at": "2026-09-14T13:16:42.282567+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              3
+            ],
+            [
+              "picking",
+              1
+            ]
+          ],
+          "step": "extract_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.280881+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.284558+00:00",
+        "fixed_params": {},
+        "handler": "tasks:extract_word",
+        "id": "499f97ad-1bb2-5972-9eb4-893d31cea830",
+        "lease_expires_at": null,
+        "params": {
+          "picks": "tasks.pick_word"
+        },
+        "queue": "default",
+        "result": "potato",
+        "run_id": "fea573e1-2ed0-528f-bfa4-8bd010570675",
+        "started_at": "2026-09-14T13:16:42.284095+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              3
+            ],
+            [
+              "picking",
+              2
+            ]
+          ],
+          "step": "extract_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.282504+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.286070+00:00",
+        "fixed_params": {},
+        "handler": "tasks:extract_word",
+        "id": "cf034657-f4a2-5329-a318-2cfa7d06d9a6",
+        "lease_expires_at": null,
+        "params": {
+          "picks": "tasks.pick_word"
+        },
+        "queue": "default",
+        "result": "tomate",
+        "run_id": "fea573e1-2ed0-528f-bfa4-8bd010570675",
+        "started_at": "2026-09-14T13:16:42.285700+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              3
+            ],
+            [
+              "picking",
+              3
+            ]
+          ],
+          "step": "extract_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.284038+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.287303+00:00",
+        "fixed_params": {},
+        "handler": "tasks:extract_word",
+        "id": "295de1ff-35f9-55f9-b420-99892a820eb4",
+        "lease_expires_at": null,
+        "params": {
+          "picks": "tasks.pick_word"
+        },
+        "queue": "default",
+        "result": "berry",
+        "run_id": "fea573e1-2ed0-528f-bfa4-8bd010570675",
+        "started_at": "2026-09-14T13:16:42.286972+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              3
+            ]
+          ],
+          "step": "collect_words"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.288161+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.288905+00:00",
+        "fixed_params": {},
+        "handler": "tasks:collect_words",
+        "id": "e7247653-99f5-508a-a70c-723b90a58714",
+        "lease_expires_at": null,
+        "params": {
+          "all_rounds": "tasks.extract_word"
+        },
+        "queue": "default",
+        "result": {
+          "len": 3,
+          "selected_words": [
+            "berry",
+            "potato",
+            "tomate"
+          ]
+        },
+        "run_id": "fea573e1-2ed0-528f-bfa4-8bd010570675",
+        "started_at": "2026-09-14T13:16:42.288661+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              3
+            ]
+          ],
+          "step": "enough_rounds"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.289795+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.290428+00:00",
+        "fixed_params": {},
+        "handler": "tasks:enough_rounds",
+        "id": "4cb641ab-1067-5465-8d48-731d39ca39f7",
+        "lease_expires_at": null,
+        "params": {
+          "collections": "tasks.collect_words"
+        },
+        "queue": "default",
+        "result": false,
+        "run_id": "fea573e1-2ed0-528f-bfa4-8bd010570675",
+        "started_at": "2026-09-14T13:16:42.290192+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              4
+            ],
+            [
+              "picking",
+              1
+            ]
+          ],
+          "step": "pick_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.291500+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.292822+00:00",
+        "fixed_params": {},
+        "handler": "tasks:pick_word",
+        "id": "8cb3f1f2-8e10-5dec-970a-d3134cc3873c",
+        "lease_expires_at": null,
+        "params": {
+          "index": "neorc.index",
+          "payload": "tasks.compose_payload"
+        },
+        "queue": "default",
+        "result": "my preferred word is potato",
+        "run_id": "fea573e1-2ed0-528f-bfa4-8bd010570675",
+        "started_at": "2026-09-14T13:16:42.292431+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              4
+            ],
+            [
+              "picking",
+              2
+            ]
+          ],
+          "step": "pick_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.291646+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.295493+00:00",
+        "fixed_params": {},
+        "handler": "tasks:pick_word",
+        "id": "7b7b05ad-f2b5-5d4a-866e-476a8130c5ff",
+        "lease_expires_at": null,
+        "params": {
+          "index": "neorc.index",
+          "payload": "tasks.compose_payload"
+        },
+        "queue": "default",
+        "result": "my preferred word is tomate",
+        "run_id": "fea573e1-2ed0-528f-bfa4-8bd010570675",
+        "started_at": "2026-09-14T13:16:42.294839+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              4
+            ],
+            [
+              "picking",
+              3
+            ]
+          ],
+          "step": "pick_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.291816+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.297746+00:00",
+        "fixed_params": {},
+        "handler": "tasks:pick_word",
+        "id": "24a7887b-3cf5-5e63-af1d-e574f2ef6b74",
+        "lease_expires_at": null,
+        "params": {
+          "index": "neorc.index",
+          "payload": "tasks.compose_payload"
+        },
+        "queue": "default",
+        "result": "my preferred word is berry",
+        "run_id": "fea573e1-2ed0-528f-bfa4-8bd010570675",
+        "started_at": "2026-09-14T13:16:42.297059+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              4
+            ],
+            [
+              "picking",
+              1
+            ]
+          ],
+          "step": "extract_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.294727+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.300127+00:00",
+        "fixed_params": {},
+        "handler": "tasks:extract_word",
+        "id": "7f54360a-be9d-52b3-8160-ac2f6095941f",
+        "lease_expires_at": null,
+        "params": {
+          "picks": "tasks.pick_word"
+        },
+        "queue": "default",
+        "result": "potato",
+        "run_id": "fea573e1-2ed0-528f-bfa4-8bd010570675",
+        "started_at": "2026-09-14T13:16:42.299323+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              4
+            ],
+            [
+              "picking",
+              2
+            ]
+          ],
+          "step": "extract_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.296992+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.302239+00:00",
+        "fixed_params": {},
+        "handler": "tasks:extract_word",
+        "id": "1cc4baed-175e-52d9-b4e5-d3724435de04",
+        "lease_expires_at": null,
+        "params": {
+          "picks": "tasks.pick_word"
+        },
+        "queue": "default",
+        "result": "tomate",
+        "run_id": "fea573e1-2ed0-528f-bfa4-8bd010570675",
+        "started_at": "2026-09-14T13:16:42.301416+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              4
+            ],
+            [
+              "picking",
+              3
+            ]
+          ],
+          "step": "extract_word"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.299259+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.304754+00:00",
+        "fixed_params": {},
+        "handler": "tasks:extract_word",
+        "id": "a5ec7fcc-a81e-5039-bb35-e014fa4469bf",
+        "lease_expires_at": null,
+        "params": {
+          "picks": "tasks.pick_word"
+        },
+        "queue": "default",
+        "result": "berry",
+        "run_id": "fea573e1-2ed0-528f-bfa4-8bd010570675",
+        "started_at": "2026-09-14T13:16:42.303709+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              4
+            ]
+          ],
+          "step": "collect_words"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.305975+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.306907+00:00",
+        "fixed_params": {},
+        "handler": "tasks:collect_words",
+        "id": "35349725-adb6-5e62-b054-da0b0f0ddb37",
+        "lease_expires_at": null,
+        "params": {
+          "all_rounds": "tasks.extract_word"
+        },
+        "queue": "default",
+        "result": {
+          "len": 4,
+          "selected_words": [
+            "berry",
+            "potato",
+            "tomate"
+          ]
+        },
+        "run_id": "fea573e1-2ed0-528f-bfa4-8bd010570675",
+        "started_at": "2026-09-14T13:16:42.306669+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "rounds",
+              4
+            ]
+          ],
+          "step": "enough_rounds"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.308064+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.309034+00:00",
+        "fixed_params": {},
+        "handler": "tasks:enough_rounds",
+        "id": "28d54a07-8ea0-5e88-b932-a63014f4ed86",
+        "lease_expires_at": null,
+        "params": {
+          "collections": "tasks.collect_words"
+        },
+        "queue": "default",
+        "result": true,
+        "run_id": "fea573e1-2ed0-528f-bfa4-8bd010570675",
+        "started_at": "2026-09-14T13:16:42.308490+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [],
+          "step": "latest_round"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.310277+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.311081+00:00",
+        "fixed_params": {},
+        "handler": "tasks:pick_last",
+        "id": "220e0e8b-da00-5b72-8e19-38aa2d9b265c",
+        "lease_expires_at": null,
+        "params": {
+          "values": "tasks.collect_words"
+        },
+        "queue": "default",
+        "result": {
+          "len": 4,
+          "selected_words": [
+            "berry",
+            "potato",
+            "tomate"
+          ]
+        },
+        "run_id": "fea573e1-2ed0-528f-bfa4-8bd010570675",
+        "started_at": "2026-09-14T13:16:42.310850+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "grading",
+              1
+            ]
+          ],
+          "step": "score_words"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.312206+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.313150+00:00",
+        "fixed_params": {},
+        "handler": "tasks:score_words",
+        "id": "d893bedb-c0f5-54ee-bcdf-9afc6de737f0",
+        "lease_expires_at": null,
+        "params": {
+          "index": "neorc.index",
+          "latest_round": "tasks.latest_round",
+          "preferred_letter": "inputs.preferred_letter"
+        },
+        "queue": "scoring",
+        "result": {
+          "berry": 0,
+          "potato": 2,
+          "tomate": 2
+        },
+        "run_id": "fea573e1-2ed0-528f-bfa4-8bd010570675",
+        "started_at": "2026-09-14T13:16:42.312944+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "grading",
+              2
+            ]
+          ],
+          "step": "score_words"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.312318+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.314815+00:00",
+        "fixed_params": {},
+        "handler": "tasks:score_words",
+        "id": "7f0ae0cf-6a29-5273-88f1-3a73e0e74fd6",
+        "lease_expires_at": null,
+        "params": {
+          "index": "neorc.index",
+          "latest_round": "tasks.latest_round",
+          "preferred_letter": "inputs.preferred_letter"
+        },
+        "queue": "scoring",
+        "result": {
+          "berry": 0,
+          "potato": 2,
+          "tomate": 2
+        },
+        "run_id": "fea573e1-2ed0-528f-bfa4-8bd010570675",
+        "started_at": "2026-09-14T13:16:42.314343+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [
+            [
+              "grading",
+              3
+            ]
+          ],
+          "step": "score_words"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.312420+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.316494+00:00",
+        "fixed_params": {},
+        "handler": "tasks:score_words",
+        "id": "36b811f8-c175-5025-9e43-c03a635bc050",
+        "lease_expires_at": null,
+        "params": {
+          "index": "neorc.index",
+          "latest_round": "tasks.latest_round",
+          "preferred_letter": "inputs.preferred_letter"
+        },
+        "queue": "scoring",
+        "result": {
+          "berry": 0,
+          "potato": 2,
+          "tomate": 2
+        },
+        "run_id": "fea573e1-2ed0-528f-bfa4-8bd010570675",
+        "started_at": "2026-09-14T13:16:42.316117+00:00",
+        "status": "succeeded"
+      },
+      {
+        "address": {
+          "scope": [],
+          "step": "keep_matching_words"
+        },
+        "attempts": 1,
+        "created_at": "2026-09-14T13:16:42.317782+00:00",
+        "error": null,
+        "finished_at": "2026-09-14T13:16:42.318496+00:00",
+        "fixed_params": {},
+        "handler": "tasks:keep_matching_words",
+        "id": "3e90e188-c6ee-577b-b173-34744849a5ec",
+        "lease_expires_at": null,
+        "params": {
+          "all_scores": "tasks.score_words"
+        },
+        "queue": "default",
+        "result": [
+          "potato",
+          "tomate"
+        ],
+        "run_id": "fea573e1-2ed0-528f-bfa4-8bd010570675",
+        "started_at": "2026-09-14T13:16:42.318224+00:00",
+        "status": "succeeded"
+      }
+    ]
+  },
+  "sub_runs": [
+    {
+      "created_at": "2026-09-14T13:16:42.255604+00:00",
+      "finished_at": "2026-09-14T13:16:42.319542+00:00",
+      "flow": "word_picker",
+      "id": "fea573e1-2ed0-528f-bfa4-8bd010570675",
+      "inputs": {
+        "preferred_letter": "t",
+        "sentence": "potato tomate berry watermelon"
+      },
+      "output": [
+        "potato",
+        "tomate"
+      ],
+      "parent_address": {
+        "scope": [
+          [
+            "runs",
+            1
+          ]
+        ],
+        "step": "picker"
+      },
+      "parent_id": "a722548d-43f0-4696-bf4f-62ba5c81772f",
+      "reason": null,
+      "root_id": "a722548d-43f0-4696-bf4f-62ba5c81772f",
+      "status": "succeeded",
+      "version": "1.0.0"
+    },
+    {
+      "created_at": "2026-09-14T13:16:42.321602+00:00",
+      "finished_at": "2026-09-14T13:16:42.382878+00:00",
+      "flow": "word_picker",
+      "id": "f8d4f8d9-9d9e-5bfe-878e-3233622583e1",
+      "inputs": {
+        "preferred_letter": "t",
+        "sentence": "potato tomate berry watermelon"
+      },
+      "output": [
+        "potato",
+        "tomate"
+      ],
+      "parent_address": {
+        "scope": [
+          [
+            "runs",
+            2
+          ]
+        ],
+        "step": "picker"
+      },
+      "parent_id": "a722548d-43f0-4696-bf4f-62ba5c81772f",
+      "reason": null,
+      "root_id": "a722548d-43f0-4696-bf4f-62ba5c81772f",
+      "status": "succeeded",
+      "version": "1.0.0"
+    }
+  ],
+  "tasks": [
+    {
+      "address": {
+        "scope": [
+          [
+            "runs",
+            1
+          ]
+        ],
+        "step": "ran_enough"
+      },
+      "attempts": 1,
+      "created_at": "2026-09-14T13:16:42.320194+00:00",
+      "error": null,
+      "finished_at": "2026-09-14T13:16:42.320941+00:00",
+      "fixed_params": {},
+      "handler": "tasks:ran_enough",
+      "id": "e8c2610a-2a15-5a86-bced-9bf88016bc60",
+      "lease_expires_at": null,
+      "params": {
+        "loop_count": "neorc.loop_count",
+        "picker_results": "flows.picker"
+      },
+      "queue": "default",
+      "result": false,
+      "run_id": "a722548d-43f0-4696-bf4f-62ba5c81772f",
+      "started_at": "2026-09-14T13:16:42.320617+00:00",
+      "status": "succeeded"
+    },
+    {
+      "address": {
+        "scope": [
+          [
+            "runs",
+            2
+          ]
+        ],
+        "step": "ran_enough"
+      },
+      "attempts": 1,
+      "created_at": "2026-09-14T13:16:42.383473+00:00",
+      "error": null,
+      "finished_at": "2026-09-14T13:16:42.384115+00:00",
+      "fixed_params": {},
+      "handler": "tasks:ran_enough",
+      "id": "e8c3f585-fb36-5ca0-afab-668679d8068c",
+      "lease_expires_at": null,
+      "params": {
+        "loop_count": "neorc.loop_count",
+        "picker_results": "flows.picker"
+      },
+      "queue": "default",
+      "result": true,
+      "run_id": "a722548d-43f0-4696-bf4f-62ba5c81772f",
+      "started_at": "2026-09-14T13:16:42.383813+00:00",
+      "status": "succeeded"
+    },
+    {
+      "address": {
+        "scope": [],
+        "step": "final_words"
+      },
+      "attempts": 1,
+      "created_at": "2026-09-14T13:16:42.384673+00:00",
+      "error": null,
+      "finished_at": "2026-09-14T13:16:42.385231+00:00",
+      "fixed_params": {},
+      "handler": "tasks:pick_last",
+      "id": "e115c904-e81b-5e43-8841-4572b67e3e13",
+      "lease_expires_at": null,
+      "params": {
+        "values": "flows.picker"
+      },
+      "queue": "default",
+      "result": [
+        "potato",
+        "tomate"
+      ],
+      "run_id": "a722548d-43f0-4696-bf4f-62ba5c81772f",
+      "started_at": "2026-09-14T13:16:42.385048+00:00",
+      "status": "succeeded"
+    },
+    {
+      "address": {
+        "scope": [
+          [
+            "decorate",
+            1
+          ],
+          [
+            "padding",
+            1
+          ]
+        ],
+        "step": "pad"
+      },
+      "attempts": 1,
+      "created_at": "2026-09-14T13:16:42.385837+00:00",
+      "error": null,
+      "finished_at": "2026-09-14T13:16:42.386502+00:00",
+      "fixed_params": {
+        "pad_char": "*"
+      },
+      "handler": "tasks:pad",
+      "id": "7adce37a-2b8b-5944-a5a3-fec912ab7009",
+      "lease_expires_at": null,
+      "params": {
+        "loop_count": "neorc.loop_count",
+        "word": "neorc.item"
+      },
+      "queue": "default",
+      "result": "potato*",
+      "run_id": "a722548d-43f0-4696-bf4f-62ba5c81772f",
+      "started_at": "2026-09-14T13:16:42.386330+00:00",
+      "status": "succeeded"
+    },
+    {
+      "address": {
+        "scope": [
+          [
+            "decorate",
+            2
+          ],
+          [
+            "padding",
+            1
+          ]
+        ],
+        "step": "pad"
+      },
+      "attempts": 1,
+      "created_at": "2026-09-14T13:16:42.385934+00:00",
+      "error": null,
+      "finished_at": "2026-09-14T13:16:42.387751+00:00",
+      "fixed_params": {
+        "pad_char": "*"
+      },
+      "handler": "tasks:pad",
+      "id": "e8ff2f01-dd1a-58eb-ad7b-b096a8e2f6c2",
+      "lease_expires_at": null,
+      "params": {
+        "loop_count": "neorc.loop_count",
+        "word": "neorc.item"
+      },
+      "queue": "default",
+      "result": "tomate*",
+      "run_id": "a722548d-43f0-4696-bf4f-62ba5c81772f",
+      "started_at": "2026-09-14T13:16:42.387332+00:00",
+      "status": "succeeded"
+    },
+    {
+      "address": {
+        "scope": [
+          [
+            "decorate",
+            1
+          ],
+          [
+            "padding",
+            1
+          ]
+        ],
+        "step": "long_enough"
+      },
+      "attempts": 1,
+      "created_at": "2026-09-14T13:16:42.387286+00:00",
+      "error": null,
+      "finished_at": "2026-09-14T13:16:42.389029+00:00",
+      "fixed_params": {
+        "min_length": 8
+      },
+      "handler": "tasks:long_enough",
+      "id": "40fa1926-c5db-5e9d-a41d-ad69332f6327",
+      "lease_expires_at": null,
+      "params": {
+        "pads": "tasks.pad"
+      },
+      "queue": "default",
+      "result": false,
+      "run_id": "a722548d-43f0-4696-bf4f-62ba5c81772f",
+      "started_at": "2026-09-14T13:16:42.388525+00:00",
+      "status": "succeeded"
+    },
+    {
+      "address": {
+        "scope": [
+          [
+            "decorate",
+            2
+          ],
+          [
+            "padding",
+            1
+          ]
+        ],
+        "step": "long_enough"
+      },
+      "attempts": 1,
+      "created_at": "2026-09-14T13:16:42.388473+00:00",
+      "error": null,
+      "finished_at": "2026-09-14T13:16:42.390155+00:00",
+      "fixed_params": {
+        "min_length": 8
+      },
+      "handler": "tasks:long_enough",
+      "id": "1f6c906d-8dcb-5fd0-86db-2dd813527120",
+      "lease_expires_at": null,
+      "params": {
+        "pads": "tasks.pad"
+      },
+      "queue": "default",
+      "result": false,
+      "run_id": "a722548d-43f0-4696-bf4f-62ba5c81772f",
+      "started_at": "2026-09-14T13:16:42.389816+00:00",
+      "status": "succeeded"
+    },
+    {
+      "address": {
+        "scope": [
+          [
+            "decorate",
+            1
+          ],
+          [
+            "padding",
+            2
+          ]
+        ],
+        "step": "pad"
+      },
+      "attempts": 1,
+      "created_at": "2026-09-14T13:16:42.389770+00:00",
+      "error": null,
+      "finished_at": "2026-09-14T13:16:42.391283+00:00",
+      "fixed_params": {
+        "pad_char": "*"
+      },
+      "handler": "tasks:pad",
+      "id": "d8b64d5a-1cc4-5dd0-8eb5-75533aa7a7ae",
+      "lease_expires_at": null,
+      "params": {
+        "loop_count": "neorc.loop_count",
+        "word": "neorc.item"
+      },
+      "queue": "default",
+      "result": "potato**",
+      "run_id": "a722548d-43f0-4696-bf4f-62ba5c81772f",
+      "started_at": "2026-09-14T13:16:42.390931+00:00",
+      "status": "succeeded"
+    },
+    {
+      "address": {
+        "scope": [
+          [
+            "decorate",
+            2
+          ],
+          [
+            "padding",
+            2
+          ]
+        ],
+        "step": "pad"
+      },
+      "attempts": 1,
+      "created_at": "2026-09-14T13:16:42.390887+00:00",
+      "error": null,
+      "finished_at": "2026-09-14T13:16:42.392450+00:00",
+      "fixed_params": {
+        "pad_char": "*"
+      },
+      "handler": "tasks:pad",
+      "id": "a2e3d393-a559-55a9-8e99-3b77b8e79fdd",
+      "lease_expires_at": null,
+      "params": {
+        "loop_count": "neorc.loop_count",
+        "word": "neorc.item"
+      },
+      "queue": "default",
+      "result": "tomate**",
+      "run_id": "a722548d-43f0-4696-bf4f-62ba5c81772f",
+      "started_at": "2026-09-14T13:16:42.392112+00:00",
+      "status": "succeeded"
+    },
+    {
+      "address": {
+        "scope": [
+          [
+            "decorate",
+            1
+          ],
+          [
+            "padding",
+            2
+          ]
+        ],
+        "step": "long_enough"
+      },
+      "attempts": 1,
+      "created_at": "2026-09-14T13:16:42.392064+00:00",
+      "error": null,
+      "finished_at": "2026-09-14T13:16:42.393704+00:00",
+      "fixed_params": {
+        "min_length": 8
+      },
+      "handler": "tasks:long_enough",
+      "id": "0b5a596a-fa98-59ab-a70a-cf5907a377aa",
+      "lease_expires_at": null,
+      "params": {
+        "pads": "tasks.pad"
+      },
+      "queue": "default",
+      "result": true,
+      "run_id": "a722548d-43f0-4696-bf4f-62ba5c81772f",
+      "started_at": "2026-09-14T13:16:42.393295+00:00",
+      "status": "succeeded"
+    },
+    {
+      "address": {
+        "scope": [
+          [
+            "decorate",
+            2
+          ],
+          [
+            "padding",
+            2
+          ]
+        ],
+        "step": "long_enough"
+      },
+      "attempts": 1,
+      "created_at": "2026-09-14T13:16:42.393245+00:00",
+      "error": null,
+      "finished_at": "2026-09-14T13:16:42.394753+00:00",
+      "fixed_params": {
+        "min_length": 8
+      },
+      "handler": "tasks:long_enough",
+      "id": "e91d0f26-0d42-55d8-a4aa-6a5a9c66720c",
+      "lease_expires_at": null,
+      "params": {
+        "pads": "tasks.pad"
+      },
+      "queue": "default",
+      "result": true,
+      "run_id": "a722548d-43f0-4696-bf4f-62ba5c81772f",
+      "started_at": "2026-09-14T13:16:42.394421+00:00",
+      "status": "succeeded"
+    },
+    {
+      "address": {
+        "scope": [],
+        "step": "report"
+      },
+      "attempts": 1,
+      "created_at": "2026-09-14T13:16:42.395438+00:00",
+      "error": null,
+      "finished_at": "2026-09-14T13:16:42.396141+00:00",
+      "fixed_params": {},
+      "handler": "tasks:report",
+      "id": "b63c7a51-00eb-52d7-a42f-d4f2e955bde5",
+      "lease_expires_at": null,
+      "params": {
+        "attempts": "neorc.attempts",
+        "flow_run_id": "neorc.flow_run_id",
+        "padded": "tasks.pad",
+        "requested_at": "inputs.requested_at",
+        "task_id": "neorc.task_id"
+      },
+      "queue": "default",
+      "result": {
+        "attempts": 1,
+        "flow_run_id": "a722548d-43f0-4696-bf4f-62ba5c81772f",
+        "generated_at": {
+          "$datetime": "2026-09-14T13:16:42.395971+00:00"
+        },
+        "report_id": "b63c7a51-00eb-52d7-a42f-d4f2e955bde5",
+        "requested_at": {
+          "$datetime": "2026-09-13T10:00:00+00:00"
+        },
+        "waited_seconds": 98202.395971,
+        "words": [
+          "potato**",
+          "tomate**"
+        ]
+      },
+      "run_id": "a722548d-43f0-4696-bf4f-62ba5c81772f",
+      "started_at": "2026-09-14T13:16:42.395858+00:00",
+      "status": "succeeded"
+    }
+  ]
+}
