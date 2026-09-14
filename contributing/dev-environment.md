@@ -1,0 +1,31 @@
+# Development environment
+
+What to install on a machine before `uv sync`. The commands to build, test and
+check are in [CONTRIBUTING.md](../CONTRIBUTING.md).
+
+## Always
+
+- [uv](https://docs.astral.sh/uv/getting-started/installation/). It fetches a
+  Python on its own if the machine has none at 3.11 or newer.
+- git.
+
+## Postgres, for the `postgres` tests
+
+- Python 3.11 or 3.12: nothing. `uv sync` installs `pgserver`, which bundles a
+  server, and the tests start their own.
+- Newer Pythons: a server of yours, named in `NEORC_TEST_DATABASE_URL`. On
+  Ubuntu, `sudo apt install postgresql`; or a `postgres` container.
+- Neither: the `postgres` tests skip.
+
+## Node.js, only to work on `ts/`
+
+Needed to build or change a package under `ts/`, never to run neorc. The
+version is pinned in that package's `.nvmrc`; use it, not the distribution's
+`nodejs` package (Ubuntu 24.04 ships 18, which is out of support).
+
+Install [nvm](https://github.com/nvm-sh/nvm) from a tagged GitHub release,
+not a piped install script. It downloads the official build from nodejs.org.
+Then, in the package directory:
+
+    nvm install
+    npm ci

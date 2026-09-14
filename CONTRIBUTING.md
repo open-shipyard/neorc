@@ -56,8 +56,9 @@ Adding a Python package:
 
 ## Development setup
 
-The project uses [uv](https://docs.astral.sh/uv/). Install the packages and the
-development tools into `.venv`:
+The project uses [uv](https://docs.astral.sh/uv/); what to install on the
+machine first is in [contributing/dev-environment.md](contributing/dev-environment.md).
+Install the packages and the development tools into `.venv`:
 
     uv sync
 

@@ -1,13 +1,10 @@
 # Plan: a web UI that ships in the wheel
 
-Goal: after `pip install 'neorc[ui]'`, with no Node.js on the machine,
-
-    neorc run examples/wordplay --flow word_picker_rounds --ui
-
-opens a browser on a React UI that shows the flows, the runs and their trees,
-and every task's status, inputs, result and error, updating live; and from
-which runs can be started and cancelled and flows uploaded. The manager serves
-the same UI: `pip install 'neorc[manager]'` brings it.
+Goal: after `pip install 'neorc[manager]'`, with no Node.js on the machine,
+`neorc manager start` serves, next to its API, a React UI that shows the
+flows, the runs and their trees, and every task's status, inputs, result and
+error, updating live; and from which runs can be started and cancelled. Flows
+keep being uploaded with `neorc flows upload`.
 
 There is no authentication yet: anyone who reaches the UI or the API can do
 everything they allow. That is accepted for development and testing.
@@ -35,23 +32,27 @@ working on the UI, and never where it runs.
     python/neorc/src/neorc/
       manager/_routes.py  the routes the UI reads and writes, next to the others
       manager/_ui.py      mounting the assets at /ui
-      _cli.py             neorc run --ui
+      _cli.py             neorc manager start --no-ui
 
     pip install 'neorc[manager]'  ->  fastapi, uvicorn, neorc-ui
-    pip install 'neorc[ui]'       ->  the same, named for `neorc run --ui`
 
 The assets live in their own distribution so that worker and publisher hosts,
 which never serve a page, do not carry them, and so that `neorc-core` and
 `neorc` keep building with a plain `uv build` and no Node.js.
 
-The UI talks to the manager's existing API: `POST /flows`, `GET /flows/{name}`,
+The UI talks to the manager's existing API: `GET /flows/{name}`,
 `GET /flows/{name}/versions/{version}`, `POST /flows/{name}/runs`,
 `GET /runs/{id}`, `POST /runs/{id}/cancel`, `GET /runs/{id}/state` and the
-long-polled `GET /events` are there already, on `Manager`, with
-bodies in the `neorc_core._wire` forms and errors as
+long-polled `GET /events` are there already, on `Manager`, with bodies in the
+`neorc_core._wire` forms and errors as
 `{"error": "<exception class>", "detail": "...", "problems": [...]}`. What it
 still lacks is everything that lists: flows, versions, runs, a run's tasks and
 sub-runs.
+
+To see the UI locally: Postgres, `neorc manager start`, `neorc scheduler
+start`, one `neorc worker start` per queue, and `neorc flows upload`, as the
+"Deployed" steps of [examples/hello](../../examples/hello/README.md) do. The
+in-memory `neorc run` has no UI: it prints its run's output and exits.
 
 ## Steps
 
@@ -61,12 +62,11 @@ sub-runs.
 | 2  | The same on the Postgres store                      | todo   |
 | 3  | The manager routes the UI needs                     | todo   |
 | 4  | `neorc-ui` distribution and its build               | todo   |
-| 5  | Serving the UI, and `neorc run --ui`                | todo   |
+| 5  | The manager serves the UI                           | todo   |
 | 6  | UI: flows and runs                                  | todo   |
 | 7  | UI: a run, its tree and its tasks, live             | todo   |
-| 8  | UI: start and cancel runs, upload flows             | todo   |
+| 8  | UI: start and cancel runs                           | todo   |
 | 9  | Browser smoke test, docs and changelog              | todo   |
-| 10 | The manager serves the UI                           | todo   |
 
 ### 1. Read queries and timestamps, in core and in memory
 
@@ -113,8 +113,8 @@ shows. Nothing lists.
 
 Each new route calls one `Manager` method, as the existing ones do; bodies
 and responses in the `_wire` forms; errors through `_errors.py` as they are,
-so `FlowDefinitionError` and `InvalidValueError` are 422, `FlowVersionError`
-and `RunStateError` 409, the not-found errors 404.
+so `InvalidValueError` is 422, `FlowVersionError` and `RunStateError` 409, the
+not-found errors 404.
 
 - Reads, in `_routes.py`:
   - `GET /flows`: latest version of each flow, on `latest_flows`.
@@ -123,14 +123,8 @@ and `RunStateError` 409, the not-found errors 404.
   - `GET /runs/{id}/tasks` and `GET /runs/{id}/sub-runs`. `GET /runs/{id}`
     keeps returning the run alone: `HttpManagerClient.get_run` reads it.
   - `GET /tasks/{id}`.
-- `POST /flows/yaml`: the same upload as `POST /flows`, from YAML texts parsed
-  with `read_flow_yaml`, so a file uploaded from the browser is read exactly as
-  `LocalCluster.upload` and `neorc flows upload` read it. Bodies go through
-  `read_json` like every other, so the depth and size checks come first.
-- `create_app` takes an optional `after_upload` callback, called after
-  `upload_flows` from either route with the flows stored. `neorc run --ui`
-  passes `LocalCluster.start_workers`, so a flow uploaded with a new queue gets
-  a worker; the manager passes none, its workers being elsewhere.
+- No writes: `POST /flows/{name}/runs` and `POST /runs/{id}/cancel` are there,
+  and the UI does not upload.
 - No event stream of its own: the UI long-polls `GET /events?after=N`, the
   route the scheduler uses, with its cursor and the manager's deadline. The
   log is read, not consumed, so the two readers do not interfere.
@@ -166,14 +160,12 @@ pipeline.
 - A bundle size budget, 500 KB gzipped for all assets, checked by the build.
 - `neorc`: the `manager` extra becomes
   `["fastapi>=0.120", "uvicorn>=0.38", "neorc-ui"]`, so every manager install
-  brings the UI; and a new extra `ui = ["neorc-ui", "fastapi>=0.120",
-  "uvicorn>=0.38"]`, the same packages under the name that reads right for
-  `neorc run --ui` on a laptop.
+  brings the UI.
 - Root `pyproject.toml`: `neorc-ui = { workspace = true }` in
-  `[tool.uv.sources]`, `ui` added to the `neorc[...]` extras of the `dev`
-  group. CONTRIBUTING: the new layout, installing Node.js at the pinned
-  version to work on the UI, and working on it with `npm run dev` proxying the
-  API to a local `neorc run --ui`.
+  `[tool.uv.sources]`; the `dev` group already installs `neorc[manager]`.
+  CONTRIBUTING: the new layout, and working on the UI with `npm run dev`
+  proxying the API to a local `neorc manager start`; installing Node.js is
+  already in `contributing/dev-environment.md`.
 - CI: a `ui` job with `actions/setup-node` running lint, type check and build;
   the `build` job gets Node.js too, since `uv build --all-packages` now builds
   `neorc-ui`. A test builds the `neorc-ui` wheel and asserts `index.html` and
@@ -184,29 +176,18 @@ pipeline.
 - Python tests never need built assets: they point the mount at a temporary
   directory.
 
-### 5. Serving the UI, and `neorc run --ui`
+### 5. The manager serves the UI
 
 - `neorc/manager/_ui.py`: `mount_ui(app, path="/ui")` mounts `StaticFiles` on
   `neorc_ui.static_dir()`, and redirects `/` to `/ui/`. Hashed assets get
   `Cache-Control: immutable`, `index.html` `no-cache`. The UI uses hash routing
   (`/ui/#/runs/...`), so no fallback route is needed.
-- `neorc run DIR --ui [--flow NAME] [--ui-host 127.0.0.1] [--ui-port 8420]
-  [--no-browser]`:
-  - `--flow` is required today; with `--ui` it becomes optional;
-  - the CLI drives `LocalCluster` directly instead of `run_local`, and serves
-    `create_app(cluster.manager, after_upload=cluster.start_workers)` plus the
-    UI with `uvicorn.Server` on the same event loop;
-  - prints the URL and opens it with `webbrowser`, unless `--no-browser`;
-  - with `--flow`, starts that run and prints its output when it finishes, as
-    today; without it, only uploads the flows, and runs are started from the
-    UI;
-  - keeps serving until Ctrl-C either way, so finished runs can be inspected;
-    the exit status is the `--flow` run's, or 0 without one;
-  - without the extra, `_needs("ui")` says `pip install 'neorc[ui]'`.
-- Tests: `--ui` with a fake assets directory serves `index.html` and the API,
-  and exits with the run's status on SIGINT; a flow uploaded through the API
-  with a new queue gets a worker; the existing `run_command` thread handling
-  still holds.
+- `build_app` mounts the UI after the routes; `neorc manager start --no-ui`
+  leaves it out and keeps the API, and `/` then answers 404 as today.
+- Tests: with a fake assets directory, the app serves `index.html`, redirects
+  `/`, and sets the cache headers; with `--no-ui` it does not; the missing
+  assets error names the fix. The end-to-end test on uvicorn and Postgres also
+  fetches `/ui/` and the listing routes.
 
 ### 6. UI: flows and runs
 
@@ -234,7 +215,7 @@ pipeline.
   tasks is claimed or running.
 - Component tests on a recorded `word_picker_rounds` run.
 
-### 8. UI: start and cancel runs, upload flows
+### 8. UI: start and cancel runs
 
 - Start a run from a flow's page: a form built from the flow's declared inputs,
   one field per type (`string`, `number`, `boolean`, `datetime`); a datetime is
@@ -243,45 +224,43 @@ pipeline.
   to the form. On success, go to the new run.
 - Cancel an active run from its page, after a confirmation naming how many runs
   in its tree are active.
-- Upload flows: pick one or more YAML files, sent together to `/flows/yaml`.
-  Before sending, list the flows in them that have active runs, since storing
-  a new version cancels those runs. After, show per flow whether a version was
-  stored, or the error with its `problems`.
-- Component tests for each action, including the error paths.
+- Component tests for both actions, including the error paths.
 
 ### 9. Browser smoke test, docs and changelog
 
-- A Playwright test in CI on `neorc run examples/wordplay --ui --no-browser`:
-  start `word_picker_rounds` from the form, wait for it to succeed, check a
-  fan-out's branch results are shown; start another and cancel it; upload
-  `examples/hello/flows/a.yaml` and see it listed.
-- README quick start and the example READMEs: `--ui`, and that there is no
-  authentication yet.
+- A Playwright test in CI on the end-to-end fixture: Postgres, the manager on
+  uvicorn, a scheduler and one worker per queue, `examples/wordplay` uploaded
+  with `neorc flows upload`. Start `word_picker_rounds` from the form, wait
+  for it to succeed, check a fan-out's branch results are shown; start another
+  and cancel it.
+- README quick start and the example READMEs: the UI at `/ui/` after
+  `neorc manager start`, and that there is no authentication yet.
 - The root CHANGELOG, the one file both packages point at: the new queries
-  and timestamps in `neorc-core`, the routes and `--ui` in `neorc`, and the
+  and timestamps in `neorc-core`, the routes and the UI in `neorc`, and the
   new `neorc-ui` distribution.
-
-### 10. The manager serves the UI
-
-No longer blocked: the manager serves flows on Postgres, and the Postgres
-store passes the new queries after step 2.
-
-- `neorc manager start` mounts the UI on the manager app by default; `--no-ui`
-  leaves it out and keeps the API. `mount_ui` runs after the routes, so `/`
-  redirects to `/ui/` only when the UI is mounted.
-- The end-to-end test on uvicorn and Postgres also fetches `/ui/` and the
-  listing routes, with a fake assets directory.
 
 ## Choices made while planning
 
 Decided here to make progress. Revisit if they are wrong.
 
 - No authentication yet, and write operations allowed: starting and cancelling
-  runs and uploading flows, from the API and the UI. For development and
-  testing only. Authentication is planned separately and lands before the
-  first release; until then the UI and the READMEs say so.
-- `neorc run --ui` binds `127.0.0.1` by default; `--ui-host` is explicit. The
-  manager keeps binding `0.0.0.0`, as it does today.
+  runs, from the API and the UI. For development and testing only.
+  Authentication is planned separately and lands before the first release;
+  until then the UI and the READMEs say so.
+- One way to serve the UI: the manager. An earlier draft added `neorc run
+  --ui`, an in-memory cluster with a server on the same loop, for a laptop
+  with no Postgres; it doubled the CLI's wiring, made `--flow` optional and
+  the exit status conditional, and needed a hook on the app to start workers
+  after an upload. Seeing a run locally now takes Postgres and the three
+  deployed processes, which the tests already start.
+- Flows are uploaded with `neorc flows upload`, never from the browser. An
+  upload belongs with the code the workers load, and the CLI already reads and
+  validates the files once, the same way for every caller; the UI would have
+  reproduced that reading and its warning about cancelled runs for one more
+  path.
+- The manager keeps binding `0.0.0.0`, as it does today. With the UI, a
+  manager started on a laptop puts start and cancel buttons on the LAN; the
+  banner says so, and authentication is the fix.
 - The UI uses the manager's API as it is, at its paths, and the routes it
   lacks are added beside the others. An earlier draft put a second set under
   `/api/v1` to leave the task API's paths alone; that API is gone, and two
@@ -295,16 +274,14 @@ Decided here to make progress. Revisit if they are wrong.
   JSON a client would get.
 - Timestamps are set by the store, not by the manager, so they are consistent
   with the row they describe and `list_runs` can order on them in SQL.
-- Flow YAML is parsed on the server, by core's `read_flow_yaml`, never in the
-  browser, so there is one YAML reading, with its rules on timestamps.
 - Hash routing in the UI, so serving is plain static files at any prefix, from
   FastAPI or any other server.
 - No CDN: every asset is in the wheel, so the UI works on air-gapped hosts.
 - The OpenAPI schema is a committed snapshot checked by a Python test, so the
   UI build needs no Python and the Python build needs no Node.js.
-- `neorc-ui` shares the single version and tag. `neorc[manager]` and `neorc[ui]`
-  do not pin it; the UI says so when a route it needs answers 404 without the
-  manager's error body.
+- `neorc-ui` shares the single version and tag. `neorc[manager]` does not pin
+  it; the UI says so when a route it needs answers 404 without the manager's
+  error body.
 - No new event kinds for "task published" or "task started". The UI polls a
   run with work in flight instead, so the scheduler's event log is unchanged.
 - The event log is read, not consumed (`events_after` is a slice in memory and
@@ -314,5 +291,3 @@ Decided here to make progress. Revisit if they are wrong.
   assets directory, and only the `neorc-ui` build runs npm.
 - Contributors who work on the UI install Node.js themselves, at the version in
   `ts/neorc-ui/.nvmrc`; the repository does not provide it.
-- `neorc[manager]` brings the UI: `neorc-ui` is one of its dependencies, and the
-  manager serves it unless started with `--no-ui`.
