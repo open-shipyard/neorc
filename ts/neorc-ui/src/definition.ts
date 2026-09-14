@@ -1,7 +1,7 @@
 // A flow definition as uploaded, read into the steps the run page draws, and
 // the addresses of a run's tasks and sub-runs read into loop iterations and
 // fan-out branches.
-import type { Address } from "./api";
+import type { Address, Run, Task } from "./api";
 
 export type StepNode =
   | {
@@ -20,7 +20,15 @@ export type StepNode =
       exitCondition: string;
       children: StepNode[];
     }
-  | { kind: "fan_out"; name: string; over: string; children: StepNode[] };
+  | {
+      kind: "fan_out";
+      name: string;
+      /** What it iterates over, as the page says it: "over tasks.x", "range 3". */
+      over: string;
+      /** The reference the branches are made from, if `over` is one. */
+      input?: string;
+      children: StepNode[];
+    };
 
 type Json = Record<string, unknown>;
 
@@ -56,11 +64,11 @@ function stepOf(name: string, step: Json): StepNode {
   }
   if ("fan_out" in step) {
     const fanOut = record(step["fan_out"]);
-    const over =
-      "range" in fanOut
-        ? `range ${String(fanOut["range"])}`
-        : `over ${String(fanOut["over"] ?? "")}`;
-    return { kind: "fan_out", name, over, children: stepsOf(step) };
+    if ("range" in fanOut) {
+      return { kind: "fan_out", name, over: `range ${String(fanOut["range"])}`, children: stepsOf(step) };
+    }
+    const input = String(fanOut["over"] ?? "");
+    return { kind: "fan_out", name, over: `over ${input}`, input, children: stepsOf(step) };
   }
   if ("flow" in step) {
     return {
@@ -85,6 +93,33 @@ export type Scope = Address["scope"];
 /** One text per address, to find a run's task or sub-run for a step instance. */
 export function addressKey(step: string, scope: Scope): string {
   return `${step}@${scope.map(([name, n]) => `${name}:${n}`).join("/")}`;
+}
+
+/** What a run has done, by address: the outline and the graph both read it. */
+export interface Published {
+  /** The run's tasks by their address. */
+  tasks: Map<string, Task>;
+  /** The run's sub-flow runs by the address of the step that started them. */
+  subRuns: Map<string, Run>;
+  /** Every address above, for finding a container's iterations and branches. */
+  addresses: Address[];
+}
+
+export function published(tasks: Task[], subRuns: Run[]): Published {
+  const addresses: Address[] = [];
+  const byTask = new Map<string, Task>();
+  for (const task of tasks) {
+    byTask.set(addressKey(task.address.step, task.address.scope), task);
+    addresses.push(task.address);
+  }
+  const bySubRun = new Map<string, Run>();
+  for (const run of subRuns) {
+    if (run.parent_address) {
+      bySubRun.set(addressKey(run.parent_address.step, run.parent_address.scope), run);
+      addresses.push(run.parent_address);
+    }
+  }
+  return { tasks: byTask, subRuns: bySubRun, addresses };
 }
 
 /**

@@ -1,35 +1,14 @@
-import type { Address, Run, Task } from "../api";
-import { addressKey, instancesOf, type Scope, type StepNode } from "../definition";
+import {
+  addressKey,
+  instancesOf,
+  type Published,
+  type Scope,
+  type StepNode,
+} from "../definition";
 import { shortId } from "../format";
 import { href } from "../router";
 import { StatusBadge } from "./StatusBadge";
 import { TaskDetails } from "./TaskDetails";
-
-export interface Published {
-  /** The run's tasks by their address. */
-  tasks: Map<string, Task>;
-  /** The run's sub-flow runs by the address of the step that started them. */
-  subRuns: Map<string, Run>;
-  /** Every address above, for finding a container's iterations and branches. */
-  addresses: Address[];
-}
-
-export function published(tasks: Task[], subRuns: Run[]): Published {
-  const addresses: Address[] = [];
-  const byTask = new Map<string, Task>();
-  for (const task of tasks) {
-    byTask.set(addressKey(task.address.step, task.address.scope), task);
-    addresses.push(task.address);
-  }
-  const bySubRun = new Map<string, Run>();
-  for (const run of subRuns) {
-    if (run.parent_address) {
-      bySubRun.set(addressKey(run.parent_address.step, run.parent_address.scope), run);
-      addresses.push(run.parent_address);
-    }
-  }
-  return { tasks: byTask, subRuns: bySubRun, addresses };
-}
 
 /**
  * The run's steps as its definition lays them out, each with what the run

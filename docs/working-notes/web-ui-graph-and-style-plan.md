@@ -156,8 +156,8 @@ The second, `tmp/Screenshot from 2026-09-13 22-14-52.png`, a run:
 
 | #  | Step                                                  | Status |
 | -- | ----------------------------------------------------- | ------ |
-| 1  | The two packages, and nothing else                    | todo   |
-| 2  | The graph: nodes and edges from a run, tested         | todo   |
+| 1  | The two packages, and nothing else                    | done   |
+| 2  | The graph: nodes and edges from a run, tested         | done   |
 | 3  | The graph view on React Flow, and the view switch     | todo   |
 | 4  | The shell: sidebar, rail, profile placeholder, tokens | todo   |
 | 5  | The runs list and the run page, restyled              | todo   |
@@ -184,12 +184,14 @@ Pure functions in `src/graph.ts`, no React, tested against the recorded run.
 - Edges from references: a step's `params` values are references such as
   `tasks.pick_word`, `flows.picker`, `inputs.sentence`, `neorc.item`. An
   edge goes from the step a `tasks.` or `flows.` reference names to the
-  step holding the param; `inputs.` and `neorc.` make no edge. Within a
-  container instance, the edge joins the instances of the same scope; a
-  reference to a step outside the scope joins the last instance, which is
-  what the reference resolves to. The core's rules are in
-  `docs/specs/flows.md`, "Resolving references"; do not reimplement
-  resolution, only draw who feeds whom.
+  step holding the param; `inputs.` and `neorc.` make no edge. One edge from
+  every instance the reference resolves to: the consumer's own branch of a
+  fan-out it is inside of, every branch or iteration of a container it is
+  outside of. Inside a loop, the iterations so far feed a consumer; the graph
+  joins its own iteration's and the one before, a chain rather than half a
+  square of edges. A fan-out's `over` reference feeds each of its branches.
+  The core's rules are in `docs/specs/flows.md`, "Resolving references"; do
+  not reimplement resolution, only draw who feeds whom.
 - Layout with dagre: nodes sized by their content, rank direction top to
   bottom, compound by laying out each container's children first and
   sizing the parent from them, then the parent's level. Dagre's own
