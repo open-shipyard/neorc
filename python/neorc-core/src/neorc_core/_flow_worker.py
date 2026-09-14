@@ -18,9 +18,9 @@ from pathlib import Path
 from typing import Any
 
 from neorc_core import _values
-from neorc_core._errors import InvalidValueError, NeorcError, RunStateError
+from neorc_core._errors import NeorcError, RunStateError
 from neorc_core._handlers import resolve_handler, signature_problems
-from neorc_core._runs import TaskDelivery
+from neorc_core._runs import TaskDelivery, storable_text
 from neorc_core._task import TaskId
 from neorc_core.flows import DEFAULT_QUEUE, Namespace, TaskStep
 from neorc_core.ports._flow_clients import FlowQueueClient
@@ -30,6 +30,9 @@ DEFAULT_POLL_TIMEOUT = 30.0
 
 HEARTBEAT_FRACTION = 1 / 3
 """Heartbeat this far into the lease, so one missed beat does not lose the task."""
+
+MAX_ERROR_LENGTH = 64 * 1024
+"""The most of a task's error message that is reported, in characters."""
 
 _log = logging.getLogger(__name__)
 
@@ -149,7 +152,11 @@ class FlowWorker:
         error: str | None = None
         try:
             function = self._resolve(task.handler)
-            arguments = _values.decode(dict(delivery.inputs))
+            # Values already accepted, and collected into lists by the loops
+            # and fan-outs between: the depth rule for new values is not theirs.
+            arguments = _values.decode(
+                dict(delivery.inputs), limit=_values.MAX_JSON_DEPTH
+            )
             for name, reference in task.params.items():
                 if (
                     reference.namespace is Namespace.NEORC
@@ -168,11 +175,24 @@ class FlowWorker:
             error = f"{type(exc).__name__}: {exc}"
         else:
             try:
+                # A result too deep or too big is one the manager would fail
+                # the task for; but a transport would refuse the report before
+                # the manager could, and the task would run again on every
+                # lease. So it is failed here, once.
                 result = _values.encode(value)
-            except (InvalidValueError, RecursionError) as exc:
+                _values.ensure_fits(_values.dumps_json(result))
+            except (ValueError, TypeError, RecursionError) as exc:
+                # InvalidValueError is a ValueError; the rest is whatever
+                # writing the result as JSON refused.
+                result = None
                 error = f"invalid result: {type(exc).__name__}: {exc}"
         finally:
             heartbeat.cancel()
+        if error is not None:
+            # A message, not a value: what no store or transport could carry
+            # is replaced, as the stores do, and a huge one is cut short,
+            # rather than have the report refused on every lease.
+            error = storable_text(error)[:MAX_ERROR_LENGTH]
         await self._client.report_finished(task.id, result=result, error=error)
 
     def _resolve(self, handler: str) -> Callable[..., Any]:

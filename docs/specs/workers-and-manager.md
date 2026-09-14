@@ -58,6 +58,9 @@ A worker in another language defines its own format for the same field. The
 manager and the scheduler treat the handler as an opaque string; only the
 worker resolves it.
 
+A queue name is letters, digits, `_` and `-`: it travels in a URL path, where a
+`/` or a `.` segment would be read as part of the route.
+
 Task definitions are local to their flow. One handler can back several tasks,
 in the same flow or in different flows.
 

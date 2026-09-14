@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
@@ -17,17 +18,20 @@ from neorc_core._errors import (
     FlowVersionError,
     InvalidValueError,
     PayloadTooLargeError,
+    ResolutionError,
     RunNotFoundError,
     RunStateError,
     TaskNotFoundError,
     TaskStateError,
 )
+from neorc_core._flow_worker import FlowWorker
 from neorc_core._runs import EventKind, RunStatus, TaskDelivery
-from neorc_core._values import MAX_PAYLOAD_BYTES, JsonValue
+from neorc_core._values import MAX_PAYLOAD_BYTES, MAX_VALUE_DEPTH, JsonValue
 from neorc_core.flows import (
     Address,
     Outcome,
     Reference,
+    StepResult,
     Version,
     parse_flow,
 )
@@ -172,11 +176,13 @@ class ManagerClientContract(_Clients):
                 [{**ECHO, "version": "1.1.0", "output": "tasks.say\x00"}]
             )
         assert (await manager_client.get_flow("echo")).version == Version(1, 0, 0)
-        # A name to look up, too: a deployed store cannot even ask for it.
-        with pytest.raises(InvalidValueError, match="NUL"):
-            await manager_client.get_flow("echo\x00")
-        with pytest.raises(InvalidValueError, match="NUL"):
-            await manager_client.start_run("main\x00", INPUTS)
+        # A name to look up, too: a deployed store cannot even ask for NUL,
+        # and a URL would read a slash or a dot segment as part of the route.
+        for name in ("echo\x00", "echo/x", "..", ""):
+            with pytest.raises(InvalidValueError, match="flow name"):
+                await manager_client.get_flow(name)
+            with pytest.raises(InvalidValueError, match="flow name"):
+                await manager_client.start_run(name, INPUTS)
 
     async def test_events_are_waited_for(self, manager_client: ManagerClient) -> None:
         assert await manager_client.wait_for_events(0, timeout=0) == []
@@ -242,6 +248,32 @@ class ManagerClientContract(_Clients):
         with pytest.raises(PayloadTooLargeError):
             await manager_client.publish_task(run.id, WORK)
 
+    async def test_a_fan_out_over_something_not_a_list_cannot_publish(
+        self, manager_client: ManagerClient, queue_client: FlowQueueClient
+    ) -> None:
+        """The scheduler fails the run on ``ResolutionError``, so it must cross."""
+        fanned: JsonValue = {
+            "name": "fanned",
+            "version": "1.0.0",
+            "steps": {
+                "items": {"handler": "tasks:items"},
+                "each": {
+                    "fan_out": {"over": "tasks.items"},
+                    "steps": {
+                        "one": {"handler": "tasks:one", "params": {"x": "neorc.item"}}
+                    },
+                },
+            },
+        }
+        await manager_client.upload_flows([fanned])
+        run = await manager_client.start_run("fanned", {})
+        await manager_client.publish_task(run.id, Address("items"))
+        items = await self.take(queue_client)
+        await queue_client.report_finished(items.task.id, result="not a list")
+
+        with pytest.raises(ResolutionError):
+            await manager_client.publish_task(run.id, Address("one", (("each", 1),)))
+
     async def test_failing_and_cancelling_end_a_run(
         self, manager_client: ManagerClient
     ) -> None:
@@ -283,10 +315,13 @@ class FlowQueueClientContract(_Clients):
         assert work.fixed_params == {"n": 2}
         assert say.handler == "tasks:say"
         assert await queue_client.task_definitions("nobody") == []
-        with pytest.raises(InvalidValueError, match="NUL"):
-            await queue_client.task_definitions("voice\x00")
-        with pytest.raises(InvalidValueError, match="NUL"):
-            await queue_client.pick_next_task("voice\x00", timeout=0)
+        # What cannot name a queue is refused, not looked up: a slash or a
+        # dot could not travel in a URL path, and NUL in no store.
+        for queue in ("voice\x00", "gpu/large", ".."):
+            with pytest.raises(InvalidValueError, match="queue name"):
+                await queue_client.task_definitions(queue)
+            with pytest.raises(InvalidValueError, match="queue name"):
+                await queue_client.pick_next_task(queue, timeout=0)
 
     async def test_a_delivery_carries_the_filled_in_inputs(
         self, manager_client: ManagerClient, queue_client: FlowQueueClient
@@ -459,6 +494,73 @@ class FlowQueueClientContract(_Clients):
 
         assert second.task.id == first.task.id
         assert second.task.attempts == 2
+
+    async def test_a_workers_over_limit_result_fails_its_task_once(
+        self,
+        manager_client: ManagerClient,
+        queue_client: FlowQueueClient,
+        tmp_path: Path,
+    ) -> None:
+        """The worker fails it before reporting: a transport might refuse the
+        report first, and the task would run again on every lease."""
+        module = f"handlers_{uuid.uuid4().hex}"
+        (tmp_path / f"{module}.py").write_text(
+            f"def big():\n    return 'x' * ({MAX_PAYLOAD_BYTES} + 1)\n"
+        )
+        content: JsonValue = {
+            "name": "big",
+            "version": "1.0.0",
+            "steps": {"work": {"handler": f"{module}:big"}},
+        }
+        await manager_client.upload_flows([content])
+        run = await manager_client.start_run("big", {})
+        await manager_client.publish_task(run.id, WORK)
+        worker = FlowWorker(queue_client, code_location=tmp_path, poll_timeout=1)
+
+        delivery = await worker.run_once()
+
+        assert delivery is not None
+        state = await manager_client.run_state(run.id)
+        assert state.steps[WORK].outcome is Outcome.FAILED
+        assert await queue_client.pick_next_task("default", timeout=0) is None
+
+    async def test_a_result_at_the_depth_limit_can_be_read_by_the_next_task(
+        self,
+        manager_client: ManagerClient,
+        queue_client: FlowQueueClient,
+        tmp_path: Path,
+    ) -> None:
+        """What a worker was allowed to return, the next worker can be given."""
+        module = f"handlers_{uuid.uuid4().hex}"
+        (tmp_path / f"{module}.py").write_text(
+            "def deep():\n"
+            "    value = []\n"
+            f"    for _ in range({MAX_VALUE_DEPTH} - 1):\n"
+            "        value = [value]\n"
+            "    return value\n"
+            "def count(x):\n"
+            "    return len(x)\n"
+        )
+        content: JsonValue = {
+            "name": "deep",
+            "version": "1.0.0",
+            "steps": {
+                "a": {"handler": f"{module}:deep"},
+                "b": {"handler": f"{module}:count", "params": {"x": "tasks.a"}},
+            },
+        }
+        await manager_client.upload_flows([content])
+        run = await manager_client.start_run("deep", {})
+        worker = FlowWorker(queue_client, code_location=tmp_path, poll_timeout=1)
+
+        await manager_client.publish_task(run.id, Address("a"))
+        assert await worker.run_once() is not None
+        await manager_client.publish_task(run.id, Address("b"))
+        assert await worker.run_once() is not None
+
+        state = await manager_client.run_state(run.id)
+        assert state.steps[Address("a")].outcome is Outcome.SUCCEEDED
+        assert state.steps[Address("b")] == StepResult(Outcome.SUCCEEDED, 1)
 
     async def test_an_unknown_task_is_reported_as_missing(
         self, queue_client: FlowQueueClient

@@ -32,10 +32,25 @@ def test_every_core_error_round_trips_through_its_body(
 
     back = error_from(error_body(exc), status_of(exc))
 
+    if status_of(exc) >= 500:
+        # The manager could not serve, whatever it named: a caller retries.
+        assert isinstance(back, ManagerUnavailableError)
+        assert str(exc) in str(back)
+        return
     assert type(back) is cls
     assert str(back) == str(exc)
     if isinstance(exc, WITH_PROBLEMS):
         assert getattr(back, "problems", None) == ["one", "two"]
+
+
+def test_a_manager_that_could_not_serve_is_unavailable_whatever_it_names() -> None:
+    """A run must not be failed for a request the manager never got to refuse."""
+    body = {"error": "RunStateError", "detail": "the store is not open"}
+
+    back = error_from(body, 500)
+
+    assert isinstance(back, ManagerUnavailableError)
+    assert "the store is not open" in str(back)
 
 
 def test_a_subclass_answers_with_its_own_status_before_its_bases() -> None:

@@ -79,12 +79,17 @@ def error_from(body: Any, status: int) -> NeorcError:
     """The exception an error body names, with its problems intact.
 
     A body that names no core error, or is not an error body at all, is a
-    ``ManagerUnavailableError``: the manager did not answer as one.
+    ``ManagerUnavailableError``: the manager did not answer as one. So is any
+    5xx, whatever its body names: the manager could not serve the request,
+    which is not the same as refusing it, and a caller retries rather than
+    acting on a refusal.
     """
     if not isinstance(body, dict):
         return ManagerUnavailableError(f"the manager answered {status}: {body!r}")
     name = body.get("error")
     detail = str(body.get("detail", body))
+    if status >= 500:
+        return ManagerUnavailableError(f"the manager answered {status}: {detail}")
     cls = getattr(neorc_core, name, None) if isinstance(name, str) else None
     if not (isinstance(cls, type) and issubclass(cls, NeorcError)):
         return ManagerUnavailableError(f"the manager answered {status}: {detail}")

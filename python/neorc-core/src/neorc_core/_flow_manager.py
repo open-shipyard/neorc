@@ -45,6 +45,8 @@ from neorc_core.flows import (
     SubFlowStep,
     TaskStep,
     Version,
+    is_name,
+    is_queue_name,
     parse_flow,
     resolve,
 )
@@ -245,7 +247,7 @@ class FlowManager:
 
         One task step per flow that defines it, flows in name order.
         """
-        _lookup(queue, "queue")
+        _queue(queue)
         return [
             task
             for flow in await self._store.latest_flows()
@@ -273,7 +275,7 @@ class FlowManager:
         a worker known to be there a moment before. A worker lost between that
         moment and its reply keeps the lease until it lapses.
         """
-        _lookup(queue, "queue")
+        _queue(queue)
         check_lease_seconds(lease_seconds)
         deadline = time.monotonic() + timeout
         async with self._tasks.subscribe() as subscription:
@@ -373,13 +375,23 @@ class FlowManager:
         return TaskDelivery(task, {**task.fixed_params, **inputs})
 
 
-def _lookup(name: str, what: str) -> None:
-    """Refuse a name to look up that no store could hold, before a store sees it.
+def _queue(name: str) -> None:
+    """Refuse what cannot name a queue, before a store or a URL sees it."""
+    if not is_queue_name(name):
+        raise InvalidValueError(
+            f"{name!r} is not a queue name: letters, digits, _ and -"
+        )
 
-    A deployed store would refuse the text itself, with an error of its own;
-    the in-memory one would quietly find nothing. Both answer alike instead.
+
+def _lookup(name: str, what: str) -> None:
+    """Refuse what cannot name a flow, before a store or a URL sees it.
+
+    A deployed store would refuse NUL with an error of its own, and a URL would
+    read a slash or a dot segment as part of the route, where the in-memory
+    store would quietly find nothing. Every client is refused alike instead.
     """
-    _values.check_text(name, what)
+    if not is_name(name):
+        raise InvalidValueError(f"{name!r} is not a {what}: letters, digits and _")
 
 
 def check_inputs(definition: FlowDefinition, inputs: Mapping[str, JsonValue]) -> None:

@@ -31,10 +31,10 @@ from neorc_core.flows._definition import (
     SubFlowStep,
     TaskStep,
     Version,
+    is_name,
+    is_queue_name,
 )
 from neorc_core.flows._validation import check_flow, check_flow_set
-
-_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 _TOP_KEYS = {"name", "version", "inputs", "output", "steps"}
 _KIND_KEYS = ("handler", "loop", "fan_out", "flow")
@@ -298,7 +298,7 @@ class _Parser:
             self.problem(path, f"missing field {key!r}")
 
     def name(self, value: Any, path: str) -> str | None:
-        if not isinstance(value, str) or not _NAME.fullmatch(value):
+        if not isinstance(value, str) or not is_name(value):
             self.problem(path, f"{value!r} is not a name: letters, digits and _")
             return None
         return value
@@ -362,7 +362,7 @@ class _Parser:
             return TaskStep(
                 name,
                 handler=self.text(data["handler"], f"{path}.handler"),
-                queue=self.text(data.get("queue", DEFAULT_QUEUE), f"{path}.queue"),
+                queue=self.queue(data.get("queue", DEFAULT_QUEUE), f"{path}.queue"),
                 params=self.params(data.get("params", {}), f"{path}.params"),
                 fixed_params=self.fixed(data.get("fixed_params", {}), path),
             )
@@ -454,6 +454,14 @@ class _Parser:
         except ValueError as exc:
             self.problem(path, str(exc))
             return None
+
+    def queue(self, value: Any, path: str) -> str:
+        if not isinstance(value, str) or not is_queue_name(value):
+            self.problem(
+                path, f"{value!r} is not a queue name: letters, digits, _ and -"
+            )
+            return ""
+        return value
 
     def text(self, value: Any, path: str) -> str:
         if not isinstance(value, str) or not value:
