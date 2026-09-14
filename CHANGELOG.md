@@ -30,17 +30,17 @@ one version, cut from a single tag on `main`.
 - `neorc-core`: the `Store` port for flow versions, runs, their tasks and events,
   one method per atomic operation; `MemoryStore`; and `StoreContract`, the
   test suite every store must pass.
-- `neorc-core`: `FlowManager`, uploading flows deployed together under the
+- `neorc-core`: `Manager`, uploading flows deployed together under the
   version rules, starting runs on the latest version with their inputs checked
   against the declared types, and cancelling, failing and succeeding run trees.
-- `neorc-core`: `FlowManager` publishes tasks and starts sub-flow runs for the
+- `neorc-core`: `Manager` publishes tasks and starts sub-flow runs for the
   scheduler, checking the size of the complete payload; hands workers their
   tasks with references filled in; records starts and results; and long-polls
   events for the scheduler.
-- `neorc-core`: the `FlowQueueClient` and `ManagerClient` ports, the direct
+- `neorc-core`: the `QueueClient` and `ManagerClient` ports, the direct
   clients that reach a manager in the same process through JSON, as HTTP would,
-  and `FlowQueueClientContract` and `ManagerClientContract`.
-- `neorc-core`: `FlowWorker`, which checks at startup that every handler on its
+  and `QueueClientContract` and `ManagerClientContract`.
+- `neorc-core`: `Worker`, which checks at startup that every handler on its
   queue imports and takes exactly its task's inputs, then runs handlers with
   their inputs as keyword arguments, plain functions in a thread. Handler
   resolution by import path moves from the `neorc` command to `neorc-core`.
@@ -87,21 +87,21 @@ one version, cut from a single tag on `main`.
   `POST /runs/{id}/tasks` and `/sub-runs` by address, `/succeed` with the
   output reference and `/fail`. For workers, `GET /queues/{queue}/tasks` for
   the task definitions, `POST /queues/{queue}/tasks/next` long-polled, and
-  `POST /flow-tasks/{id}/started`, `/heartbeat` and `/finished`. In core, a
+  `POST /tasks/{id}/started`, `/heartbeat` and `/finished`. In core, a
   lease is at most a day and a run
   is succeeded only with a reference to one of its flow's tasks or
   sub-flows, so every client is refused the same requests.
-- `neorc.http`: `HttpManagerClient` and `HttpFlowQueueClient`, the flow
+- `neorc.http`: `HttpManagerClient` and `HttpQueueClient`, the flow
   clients over HTTP, held to the client contracts against the real
   application. An error body raises the core exception it names, with a
   `FlowDefinitionError`'s problems intact; a transport failure, or an answer
-  that is not the manager's, is `ManagerUnavailableError`. `FlowWorker` fails
+  that is not the manager's, is `ManagerUnavailableError`. `Worker` fails
   a result over the payload limit itself, once, rather than have the report
   refused on every lease, and reports an error message with what no store or
   transport could carry replaced. In core, a value nests at most 100 levels,
   half of what JSON text may, so it fits in whatever it travels in; and a
   queue name is letters, digits, `_` and `-`, as it travels in a URL path.
-- `neorc.manager`: `build_app` assembles `FlowManager` on `PostgresStore`
+- `neorc.manager`: `build_app` assembles `Manager` on `PostgresStore`
   with two notification channels, `neorc_task_ready` for workers and
   `neorc_event_ready` for the scheduler, so a task or event recorded through
   one manager process wakes a waiter on another. `--create-schema` creates
@@ -128,6 +128,16 @@ one version, cut from a single tag on `main`.
   `text` cannot hold it and the in-memory store must refuse what the deployed
   one would. Task errors and run reasons, which are messages, are stored with
   NUL replaced instead.
+
+### Changed
+
+- The flow classes take the task API's names: `FlowManager` is `Manager`,
+  `FlowWorker` is `Worker`, `FlowQueueClient` is `QueueClient`, `FlowTask` is
+  `Task`, `HttpFlowQueueClient` is `HttpQueueClient`, `DirectFlowQueueClient`
+  is `DirectQueueClient`, `FlowQueueClientContract` is `QueueClientContract`,
+  and the worker routes move from `/flow-tasks` to `/tasks`. The table keeps
+  its name, `neorc_flow_tasks`, since a database from before holds the old
+  `neorc_tasks`, which create-if-absent would leave in place.
 
 ### Removed
 

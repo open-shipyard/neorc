@@ -53,7 +53,7 @@ def check_lease_seconds(lease_seconds: float) -> None:
         )
 
 
-class FlowQueueClient(ABC):
+class QueueClient(ABC):
     """How a worker gets its queue's tasks and reports on them."""
 
     @abstractmethod

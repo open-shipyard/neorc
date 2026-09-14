@@ -14,13 +14,13 @@ deployment; install this one to implement your own adapters.
 
 - `neorc_core.flows` — flow definitions, loading and validation, and reference
   resolution
-- `FlowManager` — uploads under the version rules, runs and their trees, tasks
+- `Manager` — uploads under the version rules, runs and their trees, tasks
   leased to workers, and the events a scheduler waits for, against the `Store`
   and `TaskNotifier` ports
 - `Scheduler` — the planner's I/O: waits for events and moves runs forward
   through the `ManagerClient` port
-- `FlowWorker` — checks its handlers against its queue's tasks, then claims,
-  executes, heartbeats and reports through the `FlowQueueClient` port
+- `Worker` — checks its handlers against its queue's tasks, then claims,
+  executes, heartbeats and reports through the `QueueClient` port
 - `neorc_core.local` — in-memory adapters, and `LocalCluster` and `run_local`:
   the whole system in one process
 - `neorc_core.testing.contracts` — test suites every adapter of a port must

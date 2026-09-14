@@ -63,7 +63,6 @@ from neorc_core import (
     Event,
     EventKind,
     FlowNotFoundError,
-    FlowTask,
     FlowVersionError,
     Run,
     RunId,
@@ -71,6 +70,7 @@ from neorc_core import (
     RunStatus,
     Store,
     StoredFlow,
+    Task,
     TaskId,
     TaskNotFoundError,
     TaskStateError,
@@ -87,7 +87,7 @@ from neorc_core._runs import (
 )
 from neorc_core._values import JsonValue, dumps_json
 from neorc_core.flows import Address, Reference, RunState, Version
-from neorc_core.ports._flow_clients import DEFAULT_LEASE_SECONDS
+from neorc_core.ports._clients import DEFAULT_LEASE_SECONDS
 
 _LOCK_SPACE = 0x6E656F72  # "neor": keeps clear of other advisory locks in the database
 UPLOAD_LOCK = (_LOCK_SPACE, 1)
@@ -386,13 +386,13 @@ class PostgresStore(Pooled, Store):
         handler: str,
         params: Mapping[str, Reference],
         fixed_params: Mapping[str, JsonValue],
-    ) -> FlowTask:
+    ) -> Task:
         async with self.pool.connection() as conn, conn.transaction():
             run = await _run(conn, run_id)
             await _lock_roots(conn, [run.root_id])
             # Under the root lock, the run's status is settled.
             ensure_active(await _run(conn, run_id))
-            task = FlowTask(
+            task = Task(
                 id=task_id_for(run_id, address),
                 run_id=run_id,
                 address=address,
@@ -408,7 +408,7 @@ class PostgresStore(Pooled, Store):
 
     async def claim_task(
         self, queue: str, *, lease_seconds: float = DEFAULT_LEASE_SECONDS
-    ) -> FlowTask | None:
+    ) -> Task | None:
         async with self.pool.connection() as conn:
             cursor = await conn.execute(
                 _CLAIM_TASK, {"queue": queue, "lease_seconds": lease_seconds}
@@ -416,7 +416,7 @@ class PostgresStore(Pooled, Store):
             row = await cursor.fetchone()
         return None if row is None else task_from_row(row)
 
-    async def start_task(self, task_id: TaskId) -> FlowTask:
+    async def start_task(self, task_id: TaskId) -> Task:
         inactive: Run | None = None
         row = None
         async with self.pool.connection() as conn, conn.transaction():
@@ -467,7 +467,7 @@ class PostgresStore(Pooled, Store):
 
     async def finish_task(
         self, task_id: TaskId, *, result: JsonValue = None, error: str | None = None
-    ) -> FlowTask:
+    ) -> Task:
         status = TaskStatus.FAILED if error is not None else TaskStatus.SUCCEEDED
         async with self.pool.connection() as conn, conn.transaction():
             task = await _task(conn, task_id, lock=True)
@@ -487,7 +487,7 @@ class PostgresStore(Pooled, Store):
             await _append_events(conn, [(task.run_id, EventKind.TASK_FINISHED)])
             return task_from_row(row)
 
-    async def get_task(self, task_id: TaskId) -> FlowTask:
+    async def get_task(self, task_id: TaskId) -> Task:
         async with self.pool.connection() as conn:
             return await _task(conn, task_id)
 
@@ -546,7 +546,7 @@ async def _run(conn: Connection, run_id: RunId) -> Run:
     return run_from_row(row)
 
 
-async def _task(conn: Connection, task_id: TaskId, *, lock: bool = False) -> FlowTask:
+async def _task(conn: Connection, task_id: TaskId, *, lock: bool = False) -> Task:
     """A task; with ``lock``, its row locked so the caller can decide and write."""
     cursor = await conn.execute(_LOCK_TASK if lock else _SELECT_TASK, {"id": task_id})
     row = await cursor.fetchone()

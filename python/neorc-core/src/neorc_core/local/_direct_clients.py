@@ -1,7 +1,7 @@
 # Copyright 2026 The neorc Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""Flow clients that call a manager in this process, through JSON all the same.
+"""Clients that call a manager in this process, through JSON all the same.
 
 Every request and every response is written as JSON text and read back, as it
 would be over HTTP, so values fail here exactly where they would deployed.
@@ -13,7 +13,7 @@ import uuid
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 
-from neorc_core._flow_manager import FlowManager
+from neorc_core._manager import Manager
 from neorc_core._runs import Event, Run, RunId, TaskDelivery
 from neorc_core._task import TaskId
 from neorc_core._values import JsonValue
@@ -41,17 +41,17 @@ from neorc_core.flows import (
     Version,
     parse_flow,
 )
-from neorc_core.ports._flow_clients import (
+from neorc_core.ports._clients import (
     DEFAULT_LEASE_SECONDS,
-    FlowQueueClient,
     ManagerClient,
+    QueueClient,
 )
 
 
-class DirectFlowQueueClient(FlowQueueClient):
+class DirectQueueClient(QueueClient):
     """A worker's client for a manager in this process."""
 
-    def __init__(self, manager: FlowManager) -> None:
+    def __init__(self, manager: Manager) -> None:
         self._manager = manager
 
     async def task_definitions(self, queue: str) -> list[TaskStep]:
@@ -107,7 +107,7 @@ class DirectFlowQueueClient(FlowQueueClient):
 class DirectManagerClient(ManagerClient):
     """The scheduler's and a deploy script's client for a manager in this process."""
 
-    def __init__(self, manager: FlowManager) -> None:
+    def __init__(self, manager: Manager) -> None:
         self._manager = manager
 
     async def upload_flows(self, contents: Sequence[JsonValue]) -> list[bool]:

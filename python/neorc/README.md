@@ -36,8 +36,8 @@ thread, and they need not import neorc.
 
 ## What is in it
 
-- `neorc` — `Scheduler`, `FlowWorker` and friends, re-exported from `neorc-core`
-- `neorc.http` — `HttpManagerClient` and `HttpFlowQueueClient`, the
+- `neorc` — `Scheduler`, `Worker` and friends, re-exported from `neorc-core`
+- `neorc.http` — `HttpManagerClient` and `HttpQueueClient`, the
   long-polling clients the scheduler and workers use
 - `neorc.manager` — the FastAPI application and the service that runs it
 - `neorc.postgres` — the store, the LISTEN/NOTIFY notifier, and the schema

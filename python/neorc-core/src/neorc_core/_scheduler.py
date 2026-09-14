@@ -26,7 +26,7 @@ from neorc_core._planner import (
 )
 from neorc_core._runs import Event, EventKind, Run, RunId, RunStatus
 from neorc_core.flows import FlowDefinition, Version
-from neorc_core.ports._flow_clients import ManagerClient
+from neorc_core.ports._clients import ManagerClient
 
 DEFAULT_POLL_TIMEOUT = 30.0
 

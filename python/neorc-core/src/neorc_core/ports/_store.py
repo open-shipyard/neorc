@@ -15,11 +15,11 @@ from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 
-from neorc_core._runs import Event, FlowTask, Run, RunId, StoredFlow
+from neorc_core._runs import Event, Run, RunId, StoredFlow, Task
 from neorc_core._task import TaskId
 from neorc_core._values import JsonValue
 from neorc_core.flows import Address, Reference, RunState, Version
-from neorc_core.ports._flow_clients import DEFAULT_LEASE_SECONDS
+from neorc_core.ports._clients import DEFAULT_LEASE_SECONDS
 
 
 class Store(ABC):
@@ -108,7 +108,7 @@ class Store(ABC):
         handler: str,
         params: Mapping[str, Reference],
         fixed_params: Mapping[str, JsonValue],
-    ) -> FlowTask:
+    ) -> Task:
         """Publish the pending task at ``address`` in an active run.
 
         Its id is ``task_id_for(run_id, address)``. Publishing an address again
@@ -120,7 +120,7 @@ class Store(ABC):
     @abstractmethod
     async def claim_task(
         self, queue: str, *, lease_seconds: float = DEFAULT_LEASE_SECONDS
-    ) -> FlowTask | None:
+    ) -> Task | None:
         """Lease the oldest ready task on ``queue``, or return ``None``.
 
         Ready means pending, or holding a lapsed lease. Taking the lease,
@@ -130,7 +130,7 @@ class Store(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def start_task(self, task_id: TaskId) -> FlowTask:
+    async def start_task(self, task_id: TaskId) -> Task:
         """Record that a worker began executing a claimed task.
 
         If the task's run is no longer active, the task fails instead, so it is
@@ -149,7 +149,7 @@ class Store(ABC):
     @abstractmethod
     async def finish_task(
         self, task_id: TaskId, *, result: JsonValue = None, error: str | None = None
-    ) -> FlowTask:
+    ) -> Task:
         """Record a task's result, or its failure when ``error`` is set.
 
         Records "task finished" whether or not the run is still active: a task
@@ -158,7 +158,7 @@ class Store(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def get_task(self, task_id: TaskId) -> FlowTask:
+    async def get_task(self, task_id: TaskId) -> Task:
         """A task; ``TaskNotFoundError`` if there is none."""
         raise NotImplementedError
 

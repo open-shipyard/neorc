@@ -24,11 +24,11 @@ from neorc_core._errors import (
 )
 from neorc_core._runs import (
     Event,
-    FlowTask,
     Run,
     RunId,
     RunStatus,
     StoredFlow,
+    Task,
     TaskDelivery,
     ensure_active,
     task_id_for,
@@ -51,7 +51,7 @@ from neorc_core.flows import (
     resolve,
 )
 from neorc_core.flows._validation import check_output
-from neorc_core.ports._flow_clients import DEFAULT_LEASE_SECONDS, check_lease_seconds
+from neorc_core.ports._clients import DEFAULT_LEASE_SECONDS, check_lease_seconds
 from neorc_core.ports._store import Store
 from neorc_core.ports._task_notifier import TaskNotifier
 
@@ -64,7 +64,7 @@ ABANDON_POLL_SECONDS = 0.25
 """How often a waiting ``pick_next_task`` asks whether its caller has gone."""
 
 
-class FlowManager:
+class Manager:
     """Serves flow uploads and runs, the scheduler's requests, and workers.
 
     ``tasks`` wakes workers waiting for a task; ``events`` wakes a scheduler
@@ -179,7 +179,7 @@ class FlowManager:
         await self._events.notify()
         return succeeded
 
-    async def publish_task(self, run_id: RunId, address: Address) -> FlowTask:
+    async def publish_task(self, run_id: RunId, address: Address) -> Task:
         """Publish the task at ``address`` in an active run.
 
         The task's queue, handler and inputs come from the run's version of the
@@ -315,7 +315,7 @@ class FlowManager:
 
     async def report_finished(
         self, task_id: TaskId, *, result: JsonValue = None, error: str | None = None
-    ) -> FlowTask:
+    ) -> Task:
         """Record a task's result, or its failure when ``error`` is set.
 
         A result that is not a valid value, or is over the size limit, fails the
@@ -331,7 +331,7 @@ class FlowManager:
         await self._events.notify()
         return finished
 
-    async def get_task(self, task_id: TaskId) -> FlowTask:
+    async def get_task(self, task_id: TaskId) -> Task:
         """A task, for a status query."""
         return await self._store.get_task(task_id)
 
@@ -369,7 +369,7 @@ class FlowManager:
         definition = (await self._store.get_flow(run.flow, run.version)).definition
         return run, definition, await self._store.run_state(run_id)
 
-    async def _delivery(self, task: FlowTask) -> TaskDelivery:
+    async def _delivery(self, task: Task) -> TaskDelivery:
         run, definition, state = await self._context(task.run_id)
         inputs = _filled_in(run, definition, state, task.address, task.params)
         return TaskDelivery(task, {**task.fixed_params, **inputs})

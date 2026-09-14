@@ -22,16 +22,15 @@ from psycopg.conninfo import make_conninfo
 from psycopg.rows import DictRow
 
 from neorc.postgres import PostgresStore
-from neorc.postgres._flow_store import EVENT_LOCK, UPLOAD_LOCK
 from neorc.postgres._schema import (
     EVENTS_TABLE,
     FLOW_TASKS_TABLE,
     FLOW_VERSIONS_TABLE,
     RUNS_TABLE,
 )
+from neorc.postgres._store import EVENT_LOCK, UPLOAD_LOCK
 from neorc_core import (
     EventKind,
-    FlowTask,
     FlowVersionError,
     Run,
     RunId,
@@ -40,6 +39,7 @@ from neorc_core import (
     RunStatus,
     Store,
     StoredFlow,
+    Task,
     TaskStatus,
 )
 from neorc_core._runs import canonical_content, sub_run_id_for
@@ -52,8 +52,8 @@ pytestmark = pytest.mark.postgres
 
 class TestPostgresStore(StoreContract):
     @pytest.fixture
-    def store(self, pg_flow_store: PostgresStore) -> Store:
-        return pg_flow_store
+    def store(self, pg_store: PostgresStore) -> Store:
+        return pg_store
 
 
 async def test_transactions_run_in_read_committed_whatever_the_default(
@@ -85,7 +85,7 @@ def _flow(name: str, version: str) -> StoredFlow:
 
 
 async def test_an_upload_spares_a_tree_whose_run_of_the_flow_just_succeeded(
-    pg_flow_store: PostgresStore,
+    pg_store: PostgresStore,
 ) -> None:
     """Two transactions interleaved: a sub-run succeeds as its flow is uploaded.
 
@@ -94,7 +94,7 @@ async def test_an_upload_spares_a_tree_whose_run_of_the_flow_just_succeeded(
     the flow any more, so the tree must stay active, as one order or the other
     of the two operations would leave it.
     """
-    store = pg_flow_store
+    store = pg_store
     await store.store_flows([_flow("a", "1.0.0"), _flow("b", "1.0.0")])
     root = await store.start_run("a", Version(1, 0, 0), {})
     sub_run = await store.start_run(
@@ -166,7 +166,7 @@ async def _append_event_by_hand(
     )
 
 
-async def _published(store: PostgresStore, run: Run, name: str) -> FlowTask:
+async def _published(store: PostgresStore, run: Run, name: str) -> Task:
     return await store.publish_task(
         run.id,
         Address(name),
@@ -178,15 +178,15 @@ async def _published(store: PostgresStore, run: Run, name: str) -> FlowTask:
 
 
 @pytest.fixture
-async def run(pg_flow_store: PostgresStore) -> Run:
-    await pg_flow_store.store_flows([_flow("a", "1.0.0"), _flow("b", "1.0.0")])
-    return await pg_flow_store.start_run("a", Version(1, 0, 0), {})
+async def run(pg_store: PostgresStore) -> Run:
+    await pg_store.store_flows([_flow("a", "1.0.0"), _flow("b", "1.0.0")])
+    return await pg_store.start_run("a", Version(1, 0, 0), {})
 
 
 async def test_a_claim_skips_the_task_another_claim_holds(
-    pg_flow_store: PostgresStore, run: Run
+    pg_store: PostgresStore, run: Run
 ) -> None:
-    store = pg_flow_store
+    store = pg_store
     first = await _published(store, run, "one")
     second = await _published(store, run, "two")
 
@@ -202,9 +202,9 @@ async def test_a_claim_skips_the_task_another_claim_holds(
 
 
 async def test_a_task_start_waits_for_a_cancellation_and_is_refused(
-    pg_flow_store: PostgresStore, run: Run
+    pg_store: PostgresStore, run: Run
 ) -> None:
-    store = pg_flow_store
+    store = pg_store
     task = await _published(store, run, "work")
     await store.claim_task("default", lease_seconds=30)
 
@@ -219,9 +219,9 @@ async def test_a_task_start_waits_for_a_cancellation_and_is_refused(
 
 
 async def test_a_sub_run_start_waits_for_a_cancellation_and_is_refused(
-    pg_flow_store: PostgresStore, run: Run
+    pg_store: PostgresStore, run: Run
 ) -> None:
-    store = pg_flow_store
+    store = pg_store
     call = Address("call")
 
     async with held(store) as cancelling:
@@ -244,9 +244,9 @@ async def test_a_sub_run_start_waits_for_a_cancellation_and_is_refused(
 
 
 async def test_a_run_start_waits_for_an_upload_and_is_refused_the_old_version(
-    pg_flow_store: PostgresStore, run: Run
+    pg_store: PostgresStore, run: Run
 ) -> None:
-    store = pg_flow_store
+    store = pg_store
 
     async with held(store) as uploading:
         # store_flows, by hand: the lock, then the new version, not committed.
@@ -264,9 +264,9 @@ async def test_a_run_start_waits_for_an_upload_and_is_refused_the_old_version(
 
 
 async def test_events_appended_under_contention_follow_on_without_a_gap(
-    pg_flow_store: PostgresStore, run: Run
+    pg_store: PostgresStore, run: Run
 ) -> None:
-    store = pg_flow_store
+    store = pg_store
 
     async with held(store) as appending:
         await _append_event_by_hand(appending, run.id, EventKind.TASK_FINISHED)
@@ -282,9 +282,9 @@ async def test_events_appended_under_contention_follow_on_without_a_gap(
 
 
 async def test_a_task_finishes_while_its_tree_is_being_cancelled(
-    pg_flow_store: PostgresStore, run: Run
+    pg_store: PostgresStore, run: Run
 ) -> None:
-    store = pg_flow_store
+    store = pg_store
     task = await _published(store, run, "work")
     await store.claim_task("default", lease_seconds=30)
     await store.start_task(task.id)

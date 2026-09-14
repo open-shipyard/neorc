@@ -44,11 +44,11 @@ neorc worker start --code-location .
 
 
 ```
-from neorc import FlowWorker
-from neorc.http import HttpFlowQueueClient
+from neorc import Worker
+from neorc.http import HttpQueueClient
 
 
-worker = FlowWorker(HttpFlowQueueClient(manager_address), code_location=Path("."))
+worker = Worker(HttpQueueClient(manager_address), code_location=Path("."))
 
 await worker.prepare()
 await worker.run()
@@ -58,7 +58,7 @@ await worker.run()
 
 The worker class uses its queue client to pick the next task and execute it.
 
-The queue client long-polls the manager's pick-next-task. That long polling could be replaced by Redis or SQS in the future, which is why it is a port, `FlowQueueClient`, supporting multiple implementations. The worker receives it by its constructor; the scheduler reaches the manager through its own port, `ManagerClient`.
+The queue client long-polls the manager's pick-next-task. That long polling could be replaced by Redis or SQS in the future, which is why it is a port, `QueueClient`, supporting multiple implementations. The worker receives it by its constructor; the scheduler reaches the manager through its own port, `ManagerClient`.
 
 The "neorc" library implements both over HTTP.
 

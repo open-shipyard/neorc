@@ -91,7 +91,7 @@ def test_a_missing_extra_is_reported_as_the_command_that_installs_it(
 
     monkeypatch.setattr(builtins, "__import__", without_httpx)
     monkeypatch.delitem(sys.modules, "neorc.http", raising=False)
-    monkeypatch.delitem(sys.modules, "neorc.http._flow_clients", raising=False)
+    monkeypatch.delitem(sys.modules, "neorc.http._clients", raising=False)
 
     with pytest.raises(SystemExit, match=r"pip install 'neorc\[http\]'"):
         _cli.main(["scheduler", "start", "--manager-address", "manager.test"])
@@ -367,7 +367,7 @@ def fake_clients(monkeypatch: pytest.MonkeyPatch) -> type[_FakeClient]:
     _FakeClient.uploaded = []
     _FakeClient.stored = [True, False]
     monkeypatch.setattr("neorc.http.HttpManagerClient", _FakeClient)
-    monkeypatch.setattr("neorc.http.HttpFlowQueueClient", _FakeClient)
+    monkeypatch.setattr("neorc.http.HttpQueueClient", _FakeClient)
     return _FakeClient
 
 
@@ -472,7 +472,7 @@ def fake_loops(monkeypatch: pytest.MonkeyPatch) -> type[_FakeLoop]:
     _FakeLoop.problems = []
     _FakeLoop.unreachable = 0
     monkeypatch.setattr(_cli, "Scheduler", _FakeLoop)
-    monkeypatch.setattr(_cli, "FlowWorker", _FakeLoop)
+    monkeypatch.setattr(_cli, "Worker", _FakeLoop)
     return _FakeLoop
 
 

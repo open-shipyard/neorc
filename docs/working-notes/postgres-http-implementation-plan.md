@@ -36,7 +36,7 @@ than Postgres.
 | 8  | `flows upload`, `scheduler start`, `worker start` | done   |
 | 9  | The examples end to end, deployed                 | done   |
 | 10 | Remove the task API                               | done   |
-| 11 | Flow classes take the task API's names            | todo   |
+| 11 | Flow classes take the task API's names            | done   |
 
 ### 1. Postgres schema for flows
 

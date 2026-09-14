@@ -1,7 +1,7 @@
 # Copyright 2026 The neorc Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""The manager's HTTP surface: the flow routes, on ``FlowManager``.
+"""The manager's HTTP surface, on ``Manager``.
 
 Each route is a thin translation between JSON and one manager call. The routes
 that fetch a task and that report it started are separate on purpose: fetching
@@ -15,8 +15,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from neorc._errors import error_body, status_of
-from neorc.manager._flow_routes import router as flow_router
-from neorc_core import FlowManager, InvalidValueError, NeorcError
+from neorc.manager._routes import router
+from neorc_core import InvalidValueError, Manager, NeorcError
 
 DEFAULT_LONG_POLL_TIMEOUT = 25.0
 """How long a fetch waits before answering "nothing yet".
@@ -27,11 +27,11 @@ that hits it simply asks again.
 
 
 def create_app(
-    flows: FlowManager, *, long_poll_timeout: float = DEFAULT_LONG_POLL_TIMEOUT
+    manager: Manager, *, long_poll_timeout: float = DEFAULT_LONG_POLL_TIMEOUT
 ) -> FastAPI:
-    """Build the ASGI application serving ``flows``."""
+    """Build the ASGI application serving ``manager``."""
     app = FastAPI(title="neorc manager", version="0")
-    app.state.flows = flows
+    app.state.manager = manager
     app.state.long_poll_timeout = long_poll_timeout
 
     @app.exception_handler(NeorcError)
@@ -47,7 +47,7 @@ def create_app(
         error = InvalidValueError(f"request: {exc}")
         return JSONResponse(error_body(error), status_code=status_of(error))
 
-    app.include_router(flow_router)
+    app.include_router(router)
 
     @app.get("/health")
     async def health() -> dict[str, str]:

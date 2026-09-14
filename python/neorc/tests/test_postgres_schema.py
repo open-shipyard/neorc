@@ -49,10 +49,10 @@ from neorc.postgres._schema import (
 from neorc_core import (
     Event,
     EventKind,
-    FlowTask,
     Run,
     RunStatus,
     StoredFlow,
+    Task,
     TaskStatus,
 )
 from neorc_core._runs import canonical_content
@@ -231,7 +231,7 @@ async def test_tasks_round_trip_and_are_ordered_by_publication(
     conn: psycopg.AsyncConnection[DictRow],
 ) -> None:
     run_id = uuid.uuid4()
-    pending = FlowTask(
+    pending = Task(
         id=uuid.uuid4(),
         run_id=run_id,
         address=Address("work", (("rounds", 1),)),
@@ -243,7 +243,7 @@ async def test_tasks_round_trip_and_are_ordered_by_publication(
         },
         fixed_params={"k": {"$datetime": WHEN.isoformat()}, "numbers": NUMBERS},
     )
-    finished = FlowTask(
+    finished = Task(
         id=uuid.uuid4(),
         run_id=run_id,
         address=Address("other"),

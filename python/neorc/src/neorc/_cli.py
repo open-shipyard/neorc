@@ -32,12 +32,12 @@ from pathlib import Path
 
 from neorc_core import (
     FlowDefinitionError,
-    FlowWorker,
     HandlerError,
     ManagerUnavailableError,
     NeorcError,
     RunStatus,
     Scheduler,
+    Worker,
     _values,
 )
 from neorc_core.flows import DEFAULT_QUEUE, is_queue_name, read_flows
@@ -334,9 +334,9 @@ def worker_start_command(args: argparse.Namespace) -> int:
 
 
 def _serve_queue(args: argparse.Namespace, address: str) -> int:
-    """A worker for flows: check its handlers against the queue's tasks, then run."""
+    """A worker: check its handlers against the queue's tasks, then run."""
     with _needs("http"):
-        from neorc.http import HttpFlowQueueClient
+        from neorc.http import HttpQueueClient
 
     if not args.code_location.is_dir():
         raise SystemExit(f"no such directory: {str(args.code_location)!r}")
@@ -346,10 +346,8 @@ def _serve_queue(args: argparse.Namespace, address: str) -> int:
         )
 
     async def serve() -> None:
-        async with HttpFlowQueueClient(
-            address, poll_timeout=args.poll_timeout
-        ) as client:
-            worker = FlowWorker(
+        async with HttpQueueClient(address, poll_timeout=args.poll_timeout) as client:
+            worker = Worker(
                 client,
                 queue=args.queue,
                 code_location=args.code_location,
@@ -375,7 +373,7 @@ PREPARE_RETRY_SECONDS = 5.0
 
 
 async def _prepared(
-    worker: FlowWorker, args: argparse.Namespace, stopping: asyncio.Event
+    worker: Worker, args: argparse.Namespace, stopping: asyncio.Event
 ) -> bool:
     """Check the handlers against the queue's tasks, waiting out an unreachable manager.
 

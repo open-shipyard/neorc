@@ -20,9 +20,9 @@ from neorc_core._errors import InvalidValueError
 from neorc_core._runs import (
     Event,
     EventKind,
-    FlowTask,
     Run,
     RunStatus,
+    Task,
     TaskDelivery,
 )
 from neorc_core._task import TaskStatus
@@ -142,7 +142,7 @@ def run_state_from(wire: Wire) -> RunState:
     )
 
 
-def task_to(task: FlowTask) -> Wire:
+def task_to(task: Task) -> Wire:
     return {
         "id": str(task.id),
         "run_id": str(task.run_id),
@@ -161,8 +161,8 @@ def task_to(task: FlowTask) -> Wire:
     }
 
 
-def task_from(wire: Wire) -> FlowTask:
-    return FlowTask(
+def task_from(wire: Wire) -> Task:
+    return Task(
         id=uuid.UUID(wire["id"]),
         run_id=uuid.UUID(wire["run_id"]),
         address=address_from(wire["address"]),

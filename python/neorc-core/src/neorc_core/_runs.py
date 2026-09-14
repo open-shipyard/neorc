@@ -81,7 +81,7 @@ class Run:
 
 
 @dataclass(frozen=True, slots=True)
-class FlowTask:
+class Task:
     """A task published into a run, its inputs still references."""
 
     id: TaskId
@@ -108,7 +108,7 @@ class TaskDelivery:
     queue backend.
     """
 
-    task: FlowTask
+    task: Task
     inputs: Mapping[str, JsonValue]
 
 
@@ -231,9 +231,7 @@ def ensure_active(run: Run) -> None:
         raise RunStateError(f"run {run.id} is {run.status.value}, no longer active")
 
 
-def run_state_of(
-    run: Run, tasks: Iterable[FlowTask], sub_runs: Iterable[Run]
-) -> RunState:
+def run_state_of(run: Run, tasks: Iterable[Task], sub_runs: Iterable[Run]) -> RunState:
     """A run's state, from its tasks and the sub-flow runs it started."""
     steps: dict[Address, StepResult] = {}
     for task in tasks:
