@@ -56,9 +56,37 @@ def test_manager_start_takes_its_settings_from_the_command_line(
         (
             "127.0.0.1",
             9000,
-            {"database_url": "postgresql:///neorc", "create_schema": True},
+            {"database_url": "postgresql:///neorc", "create_schema": True, "ui": True},
         )
     ]
+
+
+def test_manager_start_serves_the_api_alone_with_no_ui(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, Any]] = []
+
+    def fake_run(host: str, port: int, **kwargs: Any) -> None:
+        calls.append(kwargs)
+
+    monkeypatch.setattr("neorc.manager.run", fake_run)
+
+    exit_code = _cli.main(["manager", "start", "--no-ui"])
+
+    assert exit_code == 0
+    assert calls[0]["ui"] is False
+
+
+def test_manager_start_names_the_fix_when_there_is_no_built_ui(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_run(host: str, port: int, **kwargs: Any) -> None:
+        raise FileNotFoundError("static holds no built UI: run npm")
+
+    monkeypatch.setattr("neorc.manager.run", fake_run)
+
+    with pytest.raises(SystemExit, match=r"no built UI.*--no-ui"):
+        _cli.main(["manager", "start"])
 
 
 def test_an_unknown_command_exits_with_usage(

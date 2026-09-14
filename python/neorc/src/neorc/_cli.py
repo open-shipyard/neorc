@@ -76,6 +76,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="create the tables at startup if they are not there yet",
     )
+    manager_start.add_argument(
+        "--no-ui",
+        action="store_true",
+        help="serve the API alone, without the web UI at /ui/",
+    )
     manager_start.set_defaults(handler=manager_start_command)
 
     flows = commands.add_parser("flows", help="manage the flows a manager holds")
@@ -255,12 +260,16 @@ def manager_start_command(args: argparse.Namespace) -> int:
     with _needs("manager", "postgres"):
         from neorc.manager import run
 
-    run(
-        args.host,
-        args.port,
-        database_url=args.database_url,
-        create_schema=args.create_schema,
-    )
+    try:
+        run(
+            args.host,
+            args.port,
+            database_url=args.database_url,
+            create_schema=args.create_schema,
+            ui=not args.no_ui,
+        )
+    except FileNotFoundError as exc:  # no built UI to serve: say how to get one
+        raise SystemExit(f"neorc manager start: {exc}, or pass --no-ui") from None
     return 0
 
 

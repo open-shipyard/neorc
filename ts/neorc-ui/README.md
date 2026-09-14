@@ -19,7 +19,7 @@ Then:
     npm run dev
 
 `npm run dev` serves the app at the URL it prints and proxies the API to a
-`neorc manager start` on `127.0.0.1:8420`.
+`neorc manager start --no-ui` on `127.0.0.1:8420`: this dev server is the UI.
 
 The API types in `src/api/schema.d.ts` are generated from `openapi.json`,
 the manager's committed schema, by `npm run generate`; every script runs it

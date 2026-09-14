@@ -91,8 +91,9 @@ in `ts/neorc-ui`:
     npm ci
     npm run dev
 
-`npm run dev` serves the app and proxies the API to a `neorc manager start`
-on `127.0.0.1:8420`. The checks CI runs are `npm run lint`, `npm run
+`npm run dev` serves the app and proxies the API to a `neorc manager start
+--no-ui` on `127.0.0.1:8420`: a checkout holds no built UI, and the dev server
+is the UI here. The checks CI runs are `npm run lint`, `npm run
 typecheck` and `npm run build`; the build also writes `bundled-packages.txt`,
 which is committed, and fails on a license outside the allowlist or a bundle
 over the size budget. When the manager's routes change, refresh the schema
