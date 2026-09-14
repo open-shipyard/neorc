@@ -171,6 +171,11 @@ class ManagerClientContract(_Clients):
                 [{**ECHO, "version": "1.1.0", "output": "tasks.say\x00"}]
             )
         assert (await manager_client.get_flow("echo")).version == Version(1, 0, 0)
+        # A name to look up, too: a deployed store cannot even ask for it.
+        with pytest.raises(InvalidValueError, match="NUL"):
+            await manager_client.get_flow("echo\x00")
+        with pytest.raises(InvalidValueError, match="NUL"):
+            await manager_client.start_run("main\x00", INPUTS)
 
     async def test_events_are_waited_for(self, manager_client: ManagerClient) -> None:
         assert await manager_client.wait_for_events(0, timeout=0) == []
@@ -274,6 +279,10 @@ class FlowQueueClientContract(_Clients):
         assert work.fixed_params == {"n": 2}
         assert say.handler == "tasks:say"
         assert await queue_client.task_definitions("nobody") == []
+        with pytest.raises(InvalidValueError, match="NUL"):
+            await queue_client.task_definitions("voice\x00")
+        with pytest.raises(InvalidValueError, match="NUL"):
+            await queue_client.pick_next_task("voice\x00", timeout=0)
 
     async def test_a_delivery_carries_the_filled_in_inputs(
         self, manager_client: ManagerClient, queue_client: FlowQueueClient

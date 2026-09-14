@@ -108,6 +108,7 @@ class FlowManager:
 
     async def get_flow(self, name: str, version: Version | None = None) -> StoredFlow:
         """A flow version, the latest when ``version`` is ``None``."""
+        _lookup(name, "flow name")
         return await self._store.get_flow(name, version)
 
     async def latest_flows(self) -> list[StoredFlow]:
@@ -121,6 +122,7 @@ class FlowManager:
         declared inputs, each of its declared type: ``InvalidValueError``
         otherwise. ``FlowNotFoundError`` if there is no such flow.
         """
+        _lookup(flow, "flow name")
         run = await self._start_latest(flow, inputs)
         await self._events.notify()
         return run
@@ -236,6 +238,7 @@ class FlowManager:
 
         One task step per flow that defines it, flows in name order.
         """
+        _lookup(queue, "queue")
         return [
             task
             for flow in await self._store.latest_flows()
@@ -255,6 +258,7 @@ class FlowManager:
         The delivery carries the task's inputs with every reference filled in,
         and the metadata known at publish time.
         """
+        _lookup(queue, "queue")
         deadline = time.monotonic() + timeout
         async with self._tasks.subscribe() as subscription:
             while True:
@@ -340,6 +344,15 @@ class FlowManager:
         run, definition, state = await self._context(task.run_id)
         inputs = _filled_in(run, definition, state, task.address, task.params)
         return TaskDelivery(task, {**task.fixed_params, **inputs})
+
+
+def _lookup(name: str, what: str) -> None:
+    """Refuse a name to look up that no store could hold, before a store sees it.
+
+    A deployed store would refuse the text itself, with an error of its own;
+    the in-memory one would quietly find nothing. Both answer alike instead.
+    """
+    _values.check_text(name, what)
 
 
 def check_inputs(definition: FlowDefinition, inputs: Mapping[str, JsonValue]) -> None:

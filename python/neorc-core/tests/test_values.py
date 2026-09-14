@@ -122,6 +122,17 @@ def test_nul_in_json_text_is_rejected_when_loading() -> None:
         loads('{"a": "x\\u0000y"}')
 
 
+@pytest.mark.parametrize("text", ["NaN", "[Infinity]", '{"a": -Infinity}'])
+def test_numbers_json_text_cannot_carry_back_are_rejected_when_decoding(
+    text: str,
+) -> None:
+    """json.loads takes them; dumps_json, and every store, would not."""
+    with pytest.raises(InvalidValueError, match="not a JSON number"):
+        loads(text)
+    with pytest.raises(InvalidValueError, match="not a JSON number"):
+        decode(json.loads(text))
+
+
 def test_the_error_names_the_path_and_holds_no_nul_itself() -> None:
     with pytest.raises(InvalidValueError, match=r"^input 'x'\.a\[1\]: text holds NUL"):
         encode({"a": ["fine", "bad\x00"]}, path="input 'x'")

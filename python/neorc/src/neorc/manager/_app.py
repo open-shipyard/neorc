@@ -3,9 +3,10 @@
 
 """The manager's HTTP surface.
 
-Each route is a thin translation between JSON and ``neorc_core.Manager``. The
-routes that fetch a task and that report it started are separate on purpose:
-fetching may move to another backend later, while reporting stays with the store.
+Each route is a thin translation between JSON and ``neorc_core.Manager``, or
+``FlowManager`` for the flow routes. The routes that fetch a task and that
+report it started are separate on purpose: fetching may move to another backend
+later, while reporting stays with the store.
 """
 
 from __future__ import annotations
@@ -13,8 +14,11 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Query, Request, Response, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from neorc._errors import error_body, status_of
+from neorc.manager._flow_routes import router as flow_router
 from neorc.manager._schemas import (
     FinishedRequest,
     HeartbeatRequest,
@@ -22,7 +26,7 @@ from neorc.manager._schemas import (
     PublishRequest,
     TaskResponse,
 )
-from neorc_core import Manager, TaskId, TaskNotFoundError, TaskStateError
+from neorc_core import FlowManager, InvalidValueError, Manager, NeorcError, TaskId
 from neorc_core.ports._queue_client import DEFAULT_LEASE_SECONDS
 
 
@@ -48,20 +52,32 @@ that hits it simply asks again.
 
 
 def create_app(
-    manager: Manager, *, long_poll_timeout: float = DEFAULT_LONG_POLL_TIMEOUT
+    manager: Manager,
+    *,
+    flows: FlowManager | None = None,
+    long_poll_timeout: float = DEFAULT_LONG_POLL_TIMEOUT,
 ) -> FastAPI:
-    """Build the ASGI application serving ``manager``."""
+    """Build the ASGI application serving ``manager``, and ``flows`` if given."""
     app = FastAPI(title="neorc manager", version="0")
     app.state.manager = manager
     app.state.long_poll_timeout = long_poll_timeout
 
-    @app.exception_handler(TaskNotFoundError)
-    async def _not_found(request: Request, exc: TaskNotFoundError) -> JSONResponse:
-        return JSONResponse({"detail": str(exc)}, status_code=status.HTTP_404_NOT_FOUND)
+    @app.exception_handler(NeorcError)
+    async def _neorc_error(request: Request, exc: NeorcError) -> JSONResponse:
+        return JSONResponse(error_body(exc), status_code=status_of(exc))
 
-    @app.exception_handler(TaskStateError)
-    async def _bad_state(request: Request, exc: TaskStateError) -> JSONResponse:
-        return JSONResponse({"detail": str(exc)}, status_code=status.HTTP_409_CONFLICT)
+    @app.exception_handler(RequestValidationError)
+    async def _bad_request(
+        request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
+        # A path or query parameter FastAPI could not read, in the same form
+        # as every other refusal, so a client raises one kind of error for it.
+        error = InvalidValueError(f"request: {exc}")
+        return JSONResponse(error_body(error), status_code=status_of(error))
+
+    if flows is not None:
+        app.state.flows = flows
+        app.include_router(flow_router)
 
     @app.post("/tasks", status_code=status.HTTP_201_CREATED)
     async def publish_task(manager: Managed, body: PublishRequest) -> TaskResponse:
