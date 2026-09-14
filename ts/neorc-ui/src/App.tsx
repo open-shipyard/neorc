@@ -22,10 +22,17 @@ function Page({ route }: { route: ReturnType<typeof useRoute> }) {
       return <RunsPage flow={route.flow} status={route.status} />;
     case "flows":
       return <FlowsPage />;
+    // Keyed, so nothing typed or half-confirmed on one page carries to another.
     case "flow":
-      return <FlowPage flow={route.flow} version={route.version} />;
+      return (
+        <FlowPage
+          key={`${route.flow}@${route.version ?? "latest"}`}
+          flow={route.flow}
+          version={route.version}
+        />
+      );
     case "run":
-      return <RunPage id={route.id} />;
+      return <RunPage key={route.id} id={route.id} />;
     case "unknown":
       return (
         <p role="alert">

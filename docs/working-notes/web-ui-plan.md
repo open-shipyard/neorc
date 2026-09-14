@@ -65,7 +65,7 @@ in-memory `neorc run` has no UI: it prints its run's output and exits.
 | 5  | The manager serves the UI                           | done   |
 | 6  | UI: flows and runs                                  | done   |
 | 7  | UI: a run, its tree and its tasks, live             | done   |
-| 8  | UI: start and cancel runs                           | todo   |
+| 8  | UI: start and cancel runs                           | done   |
 | 9  | Browser smoke test, docs and changelog              | todo   |
 | 10 | The dependency rules, written where they are read   | todo   |
 
@@ -258,7 +258,9 @@ pipeline.
   for anything the form cannot express. The `detail` of the 422 is shown next
   to the form. On success, go to the new run.
 - Cancel an active run from its page, after a confirmation naming how many runs
-  in its tree are active.
+  in its tree are active. Offered on root runs only: the manager cancels a
+  whole tree from any run in it, so a sub-run's page points at its root
+  rather than offer a button that does more than it says.
 - Component tests for both actions, including the error paths.
 
 ### 9. Browser smoke test, docs and changelog

@@ -1,3 +1,4 @@
+import { CancelRun } from "../components/CancelRun";
 import { Failed, Loading } from "../components/Layout";
 import { RunTree, published } from "../components/RunTree";
 import { StatusBadge } from "../components/StatusBadge";
@@ -69,6 +70,19 @@ function Loaded({ run }: { run: ReturnType<typeof useRun>["data"] & object }) {
           </>
         )}
       </dl>
+
+      {run.status === "active" &&
+        (run.parent_id === null ? (
+          <CancelRun key={run.id} run={run} subRuns={subRuns.data ?? []} />
+        ) : (
+          <p className="muted">
+            Part of run{" "}
+            <a href={href({ name: "run", id: run.root_id })}>
+              <code>{shortId(run.root_id)}</code>
+            </a>
+            : a run is cancelled from its root, with its whole tree.
+          </p>
+        ))}
 
       <h2>Steps</h2>
       {(flow.isPending || tasks.isPending || subRuns.isPending) && (

@@ -31,6 +31,22 @@ describe("FlowPage", () => {
       "href",
       "#/runs?flow=word_picker",
     );
+    expect(screen.getByRole("form", { name: "Start word_picker" })).toBeInTheDocument();
+  });
+
+  it("starts runs on the latest version only", async () => {
+    mockApi({
+      "/flows/word_picker/versions/1.0.0": WORD_PICKER_1_0,
+      "/flows/word_picker/versions": {
+        versions: [WORD_PICKER, WORD_PICKER_1_0],
+      },
+    });
+
+    renderWithClient(<FlowPage flow="word_picker" version="1.0.0" />);
+
+    await screen.findByRole("heading", { level: 1 });
+    expect(screen.queryByRole("form")).not.toBeInTheDocument();
+    expect(screen.getByText(/A run always uses the latest version, 1.2.0/)).toBeInTheDocument();
   });
 
   it("navigates to a chosen version", async () => {
