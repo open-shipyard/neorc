@@ -12,6 +12,7 @@ the other of the two operations would have left.
 from __future__ import annotations
 
 import asyncio
+import uuid
 from collections.abc import AsyncIterator, Coroutine
 from contextlib import asynccontextmanager
 from typing import Any, TypeVar
@@ -50,49 +51,10 @@ from neorc_core.testing.contracts import StoreContract
 pytestmark = pytest.mark.postgres
 
 
-_NOT_YET = pytest.mark.xfail(
-    strict=True, reason="the listing queries and timestamps come in the next step"
-)
-
-
 class TestPostgresStore(StoreContract):
     @pytest.fixture
     def store(self, pg_store: PostgresStore) -> Store:
         return pg_store
-
-    @_NOT_YET
-    async def test_runs_are_listed_newest_first_by_page(self, store: Store) -> None:
-        await super().test_runs_are_listed_newest_first_by_page(store)
-
-    @_NOT_YET
-    async def test_runs_are_filtered_by_flow_status_and_depth(
-        self, store: Store
-    ) -> None:
-        await super().test_runs_are_filtered_by_flow_status_and_depth(store)
-
-    @_NOT_YET
-    async def test_a_flows_versions_are_listed_newest_first(self, store: Store) -> None:
-        await super().test_a_flows_versions_are_listed_newest_first(store)
-
-    @_NOT_YET
-    async def test_a_runs_tasks_are_listed_in_publishing_order(
-        self, store: Store
-    ) -> None:
-        await super().test_a_runs_tasks_are_listed_in_publishing_order(store)
-
-    @_NOT_YET
-    async def test_a_runs_sub_runs_are_its_direct_children(self, store: Store) -> None:
-        await super().test_a_runs_sub_runs_are_its_direct_children(store)
-
-    @_NOT_YET
-    async def test_the_store_times_runs_and_tasks(self, store: Store) -> None:
-        await super().test_the_store_times_runs_and_tasks(store)
-
-    @_NOT_YET
-    async def test_a_task_refused_its_start_is_timed_as_finished(
-        self, store: Store
-    ) -> None:
-        await super().test_a_task_refused_its_start_is_timed_as_finished(store)
 
 
 async def test_transactions_run_in_read_committed_whatever_the_default(
@@ -318,6 +280,37 @@ async def test_events_appended_under_contention_follow_on_without_a_gap(
         (run.id, EventKind.TASK_FINISHED),
         (other.id, EventKind.RUN_STARTED),
     ]
+
+
+async def test_runs_started_under_contention_list_in_commit_order(
+    pg_store: PostgresStore, run: Run
+) -> None:
+    """A start that waits on the event lock is numbered after the one holding it."""
+    store = pg_store
+    by_hand = uuid.uuid4()
+
+    async with held(store) as starting:
+        # start_run, by hand: the row, its event under the event lock, its
+        # number; stopped short of its commit.
+        await starting.execute(
+            f"INSERT INTO {RUNS_TABLE} (id, flow, version, inputs, status, root_id)"
+            " VALUES (%s, 'a', '1.0.0', '{}', 'active', %s)",
+            (by_hand, by_hand),
+        )
+        await _append_event_by_hand(starting, by_hand, EventKind.RUN_STARTED)
+        await starting.execute(
+            f"UPDATE {RUNS_TABLE} SET position = "
+            f"(SELECT COALESCE(MAX(position), 0) + 1 FROM {RUNS_TABLE})"
+            " WHERE id = %s",
+            (by_hand,),
+        )
+        waiting = await blocked(store.start_run("a", Version(1, 0, 0), {}))
+
+    late = await waiting
+    listed = await store.list_runs()
+    assert [r.id for r in listed] == [late.id, by_hand, run.id]
+    assert [r.id for r in await store.list_runs(before=late.id)] == [by_hand, run.id]
+    assert [r.id for r in await store.list_runs(before=by_hand)] == [run.id]
 
 
 async def test_a_task_finishes_while_its_tree_is_being_cancelled(

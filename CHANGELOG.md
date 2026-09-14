@@ -132,8 +132,11 @@ one version, cut from a single tag on `main`.
 - `neorc-core`: the `Store` port lists, for a status page: `list_runs`,
   newest first with filters and a page cursor, `flow_versions`, `run_tasks`
   and `sub_runs`; `Manager` exposes them. Runs and tasks carry the times the
-  store created, started and finished them, on the wire too. `MemoryStore`
-  implements all of it; the Postgres store follows.
+  store created, started and finished them, on the wire too. Both stores
+  implement it; on Postgres the times are the server's `now()`, and runs get
+  a `position` allocated under the event lock, so they list in the order
+  they committed and a page never skips one. Existing tables get the new
+  columns on `create_schema`.
 
 ### Changed
 

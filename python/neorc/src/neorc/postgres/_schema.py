@@ -8,7 +8,7 @@ does nothing. This is a create-if-absent step, not a migration tool: changing
 the shape of an existing table is out of scope until there is a released
 version to migrate from.
 
-The tables follow docs/working-notes/postgres-http-implementation-plan.md:
+The choices behind the tables are in docs/working-notes/decisions-from-past-plans.md:
 
 - Values (run inputs and outputs, task params, fixed params and results) are
   ``text`` holding their compact JSON, not ``jsonb``: ``jsonb`` keeps numbers as
@@ -21,6 +21,18 @@ The tables follow docs/working-notes/postgres-http-implementation-plan.md:
   store's operations keep the references whole.
 - The ``CHECK`` constraints mirror ``TaskStatus``, ``RunStatus`` and
   ``EventKind``; a test keeps them in step with the enums.
+- Runs and tasks are ordered by ``position``, not by their timestamps:
+  ``now()`` can give two rows the same time. The timestamps are for display.
+  A task's position is an identity column, allocated at insert; a run's is
+  allocated by the store under its event lock, so it commits in order and
+  paging by it never skips a run.
+
+Columns added since the first tables are also added to existing tables, when
+a check of ``information_schema`` finds them missing: no version is released
+to migrate from, and a database created by an earlier checkout should keep
+working. The check comes first because ``ALTER TABLE`` locks the table
+exclusively before it looks, and ``create_schema`` runs at every manager
+start.
 """
 
 from __future__ import annotations
@@ -42,6 +54,8 @@ INDEXES = (
     f"{RUNS_TABLE}_root_idx",
     f"{RUNS_TABLE}_parent_idx",
     f"{RUNS_TABLE}_active_by_flow_idx",
+    f"{RUNS_TABLE}_position_idx",
+    f"{RUNS_TABLE}_flow_position_idx",
     f"{FLOW_TASKS_TABLE}_run_idx",
     f"{FLOW_TASKS_TABLE}_claim_idx",
 )
@@ -71,8 +85,38 @@ CREATE TABLE IF NOT EXISTS {RUNS_TABLE} (
     parent_id        uuid,
     parent_address   text,
     output           text NOT NULL DEFAULT 'null',
-    reason           text
+    reason           text,
+    created_at       timestamptz NOT NULL DEFAULT now(),
+    finished_at      timestamptz,
+    position         bigint NOT NULL DEFAULT 0
 );
+
+-- position orders runs by start, for listing and paging. The store sets it as
+-- max + 1 under its event lock, in the transaction that starts the run, so
+-- positions commit in order and a page never skips a run that committed late;
+-- an identity column would be allocated at insert, before the wait for that
+-- lock. It is 0 only between the insert and the numbering, inside that one
+-- transaction.
+--
+-- Only when the columns are missing: ALTER TABLE takes an exclusive lock on
+-- the table before it looks, even with IF NOT EXISTS, and this runs at every
+-- manager start. IF NOT EXISTS still, for two managers starting at once.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = '{RUNS_TABLE}'
+                      AND column_name = 'created_at') THEN
+        ALTER TABLE {RUNS_TABLE}
+            ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now(),
+            ADD COLUMN IF NOT EXISTS finished_at timestamptz,
+            ADD COLUMN IF NOT EXISTS position bigint NOT NULL DEFAULT 0;
+        UPDATE {RUNS_TABLE} AS r
+           SET position = numbered.n
+          FROM (SELECT id, row_number() OVER () AS n FROM {RUNS_TABLE}) AS numbered
+         WHERE r.id = numbered.id AND r.position = 0;
+    END IF;
+END $$;
 
 -- A tree is finished by its root: every run of a root, and a run's sub-runs
 -- for its state.
@@ -83,6 +127,11 @@ CREATE INDEX IF NOT EXISTS {RUNS_TABLE}_parent_idx ON {RUNS_TABLE} (parent_id);
 CREATE INDEX IF NOT EXISTS {RUNS_TABLE}_active_by_flow_idx
     ON {RUNS_TABLE} (flow)
     WHERE status = 'active';
+
+-- Listing runs newest first, all of them or one flow's, a page at a time.
+CREATE INDEX IF NOT EXISTS {RUNS_TABLE}_position_idx ON {RUNS_TABLE} (position);
+CREATE INDEX IF NOT EXISTS {RUNS_TABLE}_flow_position_idx
+    ON {RUNS_TABLE} (flow, position);
 
 -- position orders tasks by publication: their ids come from their address and
 -- carry no order. An insert that hits ON CONFLICT still consumes a value, so
@@ -102,8 +151,24 @@ CREATE TABLE IF NOT EXISTS {FLOW_TASKS_TABLE} (
     lease_expires_at timestamptz,
     result           text NOT NULL DEFAULT 'null',
     error            text,
-    position         bigint GENERATED ALWAYS AS IDENTITY
+    position         bigint GENERATED ALWAYS AS IDENTITY,
+    created_at       timestamptz NOT NULL DEFAULT now(),
+    started_at       timestamptz,
+    finished_at      timestamptz
 );
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = '{FLOW_TASKS_TABLE}'
+                      AND column_name = 'created_at') THEN
+        ALTER TABLE {FLOW_TASKS_TABLE}
+            ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now(),
+            ADD COLUMN IF NOT EXISTS started_at timestamptz,
+            ADD COLUMN IF NOT EXISTS finished_at timestamptz;
+    END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS {FLOW_TASKS_TABLE}_run_idx ON {FLOW_TASKS_TABLE} (run_id);
 

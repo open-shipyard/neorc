@@ -23,7 +23,9 @@ one lock hold here too, and no two transactions wait on each other in a cycle:
    sequences allocated as ``max(sequence) + 1``: its snapshot is taken after
    the lock is granted, so it sees the events of the transaction that held the
    lock before. Nothing is locked after it, so events commit in sequence order
-   and a scheduler reading after a sequence misses none.
+   and a scheduler reading after a sequence misses none. A run's ``position``
+   is allocated the same way, right after its "run started" event, so runs
+   list and page in the order they committed.
 
 There are no foreign keys between the tables, so an insert takes no lock on
 another row behind the order's back; the operations keep the references whole.
@@ -138,27 +140,53 @@ _LOCK_ROOTS = f"""
 SELECT id FROM {RUNS_TABLE} WHERE id = ANY(%(ids)s) ORDER BY id FOR UPDATE
 """
 
+_SELECT_FLOW_VERSIONS = f"""
+SELECT {FLOW_COLUMNS} FROM {FLOW_VERSIONS_TABLE}
+ WHERE name = %(name)s
+ {_LATEST_ORDER}
+"""
+
+# The database sets created_at, so every row's clock is the server's, and hands
+# the row back to be what the caller returns.
 _INSERT_RUN = f"""
-INSERT INTO {RUNS_TABLE} ({RUN_COLUMNS})
+INSERT INTO {RUNS_TABLE} (id, flow, version, inputs, status, root_id, parent_id,
+                          parent_address, output, reason, created_at)
 VALUES (%(id)s, %(flow)s, %(version)s, %(inputs)s, %(status)s, %(root_id)s,
-        %(parent_id)s, %(parent_address)s, %(output)s, %(reason)s)
+        %(parent_id)s, %(parent_address)s, %(output)s, %(reason)s, now())
 ON CONFLICT (id) DO NOTHING
-RETURNING id
+RETURNING {RUN_COLUMNS}
 """
 
 _SUCCEED_RUN = f"""
 UPDATE {RUNS_TABLE}
-   SET status = 'succeeded', output = %(output)s
+   SET status = 'succeeded', output = %(output)s, finished_at = now()
  WHERE id = %(id)s AND status = 'active'
 RETURNING {RUN_COLUMNS}
 """
 
 _FINISH_TREE = f"""
 UPDATE {RUNS_TABLE}
-   SET status = %(status)s, reason = %(reason)s
+   SET status = %(status)s, reason = %(reason)s, finished_at = now()
  WHERE root_id = ANY(%(root_ids)s) AND status = 'active'
 RETURNING id
 """
+
+# Under the event lock, after the run's event: the statement's snapshot sees
+# every position committed before, as it does every sequence, so positions
+# commit in order and a page never skips a run that committed late.
+_NUMBER_RUN = f"""
+UPDATE {RUNS_TABLE}
+   SET position = (SELECT COALESCE(MAX(position), 0) + 1 FROM {RUNS_TABLE})
+ WHERE id = %(id)s
+"""
+
+_LIST_RUNS = f"SELECT {RUN_COLUMNS} FROM {RUNS_TABLE}"
+
+_STARTED_BEFORE = (
+    f"position < (SELECT position FROM {RUNS_TABLE} WHERE id = %(before)s)"
+)
+
+_NEWEST_FIRST = "ORDER BY position DESC LIMIT %(limit)s"
 
 # Sequences follow on from the highest committed, which the statement sees
 # because the event lock was granted first. WITH ORDINALITY keeps the events of
@@ -183,12 +211,14 @@ _SELECT_TASK = f"SELECT {TASK_COLUMNS} FROM {FLOW_TASKS_TABLE} WHERE id = %(id)s
 _LOCK_TASK = f"{_SELECT_TASK} FOR UPDATE"
 
 _INSERT_TASK = f"""
-INSERT INTO {FLOW_TASKS_TABLE} ({TASK_COLUMNS})
+INSERT INTO {FLOW_TASKS_TABLE} (id, run_id, address, queue, handler, params,
+                                fixed_params, status, attempts, lease_expires_at,
+                                result, error, created_at)
 VALUES (%(id)s, %(run_id)s, %(address)s, %(queue)s, %(handler)s, %(params)s,
         %(fixed_params)s, %(status)s, %(attempts)s, %(lease_expires_at)s,
-        %(result)s, %(error)s)
+        %(result)s, %(error)s, now())
 ON CONFLICT (id) DO NOTHING
-RETURNING id
+RETURNING {TASK_COLUMNS}
 """
 
 # One statement, so the claim and everything that goes with it are atomic. The
@@ -214,7 +244,9 @@ RETURNING {TASK_COLUMNS}
 """
 
 _START_TASK = f"""
-UPDATE {FLOW_TASKS_TABLE} SET status = 'running' WHERE id = %(id)s
+UPDATE {FLOW_TASKS_TABLE}
+   SET status = 'running', started_at = COALESCE(started_at, now())
+ WHERE id = %(id)s
 RETURNING {TASK_COLUMNS}
 """
 
@@ -228,14 +260,18 @@ RETURNING lease_expires_at
 _FINISH_TASK = f"""
 UPDATE {FLOW_TASKS_TABLE}
    SET status = %(status)s, result = %(result)s, error = %(error)s,
-       lease_expires_at = NULL
+       lease_expires_at = NULL, finished_at = now()
  WHERE id = %(id)s
 RETURNING {TASK_COLUMNS}
 """
 
-_TASKS_OF_RUN = f"SELECT {TASK_COLUMNS} FROM {FLOW_TASKS_TABLE} WHERE run_id = %(id)s"
+_TASKS_OF_RUN = f"""
+SELECT {TASK_COLUMNS} FROM {FLOW_TASKS_TABLE} WHERE run_id = %(id)s ORDER BY position
+"""
 
-_SUB_RUNS_OF_RUN = f"SELECT {RUN_COLUMNS} FROM {RUNS_TABLE} WHERE parent_id = %(id)s"
+_SUB_RUNS_OF_RUN = f"""
+SELECT {RUN_COLUMNS} FROM {RUNS_TABLE} WHERE parent_id = %(id)s ORDER BY position
+"""
 
 Connection = AsyncConnection[DictRow]
 Events = list[tuple[RunId, EventKind]]
@@ -295,10 +331,13 @@ class PostgresStore(Pooled, Store):
             cursor = await conn.execute(_SELECT_LATEST_FLOWS)
             return [flow_from_row(row) for row in await cursor.fetchall()]
 
-    # The listing queries arrive with the timestamp columns, in the next step.
-
     async def flow_versions(self, name: str) -> list[StoredFlow]:
-        raise NotImplementedError("flow_versions is not on Postgres yet")
+        async with self.pool.connection() as conn:
+            cursor = await conn.execute(_SELECT_FLOW_VERSIONS, {"name": name})
+            rows = await cursor.fetchall()
+        if not rows:
+            raise FlowNotFoundError(f"no flow {name!r}")
+        return [flow_from_row(row) for row in rows]
 
     async def list_runs(
         self,
@@ -309,13 +348,37 @@ class PostgresStore(Pooled, Store):
         before: RunId | None = None,
         limit: int = DEFAULT_PAGE,
     ) -> list[Run]:
-        raise NotImplementedError("list_runs is not on Postgres yet")
+        conditions: list[str] = []
+        params: dict[str, object] = {"limit": limit}
+        if flow is not None:
+            conditions.append("flow = %(flow)s")
+            params["flow"] = flow
+        if status is not None:
+            conditions.append("status = %(status)s")
+            params["status"] = status.value
+        if root_only:
+            conditions.append("parent_id IS NULL")
+        if before is not None:
+            conditions.append(_STARTED_BEFORE)
+            params["before"] = before
+        where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+        async with self.pool.connection() as conn, conn.transaction():
+            if before is not None:
+                await _run(conn, before)  # RunNotFoundError, else its position
+            cursor = await conn.execute(f"{_LIST_RUNS}{where} {_NEWEST_FIRST}", params)
+            return [run_from_row(row) for row in await cursor.fetchall()]
 
     async def run_tasks(self, run_id: RunId) -> list[Task]:
-        raise NotImplementedError("run_tasks is not on Postgres yet")
+        async with self.pool.connection() as conn, conn.transaction():
+            await _run(conn, run_id)
+            cursor = await conn.execute(_TASKS_OF_RUN, {"id": run_id})
+            return [task_from_row(row) for row in await cursor.fetchall()]
 
     async def sub_runs(self, run_id: RunId) -> list[Run]:
-        raise NotImplementedError("sub_runs is not on Postgres yet")
+        async with self.pool.connection() as conn, conn.transaction():
+            await _run(conn, run_id)
+            cursor = await conn.execute(_SUB_RUNS_OF_RUN, {"id": run_id})
+            return [run_from_row(row) for row in await cursor.fetchall()]
 
     async def start_run(
         self,
@@ -357,10 +420,12 @@ class PostgresStore(Pooled, Store):
                 parent_address=parent_address,
             )
             cursor = await conn.execute(_INSERT_RUN, run_to_row(run))
-            if await cursor.fetchone() is None:  # the same instance, started before
+            row = await cursor.fetchone()
+            if row is None:  # the same instance, started before
                 return await _run(conn, run_id)
             await _append_events(conn, [(run_id, EventKind.RUN_STARTED)])
-            return run
+            await conn.execute(_NUMBER_RUN, {"id": run_id})
+            return run_from_row(row)
 
     async def get_run(self, run_id: RunId) -> Run:
         async with self.pool.connection() as conn:
@@ -425,9 +490,10 @@ class PostgresStore(Pooled, Store):
                 fixed_params=dict(fixed_params),
             )
             cursor = await conn.execute(_INSERT_TASK, task_to_row(task))
-            if await cursor.fetchone() is None:  # published before: unchanged
+            row = await cursor.fetchone()
+            if row is None:  # published before: unchanged
                 return await _task(conn, task.id)
-            return task
+            return task_from_row(row)
 
     async def claim_task(
         self, queue: str, *, lease_seconds: float = DEFAULT_LEASE_SECONDS
