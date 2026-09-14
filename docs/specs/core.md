@@ -34,8 +34,9 @@ neorc manager start
 And, in different hosts
 
 export NEORC_MANAGER_ADDRESS="xx.xx.xx.xx"
+neorc flows upload flows/
 neorc scheduler start
-neorc worker start
+neorc worker start --code-location .
 
 
 
@@ -43,23 +44,23 @@ neorc worker start
 
 
 ```
-from neorc import Worker
+from neorc import FlowWorker
+from neorc.http import HttpFlowQueueClient
 
 
-worker = Worker(manager_address, queue_cli)
+worker = FlowWorker(HttpFlowQueueClient(manager_address), code_location=Path("."))
 
-worker.start()
+await worker.prepare()
+await worker.run()
 
 ```
 
 
-The worker class should use queue_cli to pick the next task and execute it.
+The worker class uses its queue client to pick the next task and execute it.
 
-queue_cli will stay in long polling to the manager pick_next_task. That long polling could be replaced by Redis or SQS in the future, that's why queue_cli needs to be a port, supporting multiple implementations. Worker will receive queue_cli by its constructor.
+The queue client long-polls the manager's pick-next-task. That long polling could be replaced by Redis or SQS in the future, which is why it is a port, `FlowQueueClient`, supporting multiple implementations. The worker receives it by its constructor; the scheduler reaches the manager through its own port, `ManagerClient`.
 
-The "neorc" library implements queue_cli.
-
-queue_cli should contain methods for publishing a new task for the scheduler, and other for atomically picking the next task for workers.
+The "neorc" library implements both over HTTP.
 
 scheduler > queue_cli > http > manager service > db
 
@@ -77,7 +78,9 @@ The "pick next task" endpoint should comfortably keep several workers waiting
 without holding one database connection per waiting worker. See
 [postgres-implementation.md](postgres-implementation.md).
 
-The API should expose endpoints for publishing tasks, query task status, fetch a task to work, inform task start processing.
+The API exposes endpoints for uploading flows, starting and querying runs, and
+for the scheduler's requests; and, for workers, for fetching a queue's task
+definitions, fetching a task to work, and informing task start.
 
 A claim is a lease: a worker heartbeats while it executes, and a task whose
 lease expires is handed to another worker. The API therefore also exposes an

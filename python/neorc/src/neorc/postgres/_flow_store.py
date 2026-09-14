@@ -87,7 +87,7 @@ from neorc_core._runs import (
 )
 from neorc_core._values import JsonValue, dumps_json
 from neorc_core.flows import Address, Reference, RunState, Version
-from neorc_core.ports._queue_client import DEFAULT_LEASE_SECONDS
+from neorc_core.ports._flow_clients import DEFAULT_LEASE_SECONDS
 
 _LOCK_SPACE = 0x6E656F72  # "neor": keeps clear of other advisory locks in the database
 UPLOAD_LOCK = (_LOCK_SPACE, 1)

@@ -1,14 +1,14 @@
 # neorc
 
-A next generation orchestration system: publish a task, and a worker somewhere
-else runs it. This is the reference implementation on top of
-[`neorc-core`](https://pypi.org/project/neorc-core/) — a manager service, a
-worker command, and adapters for HTTP and Postgres.
+A next generation orchestration system: flows of tasks, defined in YAML files,
+run by workers wherever the work is. This is the reference implementation on
+top of [`neorc-core`](https://pypi.org/project/neorc-core/) — a manager
+service, the scheduler and worker commands, and adapters for HTTP and Postgres.
 
 Every dependency is optional, so a host installs only what its role needs:
 
     pip install neorc                       # nothing extra
-    pip install 'neorc[http]'               # workers and publishers
+    pip install 'neorc[http]'               # scheduler and worker hosts
     pip install 'neorc[manager,postgres]'   # the manager host
 
 ## Running it
@@ -18,37 +18,29 @@ Try a directory of flow files in one process, with nothing to deploy:
     neorc run examples/wordplay --flow word_picker \
         --inputs '{"sentence": "potato tomate", "preferred_letter": "t"}'
 
-A deployment runs the task API: a manager, and workers wherever the work is.
+A deployment runs a manager, a scheduler, and a worker per queue wherever the
+work is:
 
     export NEORC_DATABASE_URL=postgresql://localhost/neorc
     neorc manager start --create-schema
 
     export NEORC_MANAGER_ADDRESS=manager.internal:8420
-    neorc worker start --tasks tasks.toml
+    neorc flows upload myapp/flows
+    neorc scheduler start
+    neorc worker start --code-location myapp
 
-Where `tasks.toml` maps each task name to the function that runs it:
-
-```toml
-# tasks.toml
-[tasks]
-greet = "myapp.tasks:greet"
-```
-
-```python
-# myapp/tasks.py
-def greet(task):
-    print(f"hello {task.payload['name']}")
-```
-
-Modules resolve from the file's directory, then the usual import path.
-Handlers can be plain or `async` functions; plain ones run in a thread.
+Each task in a flow file names its handler by import path, `module:function`,
+resolved from the worker's code location first. Handlers are plain or `async`
+functions taking the task's inputs as keyword arguments; plain ones run in a
+thread, and they need not import neorc.
 
 ## What is in it
 
-- `neorc` — `Worker`, `Task` and friends, re-exported from `neorc-core`
-- `neorc.http` — `HttpQueueClient`, the long-polling queue client
+- `neorc` — `Scheduler`, `FlowWorker` and friends, re-exported from `neorc-core`
+- `neorc.http` — `HttpManagerClient` and `HttpFlowQueueClient`, the
+  long-polling clients the scheduler and workers use
 - `neorc.manager` — the FastAPI application and the service that runs it
-- `neorc.postgres` — the task store, the LISTEN/NOTIFY notifier, and the schema
+- `neorc.postgres` — the store, the LISTEN/NOTIFY notifier, and the schema
 
 See the [repository](https://github.com/open-shipyard/neorc) for the full
 picture, and

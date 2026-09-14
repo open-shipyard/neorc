@@ -4,6 +4,5 @@
 """The HTTP clients. Install with ``pip install neorc[http]``."""
 
 from neorc.http._flow_clients import HttpFlowQueueClient, HttpManagerClient
-from neorc.http._queue_client import HttpQueueClient
 
-__all__ = ["HttpFlowQueueClient", "HttpManagerClient", "HttpQueueClient"]
+__all__ = ["HttpFlowQueueClient", "HttpManagerClient"]

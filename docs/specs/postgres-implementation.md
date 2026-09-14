@@ -96,10 +96,15 @@ Two consequences the rest of the system inherits:
   `ensure_transition` is what every store calls, so no backend can invent its
   own lifecycle. Re-reporting a start is allowed, because delivery is
   at-least-once.
-- **Payloads live in the task row**, as `jsonb`: fixed values and references
+- **Payloads live in the task row**, as JSON text: fixed values and references
   to upstream results, filled in when a worker fetches the task (see
-  [core.md](core.md), "Task payloads"). Addressing them elsewhere is something
-  to do when a payload is too big for a row, not before.
+  [core.md](core.md), "Task payloads"). Text rather than `jsonb`, which keeps
+  numbers as `numeric` and would hand `1e16` back as an integer and `-0.0` as
+  `0.0`, where the in-memory store keeps them as written. Addressing payloads
+  elsewhere is something to do when one is too big for a row, not before.
+- **Every task belongs to a flow.** The task API that let a task be published
+  on its own, with its own store, queue client, worker and `neorc_tasks` table,
+  is gone: a basic queue is a flow with a single task.
 - **Migrations** are a create-if-absent step, `create_schema`, exposed as
   `neorc manager start --create-schema`. Not a migration tool: there is no
   released version to migrate from yet, and adding one before there is would be

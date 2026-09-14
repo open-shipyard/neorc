@@ -35,8 +35,11 @@ from neorc_core.flows import (
     Version,
     parse_flow,
 )
-from neorc_core.ports._flow_clients import FlowQueueClient, ManagerClient
-from neorc_core.ports._queue_client import MAX_LEASE_SECONDS
+from neorc_core.ports._flow_clients import (
+    MAX_LEASE_SECONDS,
+    FlowQueueClient,
+    ManagerClient,
+)
 
 WHEN: JsonValue = {"$datetime": "2026-09-13T10:00:00+00:00"}
 

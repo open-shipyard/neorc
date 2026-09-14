@@ -7,9 +7,9 @@ A suite is a class of tests written against the port alone. To run it on an
 adapter, subclass it in a test module, under a name pytest collects, and
 provide the fixture the suite names::
 
-    class TestMyTaskStore(TaskStoreContract):
+    class TestMyStore(StoreContract):
         @pytest.fixture
-        def store(self, my_store: MyTaskStore) -> TaskStore:
+        def store(self, my_store: MyStore) -> Store:
             return my_store
 
 The fixture should hand over an adapter with nothing in it. The tests are
@@ -23,14 +23,10 @@ from neorc_core.testing.contracts._flow_clients import (
     FlowQueueClientContract,
     ManagerClientContract,
 )
-from neorc_core.testing.contracts._queue_client import QueueClientContract
 from neorc_core.testing.contracts._store import StoreContract
-from neorc_core.testing.contracts._task_store import TaskStoreContract
 
 __all__ = [
     "FlowQueueClientContract",
     "ManagerClientContract",
-    "QueueClientContract",
     "StoreContract",
-    "TaskStoreContract",
 ]

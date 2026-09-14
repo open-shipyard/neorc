@@ -5,8 +5,7 @@
 
 Flows and runs for whoever deploys and starts them; events, tasks and sub-runs
 for the scheduler; task definitions, long-polled tasks, starts, heartbeats and
-results for workers. The worker routes live under ``/flow-tasks`` while the
-task API keeps ``/tasks``.
+results for workers.
 
 Bodies and responses are the ``neorc_core._wire`` forms, so the direct and
 HTTP clients send the same JSON. A request body is read as bytes, capped, and
@@ -36,7 +35,7 @@ from neorc_core import (
 from neorc_core import _wire as wire
 from neorc_core._values import ensure_json_depth
 from neorc_core.flows import Address, Reference, Version
-from neorc_core.ports._queue_client import DEFAULT_LEASE_SECONDS
+from neorc_core.ports._flow_clients import DEFAULT_LEASE_SECONDS
 
 MAX_BODY_BYTES = 16 * 1024 * 1024
 """The largest request body, well above the payload limit core enforces.

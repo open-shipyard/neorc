@@ -22,11 +22,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from neorc_core import Manager
-from neorc_core.local import MemoryTaskNotifier, MemoryTaskStore
+from neorc_core import FlowManager
+from neorc_core.local import MemoryStore, MemoryTaskNotifier
 
 if TYPE_CHECKING:
-    from neorc.postgres import PostgresStore, PostgresTaskNotifier, PostgresTaskStore
+    from neorc.postgres import PostgresStore, PostgresTaskNotifier
 
 # Before a test module imports the contract suites, so their asserts explain a
 # failure the way asserts in test modules do.
@@ -37,18 +37,11 @@ DATABASE_URL_ENV = "NEORC_TEST_DATABASE_URL"
 
 
 @pytest.fixture
-def store() -> MemoryTaskStore:
-    return MemoryTaskStore()
-
-
-@pytest.fixture
-def notifier() -> MemoryTaskNotifier:
-    return MemoryTaskNotifier()
-
-
-@pytest.fixture
-def manager(store: MemoryTaskStore, notifier: MemoryTaskNotifier) -> Manager:
-    return Manager(store, notifier)
+def flows() -> FlowManager:
+    """A flow manager on the memory store, holding nothing."""
+    return FlowManager(
+        MemoryStore(), tasks=MemoryTaskNotifier(), events=MemoryTaskNotifier()
+    )
 
 
 @pytest.fixture(scope="session")
@@ -84,15 +77,6 @@ async def pg_schema(database_url: str) -> str:
     ) as conn:
         await conn.execute(f"TRUNCATE {', '.join(TABLES)}")
     return database_url
-
-
-@pytest.fixture
-async def pg_store(pg_schema: str) -> AsyncIterator[PostgresTaskStore]:
-    """An open store on an empty tasks table."""
-    from neorc.postgres import PostgresTaskStore
-
-    async with PostgresTaskStore(pg_schema) as store:
-        yield store
 
 
 @pytest.fixture

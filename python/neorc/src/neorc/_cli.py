@@ -8,7 +8,6 @@
     neorc flows upload examples/hello/flows --manager-address 127.0.0.1:8420
     neorc scheduler start --manager-address 127.0.0.1:8420
     neorc worker start --manager-address 127.0.0.1:8420 --code-location examples/hello
-    neorc worker start --tasks tasks.toml
 
 Adapters are imported inside the handlers, so a host that installed only the
 extras it needs can still run the CLI.
@@ -19,20 +18,17 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
-import inspect
 import json
 import logging
 import os
 import signal
 import sys
 import threading
-import tomllib
 import uuid
 from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
 
 from neorc_core import (
     FlowDefinitionError,
@@ -42,17 +38,12 @@ from neorc_core import (
     NeorcError,
     RunStatus,
     Scheduler,
-    Task,
-    TaskHandler,
-    Worker,
     _values,
 )
-from neorc_core._handlers import resolve_handler
 from neorc_core.flows import DEFAULT_QUEUE, is_queue_name, read_flows
 from neorc_core.local import run_local
 
 MANAGER_ADDRESS_ENV = "NEORC_MANAGER_ADDRESS"
-TASKS_FILE_ENV = "NEORC_WORKER_TASKS"
 
 DEFAULT_HOST = "0.0.0.0"  # a manager serves workers on other hosts
 DEFAULT_PORT = 8420
@@ -114,21 +105,11 @@ def build_parser() -> argparse.ArgumentParser:
     worker_start.add_argument(
         "--code-location",
         type=Path,
-        default=None,
-        help="the handlers' code: serve a queue of the flows the manager holds",
+        required=True,
+        help="the handlers' code, imported from there first",
     )
     worker_start.add_argument(
-        "--queue",
-        default=DEFAULT_QUEUE,
-        help="the queue to serve, with --code-location",
-    )
-    worker_start.add_argument(
-        "--tasks",
-        default=None,
-        help=(
-            "TOML file mapping task names to module:function handlers, for the "
-            f"task API; defaults to ${TASKS_FILE_ENV}"
-        ),
+        "--queue", default=DEFAULT_QUEUE, help="the queue to serve"
     )
     worker_start.add_argument("--poll-timeout", type=float, default=30.0)
     worker_start.add_argument("--lease-seconds", type=float, default=60.0)
@@ -346,45 +327,10 @@ def scheduler_start_command(args: argparse.Namespace) -> int:
 def worker_start_command(args: argparse.Namespace) -> int:
     """Run a worker against the manager named by ``NEORC_MANAGER_ADDRESS``.
 
-    With ``--code-location``, a worker for flows, serving one queue with the
-    handlers found there; with ``--tasks``, the task API's worker.
+    It serves one queue of the flows the manager holds, with the handlers found
+    at ``--code-location``.
     """
-    address = _manager_address(args, "work for")
-    if args.code_location is not None:
-        if args.tasks:
-            raise SystemExit(
-                "pass --code-location to serve a queue of flows, or --tasks for "
-                "the task API, not both"
-            )
-        # A tasks file in the environment is for the task API's workers on
-        # this host; a worker told its code location is not one of them.
-        return _serve_queue(args, address)
-    tasks_file = args.tasks or os.environ.get(TASKS_FILE_ENV)
-    if not tasks_file:
-        raise SystemExit(
-            "nothing to run: pass --code-location to serve a queue of flows, or "
-            f"--tasks (or ${TASKS_FILE_ENV}) for the task API"
-        )
-    with _needs("http"):
-        from neorc.http import HttpQueueClient
-
-    handlers = load_tasks(Path(tasks_file))
-
-    async def serve() -> None:
-        async with HttpQueueClient(address, poll_timeout=args.poll_timeout) as client:
-            worker = Worker(
-                address,
-                client,
-                poll_timeout=args.poll_timeout,
-                lease_seconds=args.lease_seconds,
-            )
-            for name, handler in handlers.items():
-                worker.register(name, handler)
-            _stop_on_signals(worker.stop)
-            await worker.run()
-
-    asyncio.run(serve())
-    return 0
+    return _serve_queue(args, _manager_address(args, "work for"))
 
 
 def _serve_queue(args: argparse.Namespace, address: str) -> int:
@@ -490,50 +436,6 @@ def _needs(*extras: str) -> Iterator[None]:
             f"is not installed ({exc}). Install it with: "
             f"pip install 'neorc[{','.join(extras)}]'"
         ) from exc
-
-
-def load_tasks(path: Path) -> dict[str, TaskHandler]:
-    """Read a tasks file: a ``[tasks]`` table of name = "module:function".
-
-    Modules resolve relative to the file's directory first, so a file can sit
-    next to the code it names. Every entry is imported up front and every
-    problem reported at once, so a bad file stops the worker at startup rather
-    than failing tasks later.
-    """
-    try:
-        config = tomllib.loads(path.read_text())
-    except OSError as exc:
-        raise SystemExit(f"cannot read tasks file {str(path)!r}: {exc}") from exc
-    except tomllib.TOMLDecodeError as exc:
-        raise SystemExit(f"{str(path)!r} is not valid TOML: {exc}") from exc
-
-    tasks = config.get("tasks")
-    if not isinstance(tasks, dict) or not tasks:
-        raise SystemExit(f"{str(path)!r} has no [tasks] table")
-
-    code_location = path.resolve().parent
-    handlers: dict[str, TaskHandler] = {}
-    problems: list[str] = []
-    for name, target in tasks.items():
-        try:
-            handlers[name] = _as_handler(resolve_handler(target, code_location))
-        except ValueError as exc:
-            problems.append(f"  {name}: {exc}")
-    if problems:
-        raise SystemExit(f"bad tasks in {str(path)!r}:\n" + "\n".join(problems))
-    return handlers
-
-
-def _as_handler(function: Callable[..., Any]) -> TaskHandler:
-    """Run plain functions in a thread, so a handler need not be ``async``."""
-    if inspect.iscoroutinefunction(function):
-        handler: TaskHandler = function
-        return handler
-
-    async def in_thread(task: Task) -> None:
-        await asyncio.to_thread(function, task)
-
-    return in_thread
 
 
 def _stop_on_signals(stop: Callable[[], None]) -> None:
