@@ -1,12 +1,14 @@
 # neorc-ui
 
+Dependencies follow [contributing/js-dependencies.md](../../contributing/js-dependencies.md):
+read it before adding, removing or updating a package, and
+[AGENTS.md](AGENTS.md) if you are a coding agent. What ships here runs in a
+browser against an API with no authentication yet.
+
 The manager's web UI: React, TypeScript and Vite. It is built into the
 `neorc-ui` Python distribution under `python/neorc-ui`, and served by
 `neorc manager start` at `/ui/`. Nothing here runs where neorc runs; only the
 built assets ship.
-
-Dependencies follow [contributing/js-dependencies.md](../../contributing/js-dependencies.md).
-Read it before adding, removing or updating a package.
 
 ## Working on it
 

@@ -104,9 +104,18 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
-      - run: npm run build
+      - name: Build, within the license allowlist and the size budget
+        run: |
+          npm run build || {
+            echo "::error::the build failed: a bundled package outside the license allowlist, or the bundle over its size budget, is refused by contributing/js-dependencies.md"
+            exit 1
+          }
       - name: The bundled-package list is committed as the build wrote it
-        run: git diff --exit-code -- bundled-packages.txt
+        run: |
+          git diff --exit-code -- bundled-packages.txt || {
+            echo "::error::bundled-packages.txt differs from what the build wrote: commit it, and have the new package reviewed as contributing/js-dependencies.md says"
+            exit 1
+          }
 
   build:
     runs-on: ubuntu-latest

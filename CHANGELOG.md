@@ -184,6 +184,11 @@ one version, cut from a single tag on `main`.
   run from the form, watches it succeed with its fan-out's results, cancels
   another, and finds no browser complaint. It skips without a built UI or a
   browser; CI builds and fetches both for one Python.
+- The rules for the UI's dependencies, `contributing/js-dependencies.md`,
+  are pointed to from every place a change to them starts: the UI's README
+  and an `AGENTS.md` for coding agents, the allowlist and bundled-package
+  list in `vite.config.ts`, `.npmrc`, the Dependabot configuration, and the
+  CI steps that fail on them.
 
 ### Changed
 

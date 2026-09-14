@@ -11,9 +11,10 @@ for, at every version it takes.
   vetting the package, and its transitive tree, now and at every update.
 - `dependencies` is what the bundle ships; `devDependencies` is build tooling.
   Keep the first list as short as it can be.
-- `bundled-packages.txt`, committed next to the package, lists every package
-  that ends up in the bundle. The build writes it and CI fails when it
-  differs, so a new bundled package is a line in the pull request diff.
+- `ts/neorc-ui/bundled-packages.txt` lists every package that ends up in the
+  bundle. The build writes it and CI fails when it differs, so a new bundled
+  package is a line in the pull request diff. Never edit it by hand.
+- Everything shipped fits in 500 KB gzipped; the build fails past that.
 
 ## Vet before adding
 
@@ -54,8 +55,9 @@ stated reason. Build tooling is not distributed and is not checked.
 ## In the browser
 
 - The manager serves `/ui/` with a Content-Security-Policy that allows
-  scripts, styles and connections from its own origin only. Do not loosen it
-  for a library; choose another library.
+  scripts and connections from its own origin only, and styles from it or
+  inline, which React needs for `style` attributes. Do not loosen it for a
+  library; choose another library.
 - No CDN and no request outside the manager's API. Every asset is in the
   wheel, so the UI works on air-gapped hosts.
 
@@ -64,3 +66,14 @@ stated reason. Build tooling is not distributed and is not checked.
 Bundles are built in CI on the release tag, from the committed lockfile and
 `.nvmrc`. Built assets are never committed, and a bundle built on a laptop is
 never released.
+
+## Where this is enforced
+
+- `ts/neorc-ui/vite.config.ts`: the license allowlist, the size budget and
+  the bundled-package list.
+- `ts/neorc-ui/.npmrc`: exact versions and no install scripts.
+- `.github/dependabot.yml`: the updates and their cooldown.
+- `.github/workflows/ci.yml`, the `ui` job: audits, signatures, the build
+  and the committed list; a red step there names this file.
+- `python/neorc/src/neorc/manager/_ui.py`: the Content-Security-Policy.
+- `ts/neorc-ui/AGENTS.md`: the same rules, as do-nots for coding agents.
