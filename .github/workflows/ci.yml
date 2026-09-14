@@ -79,10 +79,13 @@ jobs:
           cache: npm
           cache-dependency-path: ts/neorc-ui/package-lock.json
       - run: npm ci
+      # Advisories for everything installed; signatures and provenance for
+      # what ships in the bundle. The registry does not serve attestations for
+      # every dev-only package, and a 404 there is not a reason to fail.
       - name: Known advisories, and registry signatures and provenance
         run: |
           npm audit
-          npm audit signatures
+          npm audit signatures --omit=dev
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test

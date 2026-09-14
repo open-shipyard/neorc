@@ -44,8 +44,10 @@ stated reason. Build tooling is not distributed and is not checked.
   than 10 days ago. Do not update by hand to a version younger than that;
   compromised releases are usually withdrawn within days.
 - One dependency change per pull request, never as a side effect of a feature.
-- CI runs `npm audit` for known advisories and `npm audit signatures` for
-  registry signatures and provenance.
+- CI runs `npm audit` for known advisories on everything installed, and
+  `npm audit signatures --omit=dev` for registry signatures and provenance
+  on what ships: the registry does not hold attestations for every
+  dev-only package.
 - Node.js at the version in `.nvmrc`, installed as
   [dev-environment.md](dev-environment.md) says.
 
