@@ -137,6 +137,12 @@ one version, cut from a single tag on `main`.
   a `position` allocated under the event lock, so they list in the order
   they committed and a page never skips one. Existing tables get the new
   columns on `create_schema`.
+- `neorc.manager`: the listings a status page reads, `GET /flows`,
+  `GET /flows/{name}/versions`, `GET /runs` with filters and a page cursor,
+  `GET /runs/{id}/tasks`, `GET /runs/{id}/sub-runs` and `GET /tasks/{id}`.
+  The application's OpenAPI schema is committed as `ts/neorc-ui/openapi.json`,
+  written by `scripts/export_openapi.py` and checked by a test, for the UI
+  build to generate its types from without running Python.
 
 ### Changed
 

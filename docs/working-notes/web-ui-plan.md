@@ -60,7 +60,7 @@ in-memory `neorc run` has no UI: it prints its run's output and exits.
 | -- | --------------------------------------------------- | ------ |
 | 1  | Read queries and timestamps, in core and in memory  | done   |
 | 2  | The same on the Postgres store                      | done   |
-| 3  | The manager routes the UI needs                     | todo   |
+| 3  | The manager routes the UI needs                     | done   |
 | 4  | `neorc-ui` distribution and its build               | todo   |
 | 5  | The manager serves the UI                           | todo   |
 | 6  | UI: flows and runs                                  | todo   |
