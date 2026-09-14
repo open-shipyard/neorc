@@ -129,6 +129,12 @@ one version, cut from a single tag on `main`.
   --manager-address --code-location [--queue]` runs a worker for flows on the
   HTTP client; handlers that do not fit the queue's tasks stop it at startup
   with every problem listed. `--tasks` keeps running the task API's worker.
+- `neorc-core.testing.examples`: the example scenarios, `hello`,
+  `word_picker` and `word_picker_rounds`, run through any `ManagerClient`
+  with their outputs asserted. Core runs them on `LocalCluster`; `neorc` runs
+  them deployed, on uvicorn, Postgres and the HTTP clients, with a scheduler
+  and one worker per queue. The examples' deployed steps are runnable as
+  their READMEs give them.
 - `neorc-core`: a string holding NUL, in a value or anywhere in a flow
   definition, is refused in core before any store sees it, because Postgres
   `text` cannot hold it and the in-memory store must refuse what the deployed

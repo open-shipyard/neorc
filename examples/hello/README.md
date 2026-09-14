@@ -10,11 +10,6 @@ flows have none. `--flow b` prints `b`.
 
 ## Deployed
 
-> **Not runnable yet.** The steps below follow the flow specs in
-> [docs/specs](../../docs/specs). The manager's HTTP routes for flows, the
-> scheduler and worker commands, and `neorc flows upload` are not implemented;
-> `neorc run` above runs the same flows today.
-
 A manager, a scheduler, a worker with two handlers (`a` prints `a`, `b` prints
 `b`), and flow runs started on demand with `curl`. Every task belongs to a
 flow, so each handler gets a single-task flow in `flows/`, which names its
@@ -56,3 +51,7 @@ each step from the repository root in its own terminal, after `uv sync`.
 
    Each response carries the run's `id`; check on it with
    `curl 127.0.0.1:8420/runs/<id>`.
+
+[python/neorc/tests/test_end_to_end.py](../../python/neorc/tests/test_end_to_end.py)
+runs these steps, on a Postgres of its own, and asserts what the worker
+prints.
