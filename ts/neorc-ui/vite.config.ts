@@ -8,7 +8,11 @@ import license from "rollup-plugin-license";
 import type { Plugin } from "vite";
 import { defineConfig } from "vitest/config";
 
-/** Licenses a bundled package may carry; the build fails on any other. */
+/**
+ * Licenses a bundled package may carry; the build fails on any other.
+ * Extending this list is a reviewed change with a stated reason:
+ * contributing/js-dependencies.md, "Licenses".
+ */
 const ALLOWED_LICENSES = [
   "MIT",
   "ISC",
@@ -20,12 +24,15 @@ const ALLOWED_LICENSES = [
   "Unlicense",
 ];
 
-/** Everything shipped, gzipped, must fit in this. */
+/** Everything shipped, gzipped, must fit in this: contributing/js-dependencies.md. */
 const SIZE_BUDGET_BYTES = 500 * 1024;
 
 const here = import.meta.dirname;
 
-/** What ends up in the bundle, one line per package, committed and checked by CI. */
+/**
+ * What ends up in the bundle, one line per package, committed and checked by
+ * CI: a new line here is what a reviewer looks at. Never edited by hand.
+ */
 const BUNDLED_PACKAGES = resolve(here, "bundled-packages.txt");
 
 function gzippedSize(dir: string): number {
