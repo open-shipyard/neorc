@@ -5,6 +5,9 @@
 
     neorc run examples/hello --flow a
     neorc manager start
+    neorc flows upload examples/hello/flows --manager-address 127.0.0.1:8420
+    neorc scheduler start --manager-address 127.0.0.1:8420
+    neorc worker start --manager-address 127.0.0.1:8420 --code-location examples/hello
     neorc worker start --tasks tasks.toml
 
 Adapters are imported inside the handlers, so a host that installed only the
@@ -15,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import inspect
 import json
 import logging
@@ -30,8 +34,21 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from neorc_core import NeorcError, RunStatus, Task, TaskHandler, Worker, _values
+from neorc_core import (
+    FlowDefinitionError,
+    FlowWorker,
+    HandlerError,
+    ManagerUnavailableError,
+    NeorcError,
+    RunStatus,
+    Scheduler,
+    Task,
+    TaskHandler,
+    Worker,
+    _values,
+)
 from neorc_core._handlers import resolve_handler
+from neorc_core.flows import DEFAULT_QUEUE, is_queue_name, read_flows
 from neorc_core.local import run_local
 
 MANAGER_ADDRESS_ENV = "NEORC_MANAGER_ADDRESS"
@@ -70,20 +87,47 @@ def build_parser() -> argparse.ArgumentParser:
     )
     manager_start.set_defaults(handler=manager_start_command)
 
+    flows = commands.add_parser("flows", help="manage the flows a manager holds")
+    flows_commands = flows.add_subparsers(dest="subcommand", required=True)
+    flows_upload = flows_commands.add_parser(
+        "upload", help="upload a directory of flow files as one set, as CI/CD would"
+    )
+    flows_upload.add_argument(
+        "directory", type=Path, help="the flow files, *.yaml and *.yml"
+    )
+    _manager_address_option(flows_upload)
+    flows_upload.set_defaults(handler=flows_upload_command)
+
+    scheduler = commands.add_parser("scheduler", help="run the scheduler")
+    scheduler_commands = scheduler.add_subparsers(dest="subcommand", required=True)
+    scheduler_start = scheduler_commands.add_parser(
+        "start", help="move runs forward as their events arrive"
+    )
+    _manager_address_option(scheduler_start)
+    scheduler_start.add_argument("--poll-timeout", type=float, default=30.0)
+    scheduler_start.set_defaults(handler=scheduler_start_command)
+
     worker = commands.add_parser("worker", help="run a worker")
     worker_commands = worker.add_subparsers(dest="subcommand", required=True)
     worker_start = worker_commands.add_parser("start", help="claim and run tasks")
+    _manager_address_option(worker_start)
     worker_start.add_argument(
-        "--manager-address",
+        "--code-location",
+        type=Path,
         default=None,
-        help=f"defaults to ${MANAGER_ADDRESS_ENV}",
+        help="the handlers' code: serve a queue of the flows the manager holds",
+    )
+    worker_start.add_argument(
+        "--queue",
+        default=DEFAULT_QUEUE,
+        help="the queue to serve, with --code-location",
     )
     worker_start.add_argument(
         "--tasks",
         default=None,
         help=(
-            "TOML file mapping task names to module:function handlers; "
-            f"defaults to ${TASKS_FILE_ENV}"
+            "TOML file mapping task names to module:function handlers, for the "
+            f"task API; defaults to ${TASKS_FILE_ENV}"
         ),
     )
     worker_start.add_argument("--poll-timeout", type=float, default=30.0)
@@ -116,6 +160,24 @@ def build_parser() -> argparse.ArgumentParser:
     run.set_defaults(handler=run_command)
 
     return parser
+
+
+def _manager_address_option(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--manager-address",
+        default=None,
+        help=f"defaults to ${MANAGER_ADDRESS_ENV}",
+    )
+
+
+def _manager_address(args: argparse.Namespace, what: str) -> str:
+    address: str | None = args.manager_address or os.environ.get(MANAGER_ADDRESS_ENV)
+    if not address:
+        raise SystemExit(
+            f"no manager to {what}: pass --manager-address or set "
+            f"${MANAGER_ADDRESS_ENV}"
+        )
+    return address
 
 
 def run_command(args: argparse.Namespace) -> int:
@@ -221,21 +283,91 @@ def manager_start_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def flows_upload_command(args: argparse.Namespace) -> int:
+    """Upload the flow files in a directory as one set, and say what was stored.
+
+    The files are read and validated as ``neorc run`` reads them; the manager
+    checks the set and the version rules. Exits 1 when it refuses.
+    """
+    with _needs("http"):
+        from neorc.http import HttpManagerClient
+
+    address = _manager_address(args, "upload to")
+    if not args.directory.is_dir():
+        raise SystemExit(f"no such directory: {str(args.directory)!r}")
+    try:
+        contents = read_flows(args.directory)
+    except FlowDefinitionError as exc:
+        raise SystemExit(
+            "invalid flow files:\n" + "\n".join(f"  {p}" for p in exc.problems)
+        ) from exc
+    except OSError as exc:
+        raise SystemExit(f"cannot read {str(args.directory)!r}: {exc}") from exc
+    if not contents:
+        raise SystemExit(f"no flow files in {str(args.directory)!r}")
+
+    async def upload() -> list[bool]:
+        async with HttpManagerClient(address) as client:
+            return await client.upload_flows(contents)
+
+    try:
+        stored = asyncio.run(upload())
+    except FlowDefinitionError as exc:
+        print("upload refused:", file=sys.stderr)
+        for problem in exc.problems:
+            print(f"  {problem}", file=sys.stderr)
+        return 1
+    except NeorcError as exc:
+        print(f"upload refused: {exc}", file=sys.stderr)
+        return 1
+    for content, is_new in zip(contents, stored, strict=True):
+        state = "stored" if is_new else "unchanged"
+        print(f"{state} {content['name']} {content['version']}")
+    return 0
+
+
+def scheduler_start_command(args: argparse.Namespace) -> int:
+    """Run the scheduler against the manager named by ``NEORC_MANAGER_ADDRESS``."""
+    with _needs("http"):
+        from neorc.http import HttpManagerClient
+
+    address = _manager_address(args, "schedule for")
+
+    async def serve() -> None:
+        async with HttpManagerClient(address, poll_timeout=args.poll_timeout) as client:
+            scheduler = Scheduler(client, poll_timeout=args.poll_timeout)
+            _stop_on_signals(scheduler.stop)
+            await scheduler.run()
+
+    asyncio.run(serve())
+    return 0
+
+
 def worker_start_command(args: argparse.Namespace) -> int:
-    """Run a worker against the manager named by ``NEORC_MANAGER_ADDRESS``."""
+    """Run a worker against the manager named by ``NEORC_MANAGER_ADDRESS``.
+
+    With ``--code-location``, a worker for flows, serving one queue with the
+    handlers found there; with ``--tasks``, the task API's worker.
+    """
+    address = _manager_address(args, "work for")
+    if args.code_location is not None:
+        if args.tasks:
+            raise SystemExit(
+                "pass --code-location to serve a queue of flows, or --tasks for "
+                "the task API, not both"
+            )
+        # A tasks file in the environment is for the task API's workers on
+        # this host; a worker told its code location is not one of them.
+        return _serve_queue(args, address)
+    tasks_file = args.tasks or os.environ.get(TASKS_FILE_ENV)
+    if not tasks_file:
+        raise SystemExit(
+            "nothing to run: pass --code-location to serve a queue of flows, or "
+            f"--tasks (or ${TASKS_FILE_ENV}) for the task API"
+        )
     with _needs("http"):
         from neorc.http import HttpQueueClient
 
-    address = args.manager_address or os.environ.get(MANAGER_ADDRESS_ENV)
-    if not address:
-        raise SystemExit(
-            f"no manager to work for: pass --manager-address or set "
-            f"${MANAGER_ADDRESS_ENV}"
-        )
-
-    tasks_file = args.tasks or os.environ.get(TASKS_FILE_ENV)
-    if not tasks_file:
-        raise SystemExit(f"no tasks to run: pass --tasks or set ${TASKS_FILE_ENV}")
     handlers = load_tasks(Path(tasks_file))
 
     async def serve() -> None:
@@ -253,6 +385,80 @@ def worker_start_command(args: argparse.Namespace) -> int:
 
     asyncio.run(serve())
     return 0
+
+
+def _serve_queue(args: argparse.Namespace, address: str) -> int:
+    """A worker for flows: check its handlers against the queue's tasks, then run."""
+    with _needs("http"):
+        from neorc.http import HttpFlowQueueClient
+
+    if not args.code_location.is_dir():
+        raise SystemExit(f"no such directory: {str(args.code_location)!r}")
+    if not is_queue_name(args.queue):
+        raise SystemExit(
+            f"{args.queue!r} is not a queue name: letters, digits, _ and -"
+        )
+
+    async def serve() -> None:
+        async with HttpFlowQueueClient(
+            address, poll_timeout=args.poll_timeout
+        ) as client:
+            worker = FlowWorker(
+                client,
+                queue=args.queue,
+                code_location=args.code_location,
+                poll_timeout=args.poll_timeout,
+                lease_seconds=args.lease_seconds,
+            )
+            stopping = asyncio.Event()
+
+            def stop() -> None:
+                stopping.set()
+                worker.stop()
+
+            _stop_on_signals(stop)
+            if await _prepared(worker, args, stopping):
+                await worker.run()
+
+    asyncio.run(serve())
+    return 0
+
+
+PREPARE_RETRY_SECONDS = 5.0
+"""How long a starting worker waits for a manager it cannot reach yet."""
+
+
+async def _prepared(
+    worker: FlowWorker, args: argparse.Namespace, stopping: asyncio.Event
+) -> bool:
+    """Check the handlers against the queue's tasks, waiting out an unreachable manager.
+
+    Workers outlive manager restarts, and are often started alongside one:
+    an unreachable manager is retried until a stop signal. Handlers that do
+    not fit their tasks will not fit on retry: that exits, listing every
+    problem. Returns ``False`` when stopped before the check passed.
+    """
+    while not stopping.is_set():
+        try:
+            await worker.prepare()
+            return True
+        except HandlerError as exc:
+            raise SystemExit(
+                f"the handlers in {str(args.code_location)!r} do not fit the "
+                f"tasks on queue {args.queue!r}:\n"
+                + "\n".join(f"  {p}" for p in exc.problems)
+            ) from exc
+        except ManagerUnavailableError as exc:
+            _log.warning(
+                "cannot check the handlers yet (%s); retrying in %ss",
+                exc,
+                PREPARE_RETRY_SECONDS,
+            )
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(stopping.wait(), timeout=PREPARE_RETRY_SECONDS)
+        except NeorcError as exc:  # refused, and would be again: not worth retrying
+            raise SystemExit(f"cannot start the worker: {exc}") from exc
+    return False
 
 
 def main(argv: Sequence[str] | None = None) -> int:

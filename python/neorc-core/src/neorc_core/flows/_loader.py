@@ -204,10 +204,34 @@ def load_flow_file(path: Path) -> FlowDefinition:
 
 def load_flows(directory: Path) -> list[FlowDefinition]:
     """Load every ``*.yaml`` and ``*.yml`` file in ``directory``, checked as a set."""
-    paths = sorted([*directory.glob("*.yaml"), *directory.glob("*.yml")])
-    definitions = [load_flow_file(path) for path in paths]
+    definitions = [load_flow_file(path) for path in flow_files(directory)]
     validate_flow_set(definitions)
     return definitions
+
+
+def flow_files(directory: Path) -> list[Path]:
+    """Every ``*.yaml`` and ``*.yml`` file in ``directory``, in name order."""
+    return sorted([*directory.glob("*.yaml"), *directory.glob("*.yml")])
+
+
+def read_flows(directory: Path) -> list[Any]:
+    """The flow files in ``directory`` as the structures an upload sends.
+
+    Each file is validated on its own first, as a file must be, with ``name``
+    and ``version`` first; the set is validated by the manager on upload.
+    Raises ``FlowDefinitionError`` naming the file for the first invalid one.
+    """
+    contents = []
+    for path in flow_files(directory):
+        text = path.read_text(encoding="utf-8")
+        try:
+            load_flow_yaml(text)
+        except FlowDefinitionError as exc:
+            raise FlowDefinitionError(
+                [f"{path.name}: {problem}" for problem in exc.problems]
+            ) from None
+        contents.append(read_flow_yaml(text))
+    return contents
 
 
 def validate_flow_set(definitions: Iterable[FlowDefinition]) -> None:

@@ -18,7 +18,7 @@ from neorc_core._flow_worker import FlowWorker
 from neorc_core._runs import Run, RunId, RunStatus
 from neorc_core._scheduler import Scheduler
 from neorc_core._values import JsonValue
-from neorc_core.flows import load_flow_file, read_flow_yaml
+from neorc_core.flows import read_flows
 from neorc_core.local._direct_clients import DirectFlowQueueClient, DirectManagerClient
 from neorc_core.local._memory_store import MemoryStore
 from neorc_core.local._notifier import MemoryTaskNotifier
@@ -77,11 +77,7 @@ class LocalCluster:
 
     async def upload(self, flows_dir: Path) -> list[bool]:
         """Upload every ``*.yaml`` and ``*.yml`` flow file in ``flows_dir`` as a set."""
-        paths = sorted([*flows_dir.glob("*.yaml"), *flows_dir.glob("*.yml")])
-        for path in paths:
-            load_flow_file(path)  # name and version first, as a file must have
-        contents = [read_flow_yaml(path.read_text(encoding="utf-8")) for path in paths]
-        return await self.client.upload_flows(contents)
+        return await self.client.upload_flows(read_flows(flows_dir))
 
     async def start(self, *, workers: bool = True) -> None:
         """Start the scheduler, and a worker for every queue the latest flows use.

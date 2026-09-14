@@ -14,13 +14,23 @@ import time
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 from uuid import uuid4
 
 import pytest
 
 from neorc import _cli
-from neorc_core import Run, RunStatus, Task, TaskHandler, TaskStatus
+from neorc_core import (
+    FlowVersionError,
+    HandlerError,
+    InvalidValueError,
+    ManagerUnavailableError,
+    Run,
+    RunStatus,
+    Task,
+    TaskHandler,
+    TaskStatus,
+)
 from neorc_core.flows import Version
 
 
@@ -73,7 +83,9 @@ def test_a_worker_needs_to_be_told_which_manager(
     monkeypatch.delenv(_cli.MANAGER_ADDRESS_ENV, raising=False)
 
     with pytest.raises(SystemExit, match=_cli.MANAGER_ADDRESS_ENV):
-        _cli.worker_start_command(argparse.Namespace(manager_address=None, tasks=None))
+        _cli.worker_start_command(
+            argparse.Namespace(manager_address=None, tasks=None, code_location=None)
+        )
 
 
 def test_a_worker_needs_to_be_told_which_tasks(
@@ -83,7 +95,9 @@ def test_a_worker_needs_to_be_told_which_tasks(
 
     with pytest.raises(SystemExit, match=_cli.TASKS_FILE_ENV):
         _cli.worker_start_command(
-            argparse.Namespace(manager_address="manager.test", tasks=None)
+            argparse.Namespace(
+                manager_address="manager.test", tasks=None, code_location=None
+            )
         )
 
 
@@ -103,7 +117,11 @@ def test_the_settings_can_come_from_the_environment(
 
     exit_code = _cli.worker_start_command(
         argparse.Namespace(
-            manager_address=None, tasks=None, poll_timeout=1.0, lease_seconds=2.0
+            manager_address=None,
+            tasks=None,
+            code_location=None,
+            poll_timeout=1.0,
+            lease_seconds=2.0,
         )
     )
 
@@ -254,7 +272,9 @@ def test_a_missing_extra_is_reported_as_the_command_that_installs_it(
 
     with pytest.raises(SystemExit, match=r"pip install 'neorc\[http\]'"):
         _cli.worker_start_command(
-            argparse.Namespace(manager_address="manager.test", tasks=None)
+            argparse.Namespace(
+                manager_address="manager.test", tasks="tasks.toml", code_location=None
+            )
         )
 
 
@@ -496,3 +516,328 @@ def test_a_crash_while_running_is_reported_and_shut_down(
     assert exit_code == 1
     assert finished == [1]
     assert "RuntimeError: a worker loop died" in capsys.readouterr().err
+
+
+# The flows, scheduler and worker commands, with the core classes faked.
+
+
+class _FakeClient:
+    """An HTTP client that records how it was built and what it was asked."""
+
+    built: ClassVar[list[tuple[str, dict[str, Any]]]] = []
+    uploaded: ClassVar[list[Any]] = []
+    stored: ClassVar[list[bool]] = [True, False]
+
+    def __init__(self, address: str, **kwargs: Any) -> None:
+        type(self).built.append((address, kwargs))
+
+    async def __aenter__(self) -> _FakeClient:
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        return None
+
+    async def upload_flows(self, contents: Any) -> list[bool]:
+        type(self).uploaded.append(contents)
+        return type(self).stored
+
+
+@pytest.fixture
+def fake_clients(monkeypatch: pytest.MonkeyPatch) -> type[_FakeClient]:
+    _FakeClient.built = []
+    _FakeClient.uploaded = []
+    _FakeClient.stored = [True, False]
+    monkeypatch.setattr("neorc.http.HttpManagerClient", _FakeClient)
+    monkeypatch.setattr("neorc.http.HttpFlowQueueClient", _FakeClient)
+    return _FakeClient
+
+
+def test_flows_upload_sends_the_directory_as_one_set_and_says_what_was_stored(
+    fake_clients: type[_FakeClient], capsys: pytest.CaptureFixture[str]
+) -> None:
+    exit_code = _cli.main(
+        [
+            "flows",
+            "upload",
+            str(_EXAMPLES / "hello" / "flows"),
+            "--manager-address",
+            "manager.test:8420",
+        ]
+    )
+
+    assert exit_code == 0
+    assert fake_clients.built == [("manager.test:8420", {})]
+    (contents,) = fake_clients.uploaded
+    assert [c["name"] for c in contents] == ["a", "b"]
+    assert capsys.readouterr().out == "stored a 1.0.0\nunchanged b 1.0.0\n"
+
+
+def test_flows_upload_reports_a_refused_upload(
+    fake_clients: type[_FakeClient],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    async def refuse(self: Any, contents: Any) -> list[bool]:
+        raise FlowVersionError("a 1.0.0 is already stored with different content")
+
+    monkeypatch.setattr(_FakeClient, "upload_flows", refuse)
+
+    exit_code = _cli.main(
+        [
+            "flows",
+            "upload",
+            str(_EXAMPLES / "hello" / "flows"),
+            "--manager-address",
+            "manager.test",
+        ]
+    )
+
+    assert exit_code == 1
+    assert "upload refused: a 1.0.0 is already stored" in capsys.readouterr().err
+
+
+def test_flows_upload_refuses_invalid_files_before_sending(
+    fake_clients: type[_FakeClient], tmp_path: Path
+) -> None:
+    (tmp_path / "broken.yaml").write_text("name: broken\nsteps: {}\n")
+
+    with pytest.raises(SystemExit, match=r"broken\.yaml: .*missing field 'version'"):
+        _cli.main(["flows", "upload", str(tmp_path), "--manager-address", "m"])
+
+    assert fake_clients.uploaded == []
+
+
+def test_flows_upload_needs_flow_files_and_a_manager(
+    fake_clients: type[_FakeClient], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv(_cli.MANAGER_ADDRESS_ENV, raising=False)
+
+    with pytest.raises(SystemExit, match="no flow files"):
+        _cli.main(["flows", "upload", str(tmp_path), "--manager-address", "m"])
+    with pytest.raises(SystemExit, match="no such directory"):
+        _cli.main(["flows", "upload", str(tmp_path / "x"), "--manager-address", "m"])
+    with pytest.raises(SystemExit, match=_cli.MANAGER_ADDRESS_ENV):
+        _cli.main(["flows", "upload", str(tmp_path)])
+
+
+class _FakeLoop:
+    """A scheduler or worker that records how it was built, and returns at once."""
+
+    built: ClassVar[list[tuple[Any, dict[str, Any]]]] = []
+    prepared = 0
+    problems: ClassVar[list[str]] = []
+    unreachable = 0
+    """How many prepare calls find the manager unreachable before one succeeds."""
+
+    def __init__(self, client: Any, **kwargs: Any) -> None:
+        type(self).built.append((client, kwargs))
+
+    async def prepare(self) -> None:
+        type(self).prepared += 1
+        if type(self).prepared <= type(self).unreachable:
+            raise ManagerUnavailableError("connection refused")
+        if type(self).problems:
+            raise HandlerError(type(self).problems)
+
+    def stop(self) -> None:
+        return None
+
+    async def run(self) -> None:
+        return None
+
+
+@pytest.fixture
+def fake_loops(monkeypatch: pytest.MonkeyPatch) -> type[_FakeLoop]:
+    _FakeLoop.built = []
+    _FakeLoop.prepared = 0
+    _FakeLoop.problems = []
+    _FakeLoop.unreachable = 0
+    monkeypatch.setattr(_cli, "Scheduler", _FakeLoop)
+    monkeypatch.setattr(_cli, "FlowWorker", _FakeLoop)
+    return _FakeLoop
+
+
+def test_scheduler_start_runs_a_scheduler_on_an_http_client(
+    fake_clients: type[_FakeClient], fake_loops: type[_FakeLoop]
+) -> None:
+    exit_code = _cli.main(
+        [
+            "scheduler",
+            "start",
+            "--manager-address",
+            "manager.test",
+            "--poll-timeout",
+            "7",
+        ]
+    )
+
+    assert exit_code == 0
+    assert fake_clients.built == [("manager.test", {"poll_timeout": 7.0})]
+    ((client, kwargs),) = fake_loops.built
+    assert isinstance(client, _FakeClient)
+    assert kwargs == {"poll_timeout": 7.0}
+
+
+def test_worker_start_with_a_code_location_serves_a_queue_of_flows(
+    fake_clients: type[_FakeClient],
+    fake_loops: type[_FakeLoop],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(_cli.MANAGER_ADDRESS_ENV, "manager.internal:8420")
+    monkeypatch.delenv(_cli.TASKS_FILE_ENV, raising=False)
+
+    exit_code = _cli.main(
+        [
+            "worker",
+            "start",
+            "--code-location",
+            str(_EXAMPLES / "hello"),
+            "--queue",
+            "voice",
+            "--poll-timeout",
+            "3",
+            "--lease-seconds",
+            "9",
+        ]
+    )
+
+    assert exit_code == 0
+    assert fake_clients.built == [("manager.internal:8420", {"poll_timeout": 3.0})]
+    ((client, kwargs),) = fake_loops.built
+    assert isinstance(client, _FakeClient)
+    assert kwargs == {
+        "queue": "voice",
+        "code_location": _EXAMPLES / "hello",
+        "poll_timeout": 3.0,
+        "lease_seconds": 9.0,
+    }
+    assert fake_loops.prepared == 1
+
+
+def test_a_worker_waits_for_a_manager_it_cannot_reach_yet(
+    fake_clients: type[_FakeClient],
+    fake_loops: type[_FakeLoop],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Started alongside the manager, or during its restart, it keeps trying."""
+    monkeypatch.setattr(_cli, "PREPARE_RETRY_SECONDS", 0.01)
+    fake_loops.unreachable = 2
+
+    exit_code = _cli.main(
+        [
+            "worker",
+            "start",
+            "--manager-address",
+            "m",
+            "--code-location",
+            str(_EXAMPLES / "hello"),
+        ]
+    )
+
+    assert exit_code == 0
+    assert fake_loops.prepared == 3
+
+
+def test_a_worker_refused_for_good_exits_rather_than_retrying(
+    fake_clients: type[_FakeClient],
+    fake_loops: type[_FakeLoop],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def refused(self: Any) -> None:
+        raise InvalidValueError("'q' is not a queue the manager serves")
+
+    monkeypatch.setattr(_FakeLoop, "prepare", refused)
+    command = ["worker", "start", "--manager-address", "m"]
+    location = ["--code-location", str(_EXAMPLES / "hello")]
+
+    with pytest.raises(SystemExit, match="cannot start the worker: 'q' is not"):
+        _cli.main([*command, *location])
+    with pytest.raises(SystemExit, match="'my queue' is not a queue name"):
+        _cli.main([*command, *location, "--queue", "my queue"])
+
+
+def test_a_worker_whose_handlers_do_not_fit_exits_listing_every_problem(
+    fake_clients: type[_FakeClient], fake_loops: type[_FakeLoop]
+) -> None:
+    fake_loops.problems = ["a: cannot import 'tasks'", "b: takes no parameter 'x'"]
+
+    with pytest.raises(SystemExit) as raised:
+        _cli.main(
+            [
+                "worker",
+                "start",
+                "--manager-address",
+                "m",
+                "--code-location",
+                str(_EXAMPLES / "hello"),
+            ]
+        )
+
+    message = str(raised.value)
+    assert "queue 'default'" in message
+    assert "a: cannot import 'tasks'" in message
+    assert "b: takes no parameter 'x'" in message
+
+
+def test_a_worker_serves_flows_or_the_task_api_not_both(
+    fake_clients: type[_FakeClient], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv(_cli.TASKS_FILE_ENV, raising=False)
+    tasks = _write_tasks(tmp_path, 'noop = "neorc._cli:main"')
+
+    with pytest.raises(SystemExit, match="not both"):
+        _cli.main(
+            [
+                "worker",
+                "start",
+                "--manager-address",
+                "m",
+                "--code-location",
+                str(tmp_path),
+                "--tasks",
+                str(tasks),
+            ]
+        )
+    with pytest.raises(SystemExit, match="nothing to run"):
+        _cli.main(["worker", "start", "--manager-address", "m"])
+    # A tasks file set for this host's task API workers is not this worker's.
+    monkeypatch.setenv(_cli.TASKS_FILE_ENV, str(tasks))
+    monkeypatch.setattr("neorc._cli.asyncio.run", lambda coro: coro.close())
+    assert (
+        _cli.main(
+            [
+                "worker",
+                "start",
+                "--manager-address",
+                "m",
+                "--code-location",
+                str(tmp_path),
+            ]
+        )
+        == 0
+    )
+    with pytest.raises(SystemExit, match="no such directory"):
+        _cli.main(
+            [
+                "worker",
+                "start",
+                "--manager-address",
+                "m",
+                "--code-location",
+                str(tmp_path / "x"),
+            ]
+        )
+
+
+def test_the_parser_covers_every_service() -> None:
+    parser = _cli.build_parser()
+
+    upload = parser.parse_args(["flows", "upload", "dir"])
+    scheduler = parser.parse_args(["scheduler", "start"])
+    worker = parser.parse_args(["worker", "start", "--code-location", "here"])
+
+    assert upload.handler is _cli.flows_upload_command
+    assert upload.directory == Path("dir")
+    assert scheduler.handler is _cli.scheduler_start_command
+    assert worker.queue == "default"
+    assert worker.code_location == Path("here")
