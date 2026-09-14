@@ -21,12 +21,14 @@ from neorc_core.flows._definition import (
     is_queue_name,
 )
 from neorc_core.flows._loader import (
+    flow_files,
     load_flow_file,
     load_flow_yaml,
     load_flows,
     parse_flow,
     read_flow_json,
     read_flow_yaml,
+    read_flows,
     validate_flow_set,
 )
 from neorc_core.flows._references import Level, Resolved, fan_out_width, resolve, shape
@@ -54,6 +56,7 @@ __all__ = [
     "TaskStep",
     "Version",
     "fan_out_width",
+    "flow_files",
     "is_name",
     "is_queue_name",
     "load_flow_file",
@@ -62,6 +65,7 @@ __all__ = [
     "parse_flow",
     "read_flow_json",
     "read_flow_yaml",
+    "read_flows",
     "resolve",
     "shape",
     "validate_flow_set",
