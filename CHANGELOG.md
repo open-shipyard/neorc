@@ -158,6 +158,15 @@ one version, cut from a single tag on `main`.
   `--no-ui` serves the API alone. Hashed assets are cached as immutable and
   the page is not; every UI response carries a Content-Security-Policy that
   keeps scripts and connections to the manager's own origin.
+- `neorc-ui`: the flows and runs pages. Flows with their versions and the
+  definition as uploaded, read-only; runs newest first, a page at a time,
+  filtered by flow and status, with a status badge shared with tasks; and a
+  run's own page with its inputs, output and times. The page follows the
+  manager's event log with the same long poll the scheduler uses, and
+  refetches what an event concerns, starting from `GET /events/latest`, a
+  new route giving the latest sequence so no reader has to read the whole
+  log to find its end. Hash routing, TanStack Query, and component tests
+  on Vitest against responses typed by the schema.
 
 ### Changed
 

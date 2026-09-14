@@ -128,3 +128,4 @@ def test_the_event_forms() -> None:
 
     _exactly(schemas.EventResponse, wire.event_to(event))
     _exactly(schemas.EventListResponse, {"events": [wire.event_to(event)]})
+    _exactly(schemas.LatestEventResponse, {"sequence": 7})

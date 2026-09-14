@@ -220,3 +220,12 @@ class Store(ABC):
     async def events_after(self, sequence: int, *, limit: int = 100) -> list[Event]:
         """Up to ``limit`` events with a sequence above ``sequence``, oldest first."""
         raise NotImplementedError
+
+    @abstractmethod
+    async def last_sequence(self) -> int:
+        """The sequence of the latest event, or 0 with none: where a reader starts.
+
+        A reader that wants only what happens from now on begins after it,
+        instead of reading the whole log to find its end.
+        """
+        raise NotImplementedError

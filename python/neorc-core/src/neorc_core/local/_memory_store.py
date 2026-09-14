@@ -315,6 +315,10 @@ class MemoryStore(Store):
             # Sequences are 1, 2, 3...: the event after ``sequence`` is at its index.
             return self._events[max(sequence, 0) : max(sequence, 0) + limit]
 
+    async def last_sequence(self) -> int:
+        async with self._lock:
+            return len(self._events)
+
     def _flow(self, name: str, version: Version | None) -> StoredFlow:
         versions = self._flows.get(name)
         if not versions:

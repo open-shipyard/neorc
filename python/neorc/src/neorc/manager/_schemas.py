@@ -113,6 +113,11 @@ class EventListResponse(_Exact):
     events: list[EventResponse]
 
 
+class LatestEventResponse(_Exact):
+    sequence: int
+    """The latest event's sequence, or 0 with none: where a new reader starts."""
+
+
 class DeliveryResponse(_Exact):
     task: TaskResponse
     inputs: dict[str, Any]

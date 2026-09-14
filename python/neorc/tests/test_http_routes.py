@@ -208,6 +208,7 @@ async def test_a_run_is_driven_to_its_end_over_http(http: httpx.AsyncClient) -> 
         f"/runs/{run_id}/succeed", json={"output": "tasks.work"}
     )
     events = await http.get("/events", params={"after": 0, "timeout": 0})
+    latest = await http.get("/events/latest")
 
     assert published.status_code == 201
     assert published.json()["address"] == WORK
@@ -225,6 +226,7 @@ async def test_a_run_is_driven_to_its_end_over_http(http: httpx.AsyncClient) -> 
         "task_finished",
         "run_finished",
     ]
+    assert latest.json() == {"sequence": events.json()["events"][-1]["sequence"]}
 
 
 async def test_a_sub_run_starts_and_a_run_fails_over_http(
