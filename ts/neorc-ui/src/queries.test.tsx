@@ -3,7 +3,15 @@ import { renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ApiEvent } from "./api";
-import { follow, keys, refresh, useLiveEvents } from "./queries";
+import {
+  follow,
+  isSubRunsQuery,
+  keys,
+  refresh,
+  useLiveEvents,
+  useRunTasks,
+  useSubRuns,
+} from "./queries";
 import { ACTIVE, SUCCEEDED, event } from "./test/fixtures";
 import { mockApi, neverAnswers } from "./test/render";
 
@@ -47,6 +55,8 @@ describe("follow", () => {
     expect(invalidated).toHaveBeenCalledWith({ queryKey: keys.run(ACTIVE.id) }, keep);
     expect(invalidated).toHaveBeenCalledWith({ queryKey: keys.run(SUCCEEDED.id) }, keep);
     expect(invalidated).not.toHaveBeenCalledWith({ queryKey: keys.flows }, keep);
+    // Run events reach every page listing sub-runs: they carry the sub-run's id.
+    expect(invalidated).toHaveBeenCalledWith({ predicate: isSubRunsQuery }, keep);
     controller.abort();
   });
 
@@ -183,5 +193,57 @@ describe("useLiveEvents", () => {
 
     unmount();
     expect(api.calls[3]?.init?.signal?.aborted).toBe(true);
+  });
+});
+
+describe("an active run's page", () => {
+  function wrapper({ children }: { children: React.ReactNode }) {
+    return <QueryClientProvider client={new QueryClient()}>{children}</QueryClientProvider>;
+  }
+
+  it("asks for the tasks and sub-runs again while the run is active", async () => {
+    const api = mockApi({
+      [`/runs/${ACTIVE.id}/tasks`]: { tasks: [] },
+      [`/runs/${ACTIVE.id}/sub-runs`]: { runs: [] },
+    });
+
+    renderHook(
+      () => {
+        useRunTasks(ACTIVE.id, { active: true, everyMs: 20 });
+        useSubRuns(ACTIVE.id, { active: true, everyMs: 20 });
+      },
+      { wrapper },
+    );
+
+    await vi.waitFor(() => expect(api.calls.length).toBeGreaterThanOrEqual(6));
+    const paths = new Set(api.calls.map((call) => call.url.pathname));
+    expect(paths).toEqual(
+      new Set([`/runs/${ACTIVE.id}/tasks`, `/runs/${ACTIVE.id}/sub-runs`]),
+    );
+  });
+
+  it("asks once when the run is over", async () => {
+    const api = mockApi({
+      [`/runs/${SUCCEEDED.id}/tasks`]: { tasks: [] },
+      [`/runs/${SUCCEEDED.id}/sub-runs`]: { runs: [] },
+    });
+
+    renderHook(
+      () => {
+        useRunTasks(SUCCEEDED.id, { active: false, everyMs: 20 });
+        useSubRuns(SUCCEEDED.id, { active: false, everyMs: 20 });
+      },
+      { wrapper },
+    );
+
+    await vi.waitFor(() => expect(api.calls).toHaveLength(2));
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(api.calls).toHaveLength(2);
+  });
+
+  it("tells a sub-runs query from the rest", () => {
+    expect(isSubRunsQuery({ queryKey: keys.subRuns("x") })).toBe(true);
+    expect(isSubRunsQuery({ queryKey: keys.tasks("x") })).toBe(false);
+    expect(isSubRunsQuery({ queryKey: keys.run("x") })).toBe(false);
   });
 });

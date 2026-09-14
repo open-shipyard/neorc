@@ -80,12 +80,38 @@ export function useRun(id: string) {
   return useQuery({ queryKey: keys.run(id), queryFn: () => getRun(id) });
 }
 
-export function useRunTasks(id: string) {
-  return useQuery({ queryKey: keys.tasks(id), queryFn: () => runTasks(id) });
+/** How often an active run's tasks and sub-runs are re-read. */
+export const ACTIVE_POLL_MS = 2000;
+
+export interface LiveOptions {
+  /** Whether the run is still active: what changes without an event. */
+  active: boolean;
+  everyMs?: number;
 }
 
-export function useSubRuns(id: string) {
-  return useQuery({ queryKey: keys.subRuns(id), queryFn: () => subRuns(id) });
+/**
+ * The event log says when a task or run finished, and nothing else: a task
+ * being published, claimed or started, or a sub-run starting, records no
+ * event. So while a run is active its page asks again on its own.
+ */
+function whileActive({ active, everyMs = ACTIVE_POLL_MS }: LiveOptions) {
+  return active ? everyMs : false;
+}
+
+export function useRunTasks(id: string, live: LiveOptions) {
+  return useQuery({
+    queryKey: keys.tasks(id),
+    queryFn: () => runTasks(id),
+    refetchInterval: whileActive(live),
+  });
+}
+
+export function useSubRuns(id: string, live: LiveOptions) {
+  return useQuery({
+    queryKey: keys.subRuns(id),
+    queryFn: () => subRuns(id),
+    refetchInterval: whileActive(live),
+  });
 }
 
 /** How long one poll waits on the manager, under its own deadline. */
@@ -192,9 +218,17 @@ function invalidate(client: QueryClient, events: ApiEvent[]): void {
   for (const id of new Set(events.map((event) => event.run_id))) {
     void refresh(client, { queryKey: keys.run(id) });
   }
+  if (events.some((event) => event.kind !== "task_finished")) {
+    // A sub-run's events carry its own id; its parent's page lists it.
+    void refresh(client, { predicate: isSubRunsQuery });
+  }
   if (events.some((event) => event.kind === "run_started")) {
     void refresh(client, { queryKey: keys.flows });
   }
+}
+
+export function isSubRunsQuery(query: { queryKey: readonly unknown[] }): boolean {
+  return query.queryKey[0] === "run" && query.queryKey[2] === "sub-runs";
 }
 
 function pause(ms: number): Promise<void> {

@@ -167,6 +167,13 @@ one version, cut from a single tag on `main`.
   new route giving the latest sequence so no reader has to read the whole
   log to find its end. Hash routing, TanStack Query, and component tests
   on Vitest against responses typed by the schema.
+- `neorc-ui`: a run's page draws every step of its flow's definition with
+  what the run did there: tasks with their status and details, loops with
+  their iterations, fan-outs with their branches, and sub-flows linking to
+  their runs; the run's parent and sub-runs; and, while the run is active,
+  a refresh every two seconds, since a task being published, claimed or
+  started records no event. Tested on a recorded
+  `word_picker_rounds` run, written by `scripts/record_ui_fixture.py`.
 
 ### Changed
 
