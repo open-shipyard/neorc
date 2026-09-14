@@ -13,9 +13,9 @@ There is no authentication yet: anyone who reaches the UI or the API can do
 everything they allow. That is accepted for development and testing.
 Authentication gets its own plan, and no release is tagged before it lands.
 
-Follows [postgres-http-implementation-plan.md](postgres-http-implementation-plan.md),
-which put the manager on FastAPI and Postgres and gave the flow classes their
-final names, and
+Builds on the manager as it is since the flows moved onto FastAPI and Postgres
+(CHANGELOG, and [decisions-from-past-plans.md](decisions-from-past-plans.md)
+for what those plans decided), and follows
 [contributing/in-memory-first.md](../../contributing/in-memory-first.md): the
 queries the UI needs are added in core and tested in memory; the manager's
 routes only translate. Each step is roughly under 1000 lines including tests,
@@ -47,7 +47,7 @@ which never serve a page, do not carry them, and so that `neorc-core` and
 The UI talks to the manager's existing API: `POST /flows`, `GET /flows/{name}`,
 `GET /flows/{name}/versions/{version}`, `POST /flows/{name}/runs`,
 `GET /runs/{id}`, `POST /runs/{id}/cancel`, `GET /runs/{id}/state` and the
-long-polled `GET /events` are there since the previous plan, on `Manager`, with
+long-polled `GET /events` are there already, on `Manager`, with
 bodies in the `neorc_core._wire` forms and errors as
 `{"error": "<exception class>", "detail": "...", "problems": [...]}`. What it
 still lacks is everything that lists: flows, versions, runs, a run's tasks and
@@ -91,7 +91,7 @@ shows. Nothing lists.
   ordered.
 - `PostgresStore` implements the port too, so the new methods come with the
   contract's Postgres run marking them strict `xfail` until step 2, as the
-  previous plan did for its steps 2 and 3.
+  Postgres store's own steps did while it was incomplete.
 - `Manager` exposes them unchanged, next to `get_run` and `run_state`.
 - The `_wire` forms of `Run` and `Task` carry the timestamps, so the HTTP
   clients and the routes see them.
@@ -100,14 +100,14 @@ shows. Nothing lists.
 
 - `neorc/postgres/_schema.py`: the timestamp columns on `neorc_runs` and
   `neorc_flow_tasks`, `timestamptz`. `create_schema` adds them with
-  `ADD COLUMN IF NOT EXISTS` as well, since databases created by the previous
-  plan exist and no release is out to migrate.
+  `ADD COLUMN IF NOT EXISTS` as well, since databases created before this
+  step exist and no release is out to migrate.
 - Indexes for listing runs by flow, status and time: on `neorc_runs`
   `(created_at, id)` for the page cursor, and `(flow, created_at)`; the existing
   partial index on active runs serves the status filter.
 - `PostgresStore` implements the four queries; `list_runs` pages by
   `(created_at, id)`, not by offset. The `xfail` marks from step 1 go.
-- Nothing here takes a lock outside the previous plan's order: reads only.
+- Nothing here takes a lock outside the store's documented order: reads only.
 
 ### 3. The manager routes the UI needs
 
@@ -263,8 +263,8 @@ pipeline.
 
 ### 10. The manager serves the UI
 
-No longer blocked: the manager serves flows on Postgres since the previous
-plan, and the Postgres store passes the new queries after step 2.
+No longer blocked: the manager serves flows on Postgres, and the Postgres
+store passes the new queries after step 2.
 
 - `neorc manager start` mounts the UI on the manager app by default; `--no-ui`
   leaves it out and keeps the API. `mount_ui` runs after the routes, so `/`
