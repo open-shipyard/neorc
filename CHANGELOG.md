@@ -112,6 +112,16 @@ one version, cut from a single tag on `main`.
   transport could carry replaced. In core, a value nests at most 100 levels,
   half of what JSON text may, so it fits in whatever it travels in; and a
   queue name is letters, digits, `_` and `-`, as it travels in a URL path.
+- `neorc.manager`: `build_app` assembles `FlowManager` on `PostgresStore`
+  next to the task API's manager and serves both route sets, with two
+  notification channels, `neorc_task_ready` for workers and
+  `neorc_event_ready` for the scheduler, so a task or event recorded through
+  one manager process wakes a waiter on another. `--create-schema` creates
+  the flow tables too. An announcement is a hint, so a request never waits
+  for one: `PostgresTaskNotifier` sends them from a background task, one per
+  batch, on a connection it reopens when it breaks; the listening connection
+  is reopened too, and both are kept alive by the kernel so a link dropped
+  without a word is found dead within a bound.
 - `neorc-core`: a string holding NUL, in a value or anywhere in a flow
   definition, is refused in core before any store sees it, because Postgres
   `text` cannot hold it and the in-memory store must refuse what the deployed
