@@ -19,16 +19,15 @@ from neorc_core._errors import (
     TaskNotFoundError,
     TaskStateError,
 )
-from neorc_core._flow_manager import FlowManager
-from neorc_core._flow_worker import FlowWorker, HandlerError
+from neorc_core._manager import Manager
 from neorc_core._runs import (
     Event,
     EventKind,
-    FlowTask,
     Run,
     RunId,
     RunStatus,
     StoredFlow,
+    Task,
     TaskDelivery,
 )
 from neorc_core._scheduler import Scheduler
@@ -39,9 +38,10 @@ from neorc_core._task import (
     TaskStatus,
     ensure_transition,
 )
+from neorc_core._worker import HandlerError, Worker
 from neorc_core.ports import (
-    FlowQueueClient,
     ManagerClient,
+    QueueClient,
     Store,
     Subscription,
     TaskNotifier,
@@ -58,18 +58,16 @@ __all__ = [
     "Event",
     "EventKind",
     "FlowDefinitionError",
-    "FlowManager",
     "FlowNotFoundError",
-    "FlowQueueClient",
-    "FlowTask",
     "FlowVersionError",
-    "FlowWorker",
     "HandlerError",
     "InvalidValueError",
+    "Manager",
     "ManagerClient",
     "ManagerUnavailableError",
     "NeorcError",
     "PayloadTooLargeError",
+    "QueueClient",
     "ResolutionError",
     "Run",
     "RunId",
@@ -80,12 +78,14 @@ __all__ = [
     "Store",
     "StoredFlow",
     "Subscription",
+    "Task",
     "TaskDelivery",
     "TaskId",
     "TaskNotFoundError",
     "TaskNotifier",
     "TaskStateError",
     "TaskStatus",
+    "Worker",
     "__version__",
     "ensure_transition",
 ]

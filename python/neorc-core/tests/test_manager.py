@@ -9,10 +9,10 @@ import pytest
 
 from neorc_core import (
     FlowDefinitionError,
-    FlowManager,
     FlowNotFoundError,
     FlowVersionError,
     InvalidValueError,
+    Manager,
     RunStateError,
     RunStatus,
     Store,
@@ -57,8 +57,8 @@ def store() -> MemoryStore:
 
 
 @pytest.fixture
-def flows(store: MemoryStore) -> FlowManager:
-    return FlowManager(store, tasks=MemoryTaskNotifier(), events=MemoryTaskNotifier())
+def flows(store: MemoryStore) -> Manager:
+    return Manager(store, tasks=MemoryTaskNotifier(), events=MemoryTaskNotifier())
 
 
 NOW: JsonValue = {"$datetime": "2026-09-13T10:00:00+00:00"}
@@ -73,9 +73,7 @@ ROUNDS_INPUTS: dict[str, JsonValue] = {
 # Uploads.
 
 
-async def test_flows_deployed_together_are_stored(
-    flows: FlowManager, store: Store
-) -> None:
+async def test_flows_deployed_together_are_stored(flows: Manager, store: Store) -> None:
     assert await flows.upload_flows(wordplay()) == [True, True]
 
     latest = await store.latest_flows()
@@ -84,14 +82,14 @@ async def test_flows_deployed_together_are_stored(
 
 
 async def test_uploading_the_same_flows_again_changes_nothing(
-    flows: FlowManager,
+    flows: Manager,
 ) -> None:
     await flows.upload_flows(wordplay())
 
     assert await flows.upload_flows(wordplay()) == [False, False]
 
 
-async def test_a_sub_flow_may_already_be_stored(flows: FlowManager) -> None:
+async def test_a_sub_flow_may_already_be_stored(flows: Manager) -> None:
     picker, rounds = wordplay()
     await flows.upload_flows([picker])
 
@@ -99,7 +97,7 @@ async def test_a_sub_flow_may_already_be_stored(flows: FlowManager) -> None:
 
 
 async def test_a_call_to_a_flow_nobody_uploaded_is_rejected(
-    flows: FlowManager, store: Store
+    flows: Manager, store: Store
 ) -> None:
     _, rounds = wordplay()
 
@@ -110,7 +108,7 @@ async def test_a_call_to_a_flow_nobody_uploaded_is_rejected(
 
 
 async def test_a_call_must_match_the_stored_flows_inputs(
-    flows: FlowManager,
+    flows: Manager,
 ) -> None:
     await flows.upload_flows([single("b", inputs={"x": "string"})])
     await flows.upload_flows([single("b", "2.0.0", inputs={"y": "string"})])
@@ -124,7 +122,7 @@ async def test_a_call_must_match_the_stored_flows_inputs(
 
 
 async def test_every_invalid_flow_is_reported_and_nothing_is_stored(
-    flows: FlowManager, store: Store
+    flows: Manager, store: Store
 ) -> None:
     bad = single(steps={"work": {"handler": "tasks:work", "params": {"x": "nope"}}})
 
@@ -136,7 +134,7 @@ async def test_every_invalid_flow_is_reported_and_nothing_is_stored(
     assert await store.latest_flows() == []
 
 
-async def test_the_version_rules_apply_to_uploads(flows: FlowManager) -> None:
+async def test_the_version_rules_apply_to_uploads(flows: Manager) -> None:
     await flows.upload_flows([single(version="1.1.0")])
 
     with pytest.raises(FlowVersionError):
@@ -150,7 +148,7 @@ async def test_the_version_rules_apply_to_uploads(flows: FlowManager) -> None:
 # Runs.
 
 
-async def test_a_run_starts_on_the_latest_version(flows: FlowManager) -> None:
+async def test_a_run_starts_on_the_latest_version(flows: Manager) -> None:
     await flows.upload_flows([single(version="1.0.0")])
     await flows.upload_flows([single(version="1.2.0")])
 
@@ -161,13 +159,13 @@ async def test_a_run_starts_on_the_latest_version(flows: FlowManager) -> None:
     assert await flows.get_run(run.id) == run
 
 
-async def test_a_run_of_an_unknown_flow_is_refused(flows: FlowManager) -> None:
+async def test_a_run_of_an_unknown_flow_is_refused(flows: Manager) -> None:
     with pytest.raises(FlowNotFoundError):
         await flows.start_run("nothing", {})
 
 
 async def test_inputs_of_their_declared_types_start_a_run(
-    flows: FlowManager,
+    flows: Manager,
 ) -> None:
     await flows.upload_flows(wordplay())
 
@@ -205,7 +203,7 @@ async def test_inputs_of_their_declared_types_start_a_run(
     ],
 )
 async def test_inputs_are_checked_against_their_declared_types(
-    flows: FlowManager, inputs: dict[str, JsonValue], problem: str
+    flows: Manager, inputs: dict[str, JsonValue], problem: str
 ) -> None:
     typed = single(
         inputs={"s": "string", "n": "number", "b": "boolean", "d": "datetime"}
@@ -217,7 +215,7 @@ async def test_inputs_are_checked_against_their_declared_types(
 
 
 async def test_cancelling_by_hand_cancels_the_whole_tree(
-    flows: FlowManager, store: Store
+    flows: Manager, store: Store
 ) -> None:
     await flows.upload_flows(wordplay())
     root = await flows.start_run("word_picker_rounds", ROUNDS_INPUTS)
@@ -238,7 +236,7 @@ async def test_cancelling_by_hand_cancels_the_whole_tree(
 
 
 async def test_failing_a_run_fails_its_tree_and_is_harmless_once_over(
-    flows: FlowManager,
+    flows: Manager,
 ) -> None:
     await flows.upload_flows([single()])
     run = await flows.start_run("a", {})
@@ -252,7 +250,7 @@ async def test_failing_a_run_fails_its_tree_and_is_harmless_once_over(
 
 
 async def test_a_run_succeeds_with_the_value_of_its_output(
-    flows: FlowManager, store: Store
+    flows: Manager, store: Store
 ) -> None:
     await flows.upload_flows([single(output="tasks.work")])
     run = await flows.start_run("a", {})
@@ -274,7 +272,7 @@ async def test_a_run_succeeds_with_the_value_of_its_output(
     assert succeeded.output == {"words": ["red"]}
 
 
-async def test_a_run_without_output_succeeds_with_none(flows: FlowManager) -> None:
+async def test_a_run_without_output_succeeds_with_none(flows: Manager) -> None:
     await flows.upload_flows([single()])
     run = await flows.start_run("a", {})
 
@@ -284,7 +282,7 @@ async def test_a_run_without_output_succeeds_with_none(flows: FlowManager) -> No
 
 
 async def test_a_run_cannot_succeed_before_its_output_exists(
-    flows: FlowManager,
+    flows: Manager,
 ) -> None:
     await flows.upload_flows([single(output="tasks.work")])
     run = await flows.start_run("a", {})

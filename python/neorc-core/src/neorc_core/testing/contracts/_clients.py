@@ -1,7 +1,7 @@
 # Copyright 2026 The neorc Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""What every ``ManagerClient`` and ``FlowQueueClient`` must do."""
+"""What every ``ManagerClient`` and ``QueueClient`` must do."""
 
 from __future__ import annotations
 
@@ -24,9 +24,9 @@ from neorc_core._errors import (
     TaskNotFoundError,
     TaskStateError,
 )
-from neorc_core._flow_worker import FlowWorker
 from neorc_core._runs import EventKind, RunStatus, TaskDelivery
 from neorc_core._values import MAX_PAYLOAD_BYTES, MAX_VALUE_DEPTH, JsonValue
+from neorc_core._worker import Worker
 from neorc_core.flows import (
     Address,
     Outcome,
@@ -35,10 +35,10 @@ from neorc_core.flows import (
     Version,
     parse_flow,
 )
-from neorc_core.ports._flow_clients import (
+from neorc_core.ports._clients import (
     MAX_LEASE_SECONDS,
-    FlowQueueClient,
     ManagerClient,
+    QueueClient,
 )
 
 WHEN: JsonValue = {"$datetime": "2026-09-13T10:00:00+00:00"}
@@ -92,7 +92,7 @@ class _Clients:
         raise NotImplementedError("the subclass provides `manager_client`")
 
     @pytest.fixture
-    def queue_client(self) -> FlowQueueClient:
+    def queue_client(self) -> QueueClient:
         raise NotImplementedError("the subclass provides `queue_client`")
 
     async def started(self, manager_client: ManagerClient) -> uuid.UUID:
@@ -101,7 +101,7 @@ class _Clients:
         return run.id
 
     async def take(
-        self, queue_client: FlowQueueClient, queue: str = "default"
+        self, queue_client: QueueClient, queue: str = "default"
     ) -> TaskDelivery:
         delivery = await queue_client.pick_next_task(queue, timeout=1)
         assert delivery is not None
@@ -197,7 +197,7 @@ class ManagerClientContract(_Clients):
         assert await manager_client.wait_for_events(event.sequence, timeout=0.05) == []
 
     async def test_a_run_is_driven_to_its_end(
-        self, manager_client: ManagerClient, queue_client: FlowQueueClient
+        self, manager_client: ManagerClient, queue_client: QueueClient
     ) -> None:
         run_id = await self.started(manager_client)
 
@@ -252,7 +252,7 @@ class ManagerClientContract(_Clients):
             await manager_client.publish_task(run.id, WORK)
 
     async def test_a_fan_out_over_something_not_a_list_cannot_publish(
-        self, manager_client: ManagerClient, queue_client: FlowQueueClient
+        self, manager_client: ManagerClient, queue_client: QueueClient
     ) -> None:
         """The scheduler fails the run on ``ResolutionError``, so it must cross."""
         fanned: JsonValue = {
@@ -295,11 +295,11 @@ class ManagerClientContract(_Clients):
             await manager_client.publish_task(failed, WORK)
 
 
-class FlowQueueClientContract(_Clients):
+class QueueClientContract(_Clients):
     """Subclass and provide ``manager_client`` and ``queue_client`` on one manager."""
 
     async def test_a_queues_task_definitions_are_listed(
-        self, manager_client: ManagerClient, queue_client: FlowQueueClient
+        self, manager_client: ManagerClient, queue_client: QueueClient
     ) -> None:
         await manager_client.upload_flows([MAIN, ECHO])
 
@@ -327,7 +327,7 @@ class FlowQueueClientContract(_Clients):
                 await queue_client.pick_next_task(queue, timeout=0)
 
     async def test_a_delivery_carries_the_filled_in_inputs(
-        self, manager_client: ManagerClient, queue_client: FlowQueueClient
+        self, manager_client: ManagerClient, queue_client: QueueClient
     ) -> None:
         run_id = await self.started(manager_client)
         await manager_client.publish_task(run_id, WORK)
@@ -342,7 +342,7 @@ class FlowQueueClientContract(_Clients):
         assert await queue_client.pick_next_task("default", timeout=0) is None
 
     async def test_a_waiting_worker_gets_the_task_when_it_is_published(
-        self, manager_client: ManagerClient, queue_client: FlowQueueClient
+        self, manager_client: ManagerClient, queue_client: QueueClient
     ) -> None:
         run_id = await self.started(manager_client)
 
@@ -360,7 +360,7 @@ class FlowQueueClientContract(_Clients):
         assert loop.time() - begun < 2
 
     async def test_a_task_is_started_heartbeated_and_finished(
-        self, manager_client: ManagerClient, queue_client: FlowQueueClient
+        self, manager_client: ManagerClient, queue_client: QueueClient
     ) -> None:
         run_id = await self.started(manager_client)
         await manager_client.publish_task(run_id, WORK)
@@ -384,7 +384,7 @@ class FlowQueueClientContract(_Clients):
     async def test_a_lease_no_store_could_grant_is_refused(
         self,
         manager_client: ManagerClient,
-        queue_client: FlowQueueClient,
+        queue_client: QueueClient,
         lease_seconds: float,
     ) -> None:
         run_id = await self.started(manager_client)
@@ -403,7 +403,7 @@ class FlowQueueClientContract(_Clients):
             )
 
     async def test_a_failure_is_reported(
-        self, manager_client: ManagerClient, queue_client: FlowQueueClient
+        self, manager_client: ManagerClient, queue_client: QueueClient
     ) -> None:
         run_id = await self.started(manager_client)
         await manager_client.publish_task(run_id, WORK)
@@ -415,7 +415,7 @@ class FlowQueueClientContract(_Clients):
         assert state.steps[WORK].outcome is Outcome.FAILED
 
     async def test_a_result_json_cannot_carry_is_refused(
-        self, manager_client: ManagerClient, queue_client: FlowQueueClient
+        self, manager_client: ManagerClient, queue_client: QueueClient
     ) -> None:
         run_id = await self.started(manager_client)
         await manager_client.publish_task(run_id, WORK)
@@ -435,7 +435,7 @@ class FlowQueueClientContract(_Clients):
     async def test_a_result_that_cannot_travel_is_refused(
         self,
         manager_client: ManagerClient,
-        queue_client: FlowQueueClient,
+        queue_client: QueueClient,
         result: JsonValue,
     ) -> None:
         run_id = await self.started(manager_client)
@@ -446,7 +446,7 @@ class FlowQueueClientContract(_Clients):
             await queue_client.report_finished(delivery.task.id, result=result)
 
     async def test_a_result_holding_nul_fails_the_task(
-        self, manager_client: ManagerClient, queue_client: FlowQueueClient
+        self, manager_client: ManagerClient, queue_client: QueueClient
     ) -> None:
         """JSON carries NUL, so it reaches the manager, where no store may take it."""
         run_id = await self.started(manager_client)
@@ -459,7 +459,7 @@ class FlowQueueClientContract(_Clients):
         assert state.steps[WORK].outcome is Outcome.FAILED
 
     async def test_an_error_holding_nul_is_taken(
-        self, manager_client: ManagerClient, queue_client: FlowQueueClient
+        self, manager_client: ManagerClient, queue_client: QueueClient
     ) -> None:
         """A message is not a value: it is stored, NUL replaced, and fails the task."""
         run_id = await self.started(manager_client)
@@ -472,7 +472,7 @@ class FlowQueueClientContract(_Clients):
         assert state.steps[WORK].outcome is Outcome.FAILED
 
     async def test_a_task_of_a_cancelled_run_is_refused_its_start(
-        self, manager_client: ManagerClient, queue_client: FlowQueueClient
+        self, manager_client: ManagerClient, queue_client: QueueClient
     ) -> None:
         run_id = await self.started(manager_client)
         await manager_client.publish_task(run_id, WORK)
@@ -483,7 +483,7 @@ class FlowQueueClientContract(_Clients):
             await queue_client.report_started(delivery.task.id)
 
     async def test_a_lapsed_lease_hands_the_task_on(
-        self, manager_client: ManagerClient, queue_client: FlowQueueClient
+        self, manager_client: ManagerClient, queue_client: QueueClient
     ) -> None:
         run_id = await self.started(manager_client)
         await manager_client.publish_task(run_id, WORK)
@@ -501,7 +501,7 @@ class FlowQueueClientContract(_Clients):
     async def test_a_workers_over_limit_result_fails_its_task_once(
         self,
         manager_client: ManagerClient,
-        queue_client: FlowQueueClient,
+        queue_client: QueueClient,
         tmp_path: Path,
     ) -> None:
         """The worker fails it before reporting: a transport might refuse the
@@ -518,7 +518,7 @@ class FlowQueueClientContract(_Clients):
         await manager_client.upload_flows([content])
         run = await manager_client.start_run("big", {})
         await manager_client.publish_task(run.id, WORK)
-        worker = FlowWorker(queue_client, code_location=tmp_path, poll_timeout=1)
+        worker = Worker(queue_client, code_location=tmp_path, poll_timeout=1)
 
         delivery = await worker.run_once()
 
@@ -530,7 +530,7 @@ class FlowQueueClientContract(_Clients):
     async def test_a_result_at_the_depth_limit_can_be_read_by_the_next_task(
         self,
         manager_client: ManagerClient,
-        queue_client: FlowQueueClient,
+        queue_client: QueueClient,
         tmp_path: Path,
     ) -> None:
         """What a worker was allowed to return, the next worker can be given."""
@@ -554,7 +554,7 @@ class FlowQueueClientContract(_Clients):
         }
         await manager_client.upload_flows([content])
         run = await manager_client.start_run("deep", {})
-        worker = FlowWorker(queue_client, code_location=tmp_path, poll_timeout=1)
+        worker = Worker(queue_client, code_location=tmp_path, poll_timeout=1)
 
         await manager_client.publish_task(run.id, Address("a"))
         assert await worker.run_once() is not None
@@ -566,7 +566,7 @@ class FlowQueueClientContract(_Clients):
         assert state.steps[Address("b")] == StepResult(Outcome.SUCCEEDED, 1)
 
     async def test_an_unknown_task_is_reported_as_missing(
-        self, queue_client: FlowQueueClient
+        self, queue_client: QueueClient
     ) -> None:
         with pytest.raises(TaskNotFoundError):
             await queue_client.report_started(uuid.uuid4())

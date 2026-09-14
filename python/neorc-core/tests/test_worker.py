@@ -11,18 +11,18 @@ from textwrap import dedent
 import pytest
 
 from neorc_core import (
-    FlowManager,
-    FlowWorker,
     HandlerError,
+    Manager,
     RunStatus,
     TaskStatus,
+    Worker,
 )
-from neorc_core._flow_worker import MAX_ERROR_LENGTH
 from neorc_core._runs import task_id_for
 from neorc_core._values import MAX_PAYLOAD_BYTES, MAX_VALUE_DEPTH, JsonValue
+from neorc_core._worker import MAX_ERROR_LENGTH
 from neorc_core.flows import Address, Outcome
 from neorc_core.local import (
-    DirectFlowQueueClient,
+    DirectQueueClient,
     MemoryStore,
     MemoryTaskNotifier,
 )
@@ -31,8 +31,8 @@ WHEN: JsonValue = {"$datetime": "2026-09-13T10:00:00+00:00"}
 
 
 @pytest.fixture
-def flows() -> FlowManager:
-    return FlowManager(
+def flows() -> Manager:
+    return Manager(
         MemoryStore(), tasks=MemoryTaskNotifier(), events=MemoryTaskNotifier()
     )
 
@@ -55,7 +55,7 @@ def flow(task: JsonValue, **inputs: str) -> JsonValue:
 
 
 async def published(
-    flows: FlowManager, content: JsonValue, inputs: dict[str, JsonValue]
+    flows: Manager, content: JsonValue, inputs: dict[str, JsonValue]
 ) -> uuid.UUID:
     await flows.upload_flows([content])
     run = await flows.start_run("f", inputs)
@@ -63,9 +63,9 @@ async def published(
     return run.id
 
 
-def worker(flows: FlowManager, tmp_path: Path, **kwargs: float) -> FlowWorker:
-    return FlowWorker(
-        DirectFlowQueueClient(flows),
+def worker(flows: Manager, tmp_path: Path, **kwargs: float) -> Worker:
+    return Worker(
+        DirectQueueClient(flows),
         code_location=tmp_path,
         poll_timeout=kwargs.get("poll_timeout", 0.1),
         lease_seconds=kwargs.get("lease_seconds", 5),
@@ -73,7 +73,7 @@ def worker(flows: FlowManager, tmp_path: Path, **kwargs: float) -> FlowWorker:
 
 
 async def test_a_handler_runs_with_its_inputs_and_its_result_is_recorded(
-    flows: FlowManager, tmp_path: Path
+    flows: Manager, tmp_path: Path
 ) -> None:
     module = handlers(
         tmp_path,
@@ -111,7 +111,7 @@ async def test_a_handler_runs_with_its_inputs_and_its_result_is_recorded(
     }
 
 
-async def test_an_async_handler_is_awaited(flows: FlowManager, tmp_path: Path) -> None:
+async def test_an_async_handler_is_awaited(flows: Manager, tmp_path: Path) -> None:
     module = handlers(
         tmp_path,
         """
@@ -132,7 +132,7 @@ async def test_an_async_handler_is_awaited(flows: FlowManager, tmp_path: Path) -
 
 
 async def test_a_raising_handler_fails_its_task_with_the_reason(
-    flows: FlowManager, tmp_path: Path
+    flows: Manager, tmp_path: Path
 ) -> None:
     module = handlers(
         tmp_path,
@@ -152,7 +152,7 @@ async def test_a_raising_handler_fails_its_task_with_the_reason(
 
 
 async def test_a_result_that_is_not_a_value_fails_its_task(
-    flows: FlowManager, tmp_path: Path
+    flows: Manager, tmp_path: Path
 ) -> None:
     module = handlers(
         tmp_path,
@@ -173,7 +173,7 @@ async def test_a_result_that_is_not_a_value_fails_its_task(
 
 @pytest.mark.parametrize("what", ["deep", "big", "surrogate", "long"])
 async def test_what_no_report_could_carry_fails_its_task_once(
-    flows: FlowManager, tmp_path: Path, what: str
+    flows: Manager, tmp_path: Path, what: str
 ) -> None:
     """A transport would refuse the report on every lease; the worker fails it."""
     module = handlers(
@@ -209,7 +209,7 @@ async def test_what_no_report_could_carry_fails_its_task_once(
 
 
 async def test_a_task_whose_run_was_cancelled_is_dropped_unrun(
-    flows: FlowManager, tmp_path: Path
+    flows: Manager, tmp_path: Path
 ) -> None:
     marker = tmp_path / "ran"
     module = handlers(
@@ -222,7 +222,7 @@ async def test_a_task_whose_run_was_cancelled_is_dropped_unrun(
         """,
     )
     run_id = await published(flows, flow({"handler": f"{module}:work"}), {})
-    client = DirectFlowQueueClient(flows)
+    client = DirectQueueClient(flows)
     delivery = await client.pick_next_task("default", timeout=0)
     assert delivery is not None
     await flows.cancel_run(run_id)
@@ -236,7 +236,7 @@ async def test_a_task_whose_run_was_cancelled_is_dropped_unrun(
 
 
 async def test_startup_reports_every_handler_that_does_not_fit(
-    flows: FlowManager, tmp_path: Path
+    flows: Manager, tmp_path: Path
 ) -> None:
     module = handlers(
         tmp_path,
@@ -286,7 +286,7 @@ async def test_startup_reports_every_handler_that_does_not_fit(
 
 
 async def test_a_long_task_keeps_its_lease_by_heartbeating(
-    flows: FlowManager, tmp_path: Path
+    flows: Manager, tmp_path: Path
 ) -> None:
     module = handlers(
         tmp_path,
@@ -300,7 +300,7 @@ async def test_a_long_task_keeps_its_lease_by_heartbeating(
     )
     run_id = await published(flows, flow({"handler": f"{module}:work"}), {})
     running = worker(flows, tmp_path, lease_seconds=0.15)
-    other = DirectFlowQueueClient(flows)
+    other = DirectQueueClient(flows)
     stolen: list[object] = []
 
     async def try_to_steal() -> None:
@@ -317,7 +317,7 @@ async def test_a_long_task_keeps_its_lease_by_heartbeating(
 
 
 async def test_stopping_an_idle_worker_cuts_its_poll_short(
-    flows: FlowManager, tmp_path: Path
+    flows: Manager, tmp_path: Path
 ) -> None:
     running = worker(flows, tmp_path, poll_timeout=30)
     task = asyncio.create_task(running.run())
@@ -332,7 +332,7 @@ async def test_stopping_an_idle_worker_cuts_its_poll_short(
 
 
 async def test_a_stop_before_the_worker_runs_is_kept(
-    flows: FlowManager, tmp_path: Path
+    flows: Manager, tmp_path: Path
 ) -> None:
     running = worker(flows, tmp_path, poll_timeout=30)
     task = asyncio.create_task(running.run())
@@ -351,7 +351,7 @@ async def test_a_stop_before_the_worker_runs_is_kept(
     ids=["system-exit", "circular-result", "huge-int"],
 )
 async def test_a_handler_cannot_take_the_worker_down(
-    flows: FlowManager, tmp_path: Path, body: str, error: str
+    flows: Manager, tmp_path: Path, body: str, error: str
 ) -> None:
     module = handlers(tmp_path, f"def work():\n    {body}\n")
     run_id = await published(flows, flow({"handler": f"{module}:work"}), {})
@@ -364,7 +364,7 @@ async def test_a_handler_cannot_take_the_worker_down(
 
 
 async def test_a_module_that_fails_to_import_is_reported_with_the_rest(
-    flows: FlowManager, tmp_path: Path
+    flows: Manager, tmp_path: Path
 ) -> None:
     broken = handlers(tmp_path, "def work(:\n")
     failing = handlers(tmp_path, "raise RuntimeError('no config')\n")

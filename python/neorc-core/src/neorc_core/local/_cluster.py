@@ -13,16 +13,16 @@ from pathlib import Path
 from types import TracebackType
 
 from neorc_core._errors import RunStateError
-from neorc_core._flow_manager import FlowManager
-from neorc_core._flow_worker import FlowWorker
+from neorc_core._manager import Manager
 from neorc_core._runs import Run, RunId, RunStatus
 from neorc_core._scheduler import Scheduler
 from neorc_core._values import JsonValue
+from neorc_core._worker import Worker
 from neorc_core.flows import read_flows
-from neorc_core.local._direct_clients import DirectFlowQueueClient, DirectManagerClient
+from neorc_core.local._direct_clients import DirectManagerClient, DirectQueueClient
 from neorc_core.local._memory_store import MemoryStore
 from neorc_core.local._notifier import MemoryTaskNotifier
-from neorc_core.ports._flow_clients import DEFAULT_LEASE_SECONDS
+from neorc_core.ports._clients import DEFAULT_LEASE_SECONDS
 
 _log = logging.getLogger(__name__)
 
@@ -49,7 +49,7 @@ class LocalCluster:
         lease_seconds: float = DEFAULT_LEASE_SECONDS,
         poll_timeout: float = DEFAULT_POLL_TIMEOUT,
     ) -> None:
-        self.manager = FlowManager(
+        self.manager = Manager(
             MemoryStore(), tasks=MemoryTaskNotifier(), events=MemoryTaskNotifier()
         )
         self.client = DirectManagerClient(self.manager)
@@ -57,7 +57,7 @@ class LocalCluster:
         self._lease_seconds = lease_seconds
         self._poll_timeout = poll_timeout
         self._scheduler: Scheduler | None = None
-        self._workers: dict[str, FlowWorker] = {}
+        self._workers: dict[str, Worker] = {}
         self._running: set[asyncio.Task[None]] = set()
         self._crash: BaseException | None = None
         self._crash_raised = False
@@ -103,8 +103,8 @@ class LocalCluster:
         for queue in queues:
             if queue in self._workers:
                 continue
-            worker = FlowWorker(
-                DirectFlowQueueClient(self.manager),
+            worker = Worker(
+                DirectQueueClient(self.manager),
                 queue=queue,
                 code_location=self._code_location,
                 poll_timeout=self._poll_timeout,

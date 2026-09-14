@@ -14,7 +14,7 @@ from neorc_core import HandlerError, RunStatus, TaskStatus
 from neorc_core._runs import RunId, sub_run_id_for, task_id_for
 from neorc_core._values import MAX_PAYLOAD_BYTES
 from neorc_core.flows import Address
-from neorc_core.local import DirectFlowQueueClient, LocalCluster, run_local
+from neorc_core.local import DirectQueueClient, LocalCluster, run_local
 
 TIMEOUT = 10
 
@@ -213,7 +213,7 @@ async def test_a_lost_workers_task_is_handed_on_when_its_lease_lapses(
         await cluster.start(workers=False)
         run = await cluster.client.start_run("chain", {"word": "red"})
 
-        lost = DirectFlowQueueClient(cluster.manager)
+        lost = DirectQueueClient(cluster.manager)
         taken = None
         async with asyncio.timeout(TIMEOUT):
             while taken is None:

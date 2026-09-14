@@ -10,9 +10,9 @@ import pytest
 
 from neorc_core import (
     EventKind,
-    FlowManager,
     FlowNotFoundError,
     InvalidValueError,
+    Manager,
     PayloadTooLargeError,
     ResolutionError,
     RunStateError,
@@ -65,19 +65,19 @@ FIRST = Address("first")
 
 
 @pytest.fixture
-def flows() -> FlowManager:
-    return FlowManager(
+def flows() -> Manager:
+    return Manager(
         MemoryStore(), tasks=MemoryTaskNotifier(), events=MemoryTaskNotifier()
     )
 
 
-async def started(flows: FlowManager, word: str = "red") -> uuid.UUID:
+async def started(flows: Manager, word: str = "red") -> uuid.UUID:
     await flows.upload_flows([FLOW, CALLED])
     run = await flows.start_run("f", {"word": word})
     return run.id
 
 
-async def finish(flows: FlowManager, queue: str, result: JsonValue) -> uuid.UUID:
+async def finish(flows: Manager, queue: str, result: JsonValue) -> uuid.UUID:
     delivery = await flows.pick_next_task(queue, timeout=0)
     assert delivery is not None
     await flows.report_started(delivery.task.id)
@@ -86,7 +86,7 @@ async def finish(flows: FlowManager, queue: str, result: JsonValue) -> uuid.UUID
 
 
 async def test_a_published_task_takes_its_definition_from_the_flow(
-    flows: FlowManager,
+    flows: Manager,
 ) -> None:
     run_id = await started(flows)
 
@@ -104,7 +104,7 @@ async def test_a_published_task_takes_its_definition_from_the_flow(
 
 
 async def test_a_delivery_fills_in_references_and_metadata(
-    flows: FlowManager,
+    flows: Manager,
 ) -> None:
     run_id = await started(flows)
     await flows.publish_task(run_id, FIRST)
@@ -120,7 +120,7 @@ async def test_a_delivery_fills_in_references_and_metadata(
 
 
 async def test_a_delivery_in_a_fan_out_carries_its_branch(
-    flows: FlowManager,
+    flows: Manager,
 ) -> None:
     run_id = await started(flows)
     await flows.publish_task(run_id, FIRST)
@@ -136,7 +136,7 @@ async def test_a_delivery_in_a_fan_out_carries_its_branch(
 
 
 async def test_publishing_the_same_address_again_changes_nothing(
-    flows: FlowManager,
+    flows: Manager,
 ) -> None:
     run_id = await started(flows)
     first = await flows.publish_task(run_id, FIRST)
@@ -149,7 +149,7 @@ async def test_publishing_the_same_address_again_changes_nothing(
 
 
 async def test_a_task_whose_inputs_are_not_there_yet_is_rejected(
-    flows: FlowManager,
+    flows: Manager,
 ) -> None:
     run_id = await started(flows)
 
@@ -171,7 +171,7 @@ async def test_a_task_whose_inputs_are_not_there_yet_is_rejected(
     ids=str,
 )
 async def test_an_address_that_is_not_a_task_of_the_flow_is_rejected(
-    flows: FlowManager, address: Address
+    flows: Manager, address: Address
 ) -> None:
     run_id = await started(flows)
 
@@ -180,7 +180,7 @@ async def test_an_address_that_is_not_a_task_of_the_flow_is_rejected(
 
 
 async def test_no_task_is_published_into_an_inactive_run(
-    flows: FlowManager,
+    flows: Manager,
 ) -> None:
     run_id = await started(flows)
     await flows.cancel_run(run_id)
@@ -190,7 +190,7 @@ async def test_no_task_is_published_into_an_inactive_run(
 
 
 async def test_a_payload_over_the_limit_is_rejected_at_publish(
-    flows: FlowManager,
+    flows: Manager,
 ) -> None:
     run_id = await started(flows, word="x" * MAX_PAYLOAD_BYTES)
 
@@ -201,7 +201,7 @@ async def test_a_payload_over_the_limit_is_rejected_at_publish(
 
 
 async def test_a_fan_out_over_something_not_a_list_cannot_publish(
-    flows: FlowManager,
+    flows: Manager,
 ) -> None:
     run_id = await started(flows)
     await flows.publish_task(run_id, FIRST)
@@ -211,7 +211,7 @@ async def test_a_fan_out_over_something_not_a_list_cannot_publish(
         await flows.publish_task(run_id, Address("second", (("each", 1),)))
 
 
-async def test_a_waiting_worker_is_woken_by_a_publish(flows: FlowManager) -> None:
+async def test_a_waiting_worker_is_woken_by_a_publish(flows: Manager) -> None:
     run_id = await started(flows)
 
     async def publish_shortly() -> None:
@@ -228,7 +228,7 @@ async def test_a_waiting_worker_is_woken_by_a_publish(flows: FlowManager) -> Non
     assert loop.time() - begun < 2
 
 
-async def test_a_worker_on_another_queue_keeps_waiting(flows: FlowManager) -> None:
+async def test_a_worker_on_another_queue_keeps_waiting(flows: Manager) -> None:
     run_id = await started(flows)
     await flows.publish_task(run_id, FIRST)
 
@@ -236,7 +236,7 @@ async def test_a_worker_on_another_queue_keeps_waiting(flows: FlowManager) -> No
 
 
 async def test_a_task_of_an_inactive_run_is_refused_its_start(
-    flows: FlowManager,
+    flows: Manager,
 ) -> None:
     run_id = await started(flows)
     await flows.publish_task(run_id, FIRST)
@@ -249,7 +249,7 @@ async def test_a_task_of_an_inactive_run_is_refused_its_start(
 
 
 async def test_a_result_is_recorded_and_referenced_downstream(
-    flows: FlowManager,
+    flows: Manager,
 ) -> None:
     run_id = await started(flows)
     await flows.publish_task(run_id, FIRST)
@@ -273,7 +273,7 @@ async def test_a_result_is_recorded_and_referenced_downstream(
     ids=["reserved-key", "bad-datetime", "too-large"],
 )
 async def test_an_invalid_result_fails_the_task(
-    flows: FlowManager, result: JsonValue
+    flows: Manager, result: JsonValue
 ) -> None:
     run_id = await started(flows)
     await flows.publish_task(run_id, FIRST)
@@ -287,7 +287,7 @@ async def test_an_invalid_result_fails_the_task(
 
 
 async def test_a_sub_flow_run_starts_with_its_inputs_resolved(
-    flows: FlowManager,
+    flows: Manager,
 ) -> None:
     run_id = await started(flows)
     call = Address("call")
@@ -301,7 +301,7 @@ async def test_a_sub_flow_run_starts_with_its_inputs_resolved(
     assert sub_run.root_id == run_id
 
 
-async def test_a_sub_flow_run_needs_its_called_flow(flows: FlowManager) -> None:
+async def test_a_sub_flow_run_needs_its_called_flow(flows: Manager) -> None:
     await flows.upload_flows([CALLED])
     caller: JsonValue = {
         "name": "caller",
@@ -321,7 +321,7 @@ async def test_a_sub_flow_run_needs_its_called_flow(flows: FlowManager) -> None:
         await flows.get_flow("nothing")
 
 
-async def test_events_are_waited_for_and_read_in_order(flows: FlowManager) -> None:
+async def test_events_are_waited_for_and_read_in_order(flows: Manager) -> None:
     run_id = await started(flows)
     (started_event,) = await flows.wait_for_events(0, timeout=0)
 
@@ -339,12 +339,12 @@ async def test_events_are_waited_for_and_read_in_order(flows: FlowManager) -> No
 
 
 async def test_waiting_for_events_gives_up_at_the_deadline(
-    flows: FlowManager,
+    flows: Manager,
 ) -> None:
     assert await flows.wait_for_events(0, timeout=0.1) == []
 
 
-async def test_a_run_succeeds_with_its_sub_flows_output(flows: FlowManager) -> None:
+async def test_a_run_succeeds_with_its_sub_flows_output(flows: Manager) -> None:
     run_id = await started(flows)
     sub_run = await flows.start_sub_run(run_id, Address("call"))
     await flows.publish_task(sub_run.id, Address("echo"))
@@ -359,7 +359,7 @@ async def test_a_run_succeeds_with_its_sub_flows_output(flows: FlowManager) -> N
 
 
 async def test_size_is_counted_in_utf_8_bytes_as_the_value_travels(
-    flows: FlowManager,
+    flows: Manager,
 ) -> None:
     """Two bytes a character: well under the limit, though not as escaped ASCII."""
     wide = "é" * (MAX_PAYLOAD_BYTES // 4)
@@ -372,7 +372,7 @@ async def test_size_is_counted_in_utf_8_bytes_as_the_value_travels(
 
 
 async def test_a_version_uploaded_while_a_sub_run_starts_is_used_instead(
-    flows: FlowManager, monkeypatch: pytest.MonkeyPatch
+    flows: Manager, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run_id = await started(flows)
     store = flows._store  # the race needs a hand inside the manager
@@ -395,7 +395,7 @@ async def test_a_version_uploaded_while_a_sub_run_starts_is_used_instead(
 
 
 async def test_a_waiting_worker_that_went_away_is_leased_nothing(
-    flows: FlowManager,
+    flows: Manager,
 ) -> None:
     """A server does not end a handler when its client leaves; the wait asks."""
     run_id = await started(flows)

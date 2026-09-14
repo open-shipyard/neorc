@@ -19,7 +19,7 @@ from pathlib import Path
 from neorc_core._runs import Run, RunId, RunStatus
 from neorc_core._values import JsonValue
 from neorc_core.flows import Address, read_flows
-from neorc_core.ports._flow_clients import ManagerClient
+from neorc_core.ports._clients import ManagerClient
 
 DEFAULT_TIMEOUT = 30.0
 

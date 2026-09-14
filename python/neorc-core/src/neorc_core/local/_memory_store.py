@@ -21,11 +21,11 @@ from neorc_core._errors import (
 from neorc_core._runs import (
     Event,
     EventKind,
-    FlowTask,
     Run,
     RunId,
     RunStatus,
     StoredFlow,
+    Task,
     check_uploads,
     ensure_active,
     run_state_of,
@@ -36,7 +36,7 @@ from neorc_core._runs import (
 from neorc_core._task import LEASED_STATUSES, TaskId, TaskStatus, ensure_transition
 from neorc_core._values import JsonValue
 from neorc_core.flows import Address, Reference, RunState, Version
-from neorc_core.ports._flow_clients import DEFAULT_LEASE_SECONDS
+from neorc_core.ports._clients import DEFAULT_LEASE_SECONDS
 from neorc_core.ports._store import Store
 
 
@@ -50,7 +50,7 @@ class MemoryStore(Store):
         self._lock = asyncio.Lock()
         self._flows: dict[str, dict[Version, StoredFlow]] = {}
         self._runs: dict[RunId, Run] = {}
-        self._tasks: dict[TaskId, FlowTask] = {}
+        self._tasks: dict[TaskId, Task] = {}
         self._events: list[Event] = []
 
     async def store_flows(self, uploads: Sequence[StoredFlow]) -> list[bool]:
@@ -165,14 +165,14 @@ class MemoryStore(Store):
         handler: str,
         params: Mapping[str, Reference],
         fixed_params: Mapping[str, JsonValue],
-    ) -> FlowTask:
+    ) -> Task:
         async with self._lock:
             ensure_active(self._run(run_id))
             task_id = task_id_for(run_id, address)
             existing = self._tasks.get(task_id)
             if existing is not None:
                 return existing
-            task = FlowTask(
+            task = Task(
                 id=task_id,
                 run_id=run_id,
                 address=address,
@@ -186,7 +186,7 @@ class MemoryStore(Store):
 
     async def claim_task(
         self, queue: str, *, lease_seconds: float = DEFAULT_LEASE_SECONDS
-    ) -> FlowTask | None:
+    ) -> Task | None:
         now = datetime.now(UTC)
         async with self._lock:
             for task in self._tasks.values():  # in publishing order: oldest first
@@ -201,7 +201,7 @@ class MemoryStore(Store):
                     return claimed
             return None
 
-    async def start_task(self, task_id: TaskId) -> FlowTask:
+    async def start_task(self, task_id: TaskId) -> Task:
         async with self._lock:
             task = self._task(task_id)
             ensure_transition(task.status, TaskStatus.RUNNING)
@@ -233,7 +233,7 @@ class MemoryStore(Store):
 
     async def finish_task(
         self, task_id: TaskId, *, result: JsonValue = None, error: str | None = None
-    ) -> FlowTask:
+    ) -> Task:
         status = TaskStatus.FAILED if error is not None else TaskStatus.SUCCEEDED
         async with self._lock:
             task = self._task(task_id)
@@ -249,7 +249,7 @@ class MemoryStore(Store):
             self._append(task.run_id, EventKind.TASK_FINISHED)
             return finished
 
-    async def get_task(self, task_id: TaskId) -> FlowTask:
+    async def get_task(self, task_id: TaskId) -> Task:
         async with self._lock:
             return self._task(task_id)
 
@@ -273,7 +273,7 @@ class MemoryStore(Store):
             raise RunNotFoundError(str(run_id))
         return run
 
-    def _task(self, task_id: TaskId) -> FlowTask:
+    def _task(self, task_id: TaskId) -> Task:
         task = self._tasks.get(task_id)
         if task is None:
             raise TaskNotFoundError(str(task_id))
@@ -290,7 +290,7 @@ class MemoryStore(Store):
                 self._append(run.id, EventKind.RUN_FINISHED)
 
 
-def _is_claimable(task: FlowTask, now: datetime) -> bool:
+def _is_claimable(task: Task, now: datetime) -> bool:
     if task.status is TaskStatus.PENDING:
         return True
     return (

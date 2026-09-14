@@ -15,7 +15,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from neorc_core import _values, _wire
-from neorc_core._runs import Event, EventKind, FlowTask, Run, RunStatus, StoredFlow
+from neorc_core._runs import Event, EventKind, Run, RunStatus, StoredFlow, Task
 from neorc_core._runs import canonical_content as _canonical_content
 from neorc_core._task import TaskStatus
 from neorc_core._values import JsonValue
@@ -89,7 +89,7 @@ def run_from_row(row: Row) -> Run:
     )
 
 
-def task_to_row(task: FlowTask) -> dict[str, Any]:
+def task_to_row(task: Task) -> dict[str, Any]:
     return {
         "id": task.id,
         "run_id": task.run_id,
@@ -108,8 +108,8 @@ def task_to_row(task: FlowTask) -> dict[str, Any]:
     }
 
 
-def task_from_row(row: Row) -> FlowTask:
-    return FlowTask(
+def task_from_row(row: Row) -> Task:
+    return Task(
         id=row["id"],
         run_id=row["run_id"],
         address=_wire.address_from(json.loads(row["address"])),

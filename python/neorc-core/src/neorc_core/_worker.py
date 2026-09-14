@@ -22,7 +22,7 @@ from neorc_core._handlers import resolve_handler, signature_problems
 from neorc_core._runs import TaskDelivery, storable_text
 from neorc_core._task import TaskId
 from neorc_core.flows import DEFAULT_QUEUE, Namespace, TaskStep
-from neorc_core.ports._flow_clients import DEFAULT_LEASE_SECONDS, FlowQueueClient
+from neorc_core.ports._clients import DEFAULT_LEASE_SECONDS, QueueClient
 
 DEFAULT_POLL_TIMEOUT = 30.0
 
@@ -43,7 +43,7 @@ class HandlerError(NeorcError):
         super().__init__("handlers do not fit their tasks:\n" + "\n".join(problems))
 
 
-class FlowWorker:
+class Worker:
     """Takes tasks from one queue and runs their handlers.
 
     Call ``prepare`` before ``run`` or ``run_once``: it checks every handler on
@@ -52,7 +52,7 @@ class FlowWorker:
 
     def __init__(
         self,
-        client: FlowQueueClient,
+        client: QueueClient,
         *,
         queue: str = DEFAULT_QUEUE,
         code_location: Path | None = None,

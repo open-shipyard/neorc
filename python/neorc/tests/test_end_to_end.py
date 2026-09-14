@@ -20,9 +20,9 @@ from pathlib import Path
 import pytest
 import uvicorn
 
-from neorc.http import HttpFlowQueueClient, HttpManagerClient
+from neorc.http import HttpManagerClient, HttpQueueClient
 from neorc.manager import build_app
-from neorc_core import FlowWorker, Scheduler
+from neorc_core import Scheduler, Worker
 from neorc_core.testing import examples
 
 pytestmark = pytest.mark.postgres
@@ -87,9 +87,9 @@ async def deployed(
             poll_timeout=2,
         )
         workers = [
-            FlowWorker(
+            Worker(
                 await stack.enter_async_context(
-                    HttpFlowQueueClient(manager_address, poll_timeout=2)
+                    HttpQueueClient(manager_address, poll_timeout=2)
                 ),
                 queue=queue,
                 code_location=EXAMPLES / example,

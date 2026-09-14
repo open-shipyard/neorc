@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from neorc_core import FlowManager
+from neorc_core import Manager
 from neorc_core.local import MemoryStore, MemoryTaskNotifier
 
 if TYPE_CHECKING:
@@ -37,9 +37,9 @@ DATABASE_URL_ENV = "NEORC_TEST_DATABASE_URL"
 
 
 @pytest.fixture
-def flows() -> FlowManager:
-    """A flow manager on the memory store, holding nothing."""
-    return FlowManager(
+def manager() -> Manager:
+    """A manager on the memory store, holding nothing."""
+    return Manager(
         MemoryStore(), tasks=MemoryTaskNotifier(), events=MemoryTaskNotifier()
     )
 
@@ -80,7 +80,7 @@ async def pg_schema(database_url: str) -> str:
 
 
 @pytest.fixture
-async def pg_flow_store(pg_schema: str) -> AsyncIterator[PostgresStore]:
+async def pg_store(pg_schema: str) -> AsyncIterator[PostgresStore]:
     """An open store for flows on empty flow tables."""
     from neorc.postgres import PostgresStore
 

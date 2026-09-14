@@ -1,7 +1,7 @@
 # Copyright 2026 The neorc Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""The flow clients that reach a manager over HTTP: one for workers, one for the rest.
+"""The clients that reach a manager over HTTP: one for workers, one for the rest.
 
 Request and response bodies are the ``neorc_core._wire`` forms, the same JSON
 the direct clients send. A body goes through the checks ``transmit`` makes
@@ -23,11 +23,11 @@ import httpx
 from neorc._errors import error_from
 from neorc_core import (
     Event,
-    FlowQueueClient,
     InvalidValueError,
     ManagerClient,
     ManagerUnavailableError,
     NeorcError,
+    QueueClient,
     Run,
     RunId,
     TaskDelivery,
@@ -46,7 +46,7 @@ from neorc_core.flows import (
     is_queue_name,
     parse_flow,
 )
-from neorc_core.ports._flow_clients import DEFAULT_LEASE_SECONDS
+from neorc_core.ports._clients import DEFAULT_LEASE_SECONDS
 
 DEFAULT_POLL_TIMEOUT = 30.0
 
@@ -177,7 +177,7 @@ def _queue_segment(queue: str) -> str:
     return quote(queue, safe="")
 
 
-class HttpFlowQueueClient(_HttpClient, FlowQueueClient):
+class HttpQueueClient(_HttpClient, QueueClient):
     """A worker's client for a manager over HTTP.
 
     ``pick_next_task`` long-polls: the request stays open until a task is ready
@@ -213,7 +213,7 @@ class HttpFlowQueueClient(_HttpClient, FlowQueueClient):
     ) -> datetime:
         response = await self._request(
             "POST",
-            f"/flow-tasks/{task_id}/heartbeat",
+            f"/tasks/{task_id}/heartbeat",
             body={"lease_seconds": lease_seconds},
         )
         return _parsed(
@@ -221,14 +221,14 @@ class HttpFlowQueueClient(_HttpClient, FlowQueueClient):
         )
 
     async def report_started(self, task_id: TaskId) -> None:
-        await self._request("POST", f"/flow-tasks/{task_id}/started")
+        await self._request("POST", f"/tasks/{task_id}/started")
 
     async def report_finished(
         self, task_id: TaskId, *, result: JsonValue = None, error: str | None = None
     ) -> None:
         await self._request(
             "POST",
-            f"/flow-tasks/{task_id}/finished",
+            f"/tasks/{task_id}/finished",
             body={"result": result, "error": error},
         )
 

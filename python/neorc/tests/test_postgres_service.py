@@ -18,7 +18,7 @@ from contextlib import AsyncExitStack
 import httpx
 import pytest
 
-from neorc.http import HttpFlowQueueClient, HttpManagerClient
+from neorc.http import HttpManagerClient, HttpQueueClient
 from neorc.manager import build_app
 from neorc_core._values import JsonValue
 from neorc_core.flows import Address
@@ -35,7 +35,7 @@ FLOW: JsonValue = {
 class _Process:
     """One manager process: its application and clients on an ASGI transport."""
 
-    def __init__(self, manager: HttpManagerClient, queue: HttpFlowQueueClient):
+    def __init__(self, manager: HttpManagerClient, queue: HttpQueueClient):
         self.manager = manager
         self.queue = queue
 
@@ -53,7 +53,7 @@ async def processes(pg_schema: str) -> AsyncIterator[tuple[_Process, _Process]]:
                 HttpManagerClient("manager.test", transport=transport)
             )
             queue = await stack.enter_async_context(
-                HttpFlowQueueClient("manager.test", transport=transport)
+                HttpQueueClient("manager.test", transport=transport)
             )
             built.append(_Process(manager, queue))
         yield built[0], built[1]

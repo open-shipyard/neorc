@@ -13,7 +13,7 @@ import uvicorn
 from fastapi import FastAPI
 
 from neorc.manager._app import DEFAULT_LONG_POLL_TIMEOUT, create_app
-from neorc_core import FlowManager
+from neorc_core import Manager
 
 # A manager serves workers on other hosts, so it binds every interface.
 DEFAULT_HOST = "0.0.0.0"
@@ -62,7 +62,7 @@ def build_app(
             yield
 
     app = create_app(
-        FlowManager(store, tasks=tasks, events=events),
+        Manager(store, tasks=tasks, events=events),
         long_poll_timeout=long_poll_timeout,
     )
     app.router.lifespan_context = lifespan

@@ -1,7 +1,7 @@
 # Copyright 2026 The neorc Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""The flow routes over an ASGI transport, on the memory store.
+"""The routes over an ASGI transport, on the memory store.
 
 Routing, status codes and request validation only: what a flow means is
 settled in core, and the HTTP clients are held to the client contracts.
@@ -19,8 +19,8 @@ import httpx
 import pytest
 
 from neorc.manager import create_app
-from neorc.manager._flow_routes import MAX_BODY_BYTES
-from neorc_core import FlowManager
+from neorc.manager._routes import MAX_BODY_BYTES
+from neorc_core import Manager
 from neorc_core._values import MAX_JSON_DEPTH, JsonValue
 
 MAIN: JsonValue = {
@@ -33,8 +33,8 @@ MAIN: JsonValue = {
 
 
 @pytest.fixture
-async def http(flows: FlowManager) -> AsyncIterator[httpx.AsyncClient]:
-    app = create_app(flows, long_poll_timeout=2)
+async def http(manager: Manager) -> AsyncIterator[httpx.AsyncClient]:
+    app = create_app(manager, long_poll_timeout=2)
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(
         transport=transport, base_url="http://manager.test"
@@ -201,13 +201,9 @@ async def test_a_run_is_driven_to_its_end_over_http(http: httpx.AsyncClient) -> 
     definitions = await http.get("/queues/default/tasks")
     picked = await http.post("/queues/default/tasks/next", params={"timeout": 1})
     task_id = picked.json()["task"]["id"]
-    started = await http.post(f"/flow-tasks/{task_id}/started")
-    beat = await http.post(
-        f"/flow-tasks/{task_id}/heartbeat", json={"lease_seconds": 30}
-    )
-    finished = await http.post(
-        f"/flow-tasks/{task_id}/finished", json={"result": "hi!"}
-    )
+    started = await http.post(f"/tasks/{task_id}/started")
+    beat = await http.post(f"/tasks/{task_id}/heartbeat", json={"lease_seconds": 30})
+    finished = await http.post(f"/tasks/{task_id}/finished", json={"result": "hi!"})
     succeeded = await http.post(
         f"/runs/{run_id}/succeed", json={"output": "tasks.work"}
     )
@@ -265,7 +261,7 @@ async def test_a_start_refused_for_an_inactive_run_is_a_409(
     task_id = picked.json()["task"]["id"]
     await http.post(f"/runs/{run_id}/cancel")
 
-    started = await http.post(f"/flow-tasks/{task_id}/started")
+    started = await http.post(f"/tasks/{task_id}/started")
 
     assert (started.status_code, _error(started)) == (409, "RunStateError")
 
@@ -311,10 +307,10 @@ async def test_scheduler_and_worker_requests_are_validated(
     )
     no_reason = await http.post(f"/runs/{run_id}/fail", json={})
     bad_lease = await http.post(
-        f"/flow-tasks/{task_id}/heartbeat", json={"lease_seconds": 0}
+        f"/tasks/{task_id}/heartbeat", json={"lease_seconds": 0}
     )
     huge_lease = await http.post(
-        f"/flow-tasks/{task_id}/heartbeat",
+        f"/tasks/{task_id}/heartbeat",
         content=b'{"lease_seconds": 1e400}',
         headers={"content-type": "application/json"},
     )
@@ -322,7 +318,7 @@ async def test_scheduler_and_worker_requests_are_validated(
         "/queues/default/tasks/next", params={"timeout": 0, "lease_seconds": "inf"}
     )
     bad_after = await http.get("/events", params={"after": -1})
-    unknown_task = await http.post(f"/flow-tasks/{uuid.uuid4()}/started")
+    unknown_task = await http.post(f"/tasks/{uuid.uuid4()}/started")
 
     for response in (not_an_address, bool_in_scope, not_a_task, not_a_reference):
         assert (response.status_code, _error(response)) == (422, "InvalidValueError")
@@ -344,7 +340,7 @@ async def test_a_result_the_manager_refuses_fails_the_task(
     task_id = picked.json()["task"]["id"]
 
     finished = await http.post(
-        f"/flow-tasks/{task_id}/finished", json={"result": {"$datetime": "no"}}
+        f"/tasks/{task_id}/finished", json={"result": {"$datetime": "no"}}
     )
     state = await http.get(f"/runs/{run_id}/state")
 
