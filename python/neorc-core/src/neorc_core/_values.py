@@ -85,7 +85,11 @@ def dumps_json(value: JsonValue) -> str:
 
 
 def loads(text: str) -> Any:
-    """Parse JSON and decode it into a user value."""
+    """Parse JSON and decode it into a user value.
+
+    Raises ``InvalidValueError`` for what JSON text cannot carry back, ``NaN``
+    and ``Infinity`` included, and for nesting past the depth limit.
+    """
     ensure_json_depth(text)
     return decode(json.loads(text))
 
@@ -167,6 +171,9 @@ def _decode(value: JsonValue, path: str) -> Any:
         return decoded
     if isinstance(value, str):
         check_text(value, path)
+    elif isinstance(value, float) and not math.isfinite(value):
+        # json.loads takes NaN and Infinity; JSON text cannot carry them back.
+        raise InvalidValueError(f"{path}: {value} is not a JSON number")
     return value
 
 

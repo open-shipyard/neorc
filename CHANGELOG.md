@@ -84,6 +84,15 @@ one version, cut from a single tag on `main`.
   `FOR UPDATE SKIP LOCKED`, and a run's state read in one snapshot. It passes
   the store contract in full. A version part is at most 2³¹ − 1, what the
   store's `integer` columns hold, in every store.
+- `neorc.manager`: the flow routes, served next to the task API when
+  `create_app` is given a `FlowManager`: `POST /flows`, `GET /flows/{name}`
+  and `/flows/{name}/versions/{version}`, `POST /flows/{name}/runs`,
+  `GET /runs/{id}`, `POST /runs/{id}/cancel` and `GET /runs/{id}/state`.
+  Bodies are read as bytes, capped at 16 MiB and checked for nesting depth
+  before anything parses them. Every core error crosses as
+  `{"error": "<class>", "detail": ...}` with a status per class, and a
+  `FlowDefinitionError` carries its `problems`; the task API's errors take
+  the same form.
 - `neorc-core`: a string holding NUL, in a value or anywhere in a flow
   definition, is refused in core before any store sees it, because Postgres
   `text` cannot hold it and the in-memory store must refuse what the deployed
