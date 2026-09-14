@@ -93,7 +93,9 @@ in `ts/neorc-ui`:
 
 `npm run dev` serves the app and proxies the API to a `neorc manager start
 --no-ui` on `127.0.0.1:8420`: a checkout holds no built UI, and the dev server
-is the UI here. The checks CI runs are `npm run lint`, `npm run
+is the UI here. To have the manager serve it instead, as it does from the
+wheel, `npm run build` and copy `dist/` to `python/neorc-ui/src/neorc_ui/static/`,
+which is gitignored. The checks CI runs are `npm run lint`, `npm run
 typecheck`, `npm test` and `npm run build`; the build also writes `bundled-packages.txt`,
 which is committed, and fails on a license outside the allowlist or a bundle
 over the size budget. When the manager's routes change, refresh the schema

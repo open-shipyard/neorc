@@ -66,7 +66,7 @@ in-memory `neorc run` has no UI: it prints its run's output and exits.
 | 6  | UI: flows and runs                                  | done   |
 | 7  | UI: a run, its tree and its tasks, live             | done   |
 | 8  | UI: start and cancel runs                           | done   |
-| 9  | Browser smoke test, docs and changelog              | todo   |
+| 9  | Browser smoke test, docs and changelog              | done   |
 | 10 | The dependency rules, written where they are read   | todo   |
 
 ### 1. Read queries and timestamps, in core and in memory

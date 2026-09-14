@@ -35,6 +35,11 @@ are the same as in [hello](../hello/README.md#deployed).
 
    `--no-ui` because a checkout holds no built web UI; the `neorc-ui` wheel
    does, and `neorc manager start` serves it at `/ui/` unless told not to.
+   To serve it from a checkout, build it and put it where the manager
+   looks (`npm ci && npm run build` in `ts/neorc-ui`, then copy `dist/` to
+   `python/neorc-ui/src/neorc_ui/static/`), drop `--no-ui`, and open
+   <http://127.0.0.1:8420/ui/> to watch the runs below, start more and
+   cancel them. No authentication yet.
 
 3. Upload the flows:
 

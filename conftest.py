@@ -15,14 +15,18 @@ those tests skip.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import os
+import sys
 from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from neorc_core import Manager
+from neorc_core import Manager, ManagerClient
 from neorc_core.local import MemoryStore, MemoryTaskNotifier
 
 if TYPE_CHECKING:
@@ -94,3 +98,102 @@ async def pg_notifier(database_url: str) -> AsyncIterator[PostgresTaskNotifier]:
 
     async with PostgresTaskNotifier(database_url) as notifier:
         yield notifier
+
+
+# A manager on a real socket, and the examples deployed against it.
+
+EXAMPLES = Path(__file__).parent / "examples"
+
+
+def free_port() -> int:
+    import socket
+
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port: int = probe.getsockname()[1]
+        return port
+
+
+@asynccontextmanager
+async def serve_app(app: Any) -> AsyncIterator[str]:
+    """Serve an ASGI app on uvicorn at a free port, for the block; its address."""
+    import uvicorn
+
+    port = free_port()
+    config = uvicorn.Config(
+        app, host="127.0.0.1", port=port, log_level="warning", lifespan="on"
+    )
+    server = uvicorn.Server(config)
+    serving = asyncio.create_task(server.serve())
+    try:
+        async with asyncio.timeout(20):
+            while not server.started:
+                await asyncio.sleep(0.05)
+        yield f"http://127.0.0.1:{port}"
+    finally:
+        server.should_exit = True
+        with contextlib.suppress(TimeoutError):
+            async with asyncio.timeout(20):
+                await serving
+
+
+@pytest.fixture
+def own_tasks_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Each example has a ``tasks`` module: import this one's, not another's."""
+    monkeypatch.setattr(sys, "path", list(sys.path))
+    monkeypatch.delitem(sys.modules, "tasks", raising=False)
+    yield
+    sys.modules.pop("tasks", None)
+
+
+@asynccontextmanager
+async def deployed_example(
+    manager_address: str, example: str, queues: list[str], *, scheduler: bool = True
+) -> AsyncIterator[ManagerClient]:
+    """A scheduler and a worker per queue on the HTTP clients, for the block.
+
+    The client yielded reaches the same manager, to upload and start runs.
+    Without ``scheduler``, only the workers: for more workers beside a block
+    that already runs the deployment's one scheduler.
+    """
+    from neorc.http import HttpManagerClient, HttpQueueClient
+    from neorc_core import Scheduler, Worker
+
+    async with contextlib.AsyncExitStack() as stack:
+        client = await stack.enter_async_context(
+            HttpManagerClient(manager_address, poll_timeout=2)
+        )
+        schedulers = []
+        if scheduler:
+            schedulers.append(
+                Scheduler(
+                    await stack.enter_async_context(
+                        HttpManagerClient(manager_address, poll_timeout=2)
+                    ),
+                    poll_timeout=2,
+                )
+            )
+        workers = [
+            Worker(
+                await stack.enter_async_context(
+                    HttpQueueClient(manager_address, poll_timeout=2)
+                ),
+                queue=queue,
+                code_location=EXAMPLES / example,
+                poll_timeout=2,
+                lease_seconds=5,
+            )
+            for queue in queues
+        ]
+        running = [asyncio.create_task(s.run()) for s in schedulers]
+        running += [asyncio.create_task(worker.run()) for worker in workers]
+        try:
+            yield client
+        finally:
+            for s in schedulers:
+                s.stop()
+            for worker in workers:
+                worker.stop()
+            await asyncio.wait_for(
+                asyncio.gather(*running, return_exceptions=True), timeout=30
+            )
