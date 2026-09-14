@@ -179,6 +179,11 @@ one version, cut from a single tag on `main`.
   offset, and a JSON editor for what the fields cannot say; the manager's
   refusal is shown next to the form. An active run is cancelled from its
   page after a confirmation naming its active sub-runs.
+- A browser test: Chromium on Playwright, against the manager on uvicorn and
+  Postgres serving the built UI with the wordplay example deployed, starts a
+  run from the form, watches it succeed with its fan-out's results, cancels
+  another, and finds no browser complaint. It skips without a built UI or a
+  browser; CI builds and fetches both for one Python.
 
 ### Changed
 

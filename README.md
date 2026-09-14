@@ -76,6 +76,11 @@ Start a run from anywhere:
     curl -X POST manager.internal:8420/flows/hello/runs \
         -H 'content-type: application/json' -d '{"inputs": {"name": "world"}}'
 
+Or from the web UI the manager serves at `http://manager.internal:8420/ui/`:
+the flows, the runs and every task of each, live, with a form to start a run
+and a button to cancel one. There is no authentication yet: anyone who reaches
+the manager can do all of that, so keep it to development and testing.
+
 [examples/hello](examples/hello) and [examples/wordplay](examples/wordplay)
 walk through both ways of running, step by step.
 
@@ -87,6 +92,8 @@ walk through both ways of running, step by step.
   fan-outs, sub-flows and references
 - [docs/specs/postgres-implementation.md](docs/specs/postgres-implementation.md)
   — how the reference persistence layer claims, leases and recovers
+- [docs/working-notes/web-ui-plan.md](docs/working-notes/web-ui-plan.md) — the
+  web UI: what it shows, how it is built and shipped, and why
 - [CONTRIBUTING.md](CONTRIBUTING.md) — repository layout and development setup
 
 Licensed under the [Apache License 2.0](LICENSE).
