@@ -29,6 +29,7 @@ export const keys = {
     ["flows", name, version ?? "latest"] as const,
   versions: (name: string) => ["flows", name, "versions"] as const,
   runs: (filters: RunFilters) => ["runs", filters] as const,
+  recentRuns: (count: number) => ["runs", "recent", count] as const,
   run: (id: string) => ["run", id] as const,
   tasks: (id: string) => ["run", id, "tasks"] as const,
   subRuns: (id: string) => ["run", id, "sub-runs"] as const,
@@ -73,6 +74,18 @@ export function useRuns(filters: RunFilters) {
     // The cursor is the last run of the previous page; a short page is the end.
     getNextPageParam: (page) =>
       page.length < PAGE_SIZE ? undefined : page[page.length - 1]?.id,
+  });
+}
+
+/**
+ * The latest few runs, for the sidebar: a query of its own, small and under
+ * the "runs" prefix the events refresh, rather than the list page's pages,
+ * which the sidebar would otherwise keep alive and refetched on every event.
+ */
+export function useRecentRuns(count: number) {
+  return useQuery({
+    queryKey: keys.recentRuns(count),
+    queryFn: () => listRuns({}, undefined, count),
   });
 }
 
