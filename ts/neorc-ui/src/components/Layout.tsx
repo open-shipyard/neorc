@@ -1,6 +1,9 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
 
+import { ApiError, type Session } from "../api";
 import { useFlows, useRecentRuns } from "../queries";
+import { SESSION_KEY, signOut } from "../session";
 import { href, type Route } from "../router";
 import { shortId } from "../format";
 
@@ -17,10 +20,18 @@ export const SIDEBAR_KEY = "neorc-ui.sidebar";
 
 /**
  * The shell: a sidebar with the brand, a way to a new run, the navigation,
- * the flows, the latest runs and a stand-in for a profile, collapsible to a
- * rail of icons; the page beside it, under the no-authentication strip.
+ * the flows, the latest runs and who is signed in, collapsible to a rail of
+ * icons; the page beside it, under a strip when authentication is off.
  */
-export function Layout({ route, children }: { route: Route; children: ReactNode }) {
+export function Layout({
+  route,
+  session,
+  children,
+}: {
+  route: Route;
+  session: Session;
+  children: ReactNode;
+}) {
   const [collapsed, setCollapsed] = useSidebarCollapsed();
   return (
     <div className={`shell${collapsed ? " shell-rail" : ""}`}>
@@ -59,21 +70,79 @@ export function Layout({ route, children }: { route: Route; children: ReactNode 
         </nav>
         <PinnedFlows route={route} />
         <RecentRuns route={route} />
-        <div className="profile" aria-label="Profile">
-          <span className="avatar" aria-hidden="true" />
-          <span className="label">
-            <span>No account</span>
-            <span className="muted">No authentication yet</span>
-          </span>
-        </div>
+        <Profile session={session} />
       </aside>
       <div className="content">
-        <p className="banner" role="note">
-          No authentication yet: anyone who reaches this page can start and cancel runs. For
-          development and testing only.
-        </p>
+        {!session.authentication && (
+          <p className="banner" role="note">
+            No authentication: anyone who reaches this manager can start and cancel runs. For
+            development and testing only.
+          </p>
+        )}
         <main>{children}</main>
       </div>
+    </div>
+  );
+}
+
+/** Who is signed in, and signing out; or that nobody need be. */
+function Profile({ session }: { session: Session }) {
+  const client = useQueryClient();
+  const [leaving, setLeaving] = useState(false);
+  const [refused, setRefused] = useState<string | null>(null);
+  const principal = session.principal;
+  if (principal === null) {
+    return (
+      <div className="profile" aria-label="Profile">
+        <span className="avatar" aria-hidden="true" />
+        <span className="label">
+          <span>No account</span>
+          <span className="muted">
+            {session.authentication ? "Not signed in" : "No authentication"}
+          </span>
+        </span>
+      </div>
+    );
+  }
+  const leave = async () => {
+    setLeaving(true);
+    setRefused(null);
+    try {
+      await signOut();
+    } catch (error) {
+      // A 401 is a session already gone: signed out all the same. Anything
+      // else leaves the session as it was, and the reader must know.
+      if (!(error instanceof ApiError && error.status === 401)) {
+        setRefused(error instanceof Error ? error.message : String(error));
+        setLeaving(false);
+        return;
+      }
+    }
+    // Signed out whatever the next check of the session says or fails to.
+    client.setQueryData<Session>(SESSION_KEY, { ...session, principal: null });
+    void client.invalidateQueries({ queryKey: SESSION_KEY });
+  };
+  return (
+    <div className="profile" aria-label="Profile">
+      <span className="avatar avatar-signed-in" aria-hidden="true">
+        {principal.name.slice(0, 1).toUpperCase()}
+      </span>
+      <span className="label">
+        <span title={principal.name}>{principal.name}</span>
+        {principal.email !== null && (
+          <span className="muted" title={principal.email}>
+            {principal.email}
+          </span>
+        )}
+        <button type="button" className="link sign-out" onClick={leave} disabled={leaving}>
+          Sign out
+        </button>
+        {refused !== null && (
+          <span role="alert" className="sign-out-refused">
+            Not signed out: {refused}
+          </span>
+        )}
+      </span>
     </div>
   );
 }

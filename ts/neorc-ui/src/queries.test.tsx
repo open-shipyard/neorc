@@ -5,15 +5,17 @@ import { describe, expect, it, vi } from "vitest";
 import type { ApiEvent } from "./api";
 import {
   follow,
+  isNotSession,
   isSubRunsQuery,
   keys,
+  REFUSED_RETRY_MS,
   refresh,
   useLiveEvents,
   useRunTasks,
   useSubRuns,
 } from "./queries";
 import { ACTIVE, SUCCEEDED, event } from "./test/fixtures";
-import { mockApi, neverAnswers } from "./test/render";
+import { mockApi, neverAnswers, refusal } from "./test/render";
 
 function pages(...pages: ApiEvent[][]) {
   let served = 0;
@@ -50,7 +52,7 @@ describe("follow", () => {
     expect(asked(api)[3]).toMatchObject({ after: "43" });
     // Once for everything at the start, then the runs and each run concerned.
     const keep = { cancelRefetch: false };
-    expect(invalidated.mock.calls[0]).toEqual([{}, keep]);
+    expect(invalidated.mock.calls[0]).toEqual([{ predicate: isNotSession }, keep]);
     expect(invalidated).toHaveBeenCalledWith({ queryKey: ["runs"] }, keep);
     expect(invalidated).toHaveBeenCalledWith({ queryKey: keys.run(ACTIVE.id) }, keep);
     expect(invalidated).toHaveBeenCalledWith({ queryKey: keys.run(SUCCEEDED.id) }, keep);
@@ -110,6 +112,82 @@ describe("follow", () => {
     await expect(Promise.race([done, Promise.resolve("still waiting")])).resolves.toBe(
       "still waiting",
     );
+  });
+
+  it("stops, rather than retrying, once the session has ended", async () => {
+    const api = mockApi({
+      "/events/latest": refusal(401, "AuthenticationError", "the session is unknown"),
+    });
+    const slept: number[] = [];
+
+    await follow(new QueryClient(), new AbortController().signal, async (ms) => {
+      slept.push(ms);
+    });
+
+    expect(slept).toEqual([]);
+    expect(api.calls).toHaveLength(1);
+  });
+});
+
+describe("useLiveEvents, after a refusal", () => {
+  it("tries again after a while, not at once, while the page is still shown", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      let refused = true;
+      const api = mockApi({
+        "/events/latest": () =>
+          refused ? refusal(401, "AuthenticationError", "no session") : { sequence: 5 },
+        "/events": () => neverAnswers(),
+      });
+      const client = new QueryClient();
+      const wrapper = ({ children }: { children: React.ReactNode }) => (
+        <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      );
+
+      const { unmount } = renderHook(() => useLiveEvents(), { wrapper });
+      await vi.waitFor(() => expect(api.calls).toHaveLength(1));
+      await vi.advanceTimersByTimeAsync(REFUSED_RETRY_MS - 1000);
+      expect(api.calls).toHaveLength(1);
+      refused = false;
+      await vi.advanceTimersByTimeAsync(1000);
+
+      await vi.waitFor(() =>
+        expect(asked(api).map((call) => call.path)).toEqual([
+          "/events/latest",
+          "/events/latest",
+          "/events",
+        ]),
+      );
+      unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("leaves the session out of what it refetches when it starts", async () => {
+    mockApi({ "/events/latest": { sequence: 1 }, "/events": () => neverAnswers() });
+    const client = new QueryClient();
+    const session = vi.fn(async () => ({ authentication: false }));
+    const runs = vi.fn(async () => ({ runs: [] }));
+    client.setQueryData(["session"], { authentication: false });
+    client.setQueryData(["runs", {}], { runs: [] });
+    new QueryObserver(client, {
+      queryKey: ["session"],
+      queryFn: session,
+      staleTime: Infinity,
+    }).subscribe(() => {});
+    new QueryObserver(client, {
+      queryKey: ["runs", {}],
+      queryFn: runs,
+      staleTime: Infinity,
+    }).subscribe(() => {});
+    const controller = new AbortController();
+
+    void follow(client, controller.signal);
+    await vi.waitFor(() => expect(runs).toHaveBeenCalled());
+    controller.abort();
+
+    expect(session).not.toHaveBeenCalled();
   });
 });
 

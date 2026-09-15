@@ -4,11 +4,13 @@ import {
   useQuery,
   useQueryClient,
   type InvalidateQueryFilters,
+  type Query,
   type QueryClient,
 } from "@tanstack/react-query";
 import { useEffect } from "react";
 
 import {
+  ApiError,
   flowVersions,
   getFlow,
   getRun,
@@ -143,6 +145,9 @@ export const RETRY_MS = 2000;
  * flow may have been uploaded with no event of its own. No event kind is
  * needed beyond that: an event only says which run to look at again.
  */
+/** How long a poll refused for its session waits before it tries again. */
+export const REFUSED_RETRY_MS = 30_000;
+
 export function useLiveEvents(): void {
   const client = useQueryClient();
   useEffect(() => {
@@ -150,13 +155,25 @@ export function useLiveEvents(): void {
     // a host, shared by every tab, and a long poll holds one. A tab shown
     // again starts over, which refetches everything it may have missed.
     let controller: AbortController | null = null;
+    let retry: ReturnType<typeof setTimeout> | undefined;
     const start = () => {
+      clearTimeout(retry);
       if (controller === null && !document.hidden) {
-        controller = new AbortController();
-        void follow(client, controller.signal);
+        const mine = new AbortController();
+        controller = mine;
+        // A poll ends by itself only when its session was refused. If the
+        // page is still here, the session check found someone signed in
+        // after all: try again, slowly, so a refusal that persists costs a
+        // request a while, not a loop.
+        void follow(client, mine.signal).then(() => {
+          if (controller !== mine) return;
+          controller = null;
+          if (!mine.signal.aborted) retry = setTimeout(start, REFUSED_RETRY_MS);
+        });
       }
     };
     const stop = () => {
+      clearTimeout(retry);
       controller?.abort();
       controller = null;
     };
@@ -180,7 +197,9 @@ export async function follow(
     try {
       if (after === undefined) {
         after = await latestSequence(signal);
-        void refresh(client, {});
+        // Everything but the session, which no event changes, and whose
+        // refetch restarts this poll.
+        void refresh(client, { predicate: isNotSession });
         continue;
       }
       const events = await waitForEvents(after, {
@@ -193,6 +212,9 @@ export async function follow(
       }
     } catch (error) {
       if (signal.aborted) return;
+      // The session has ended: asking again would be refused again, and the
+      // page is about to show the sign-in instead.
+      if (error instanceof ApiError && error.status === 401) return;
       console.warn("event poll failed, retrying", error);
       // Start over from the log's end: a manager restarted on a fresh log
       // counts from 1 again, and a position past its end would read nothing
@@ -224,6 +246,10 @@ export async function refresh(
   const inFlight = client.isFetching(filters) > 0;
   await client.invalidateQueries(filters, KEEP_GOING);
   if (inFlight) await client.invalidateQueries(filters, KEEP_GOING);
+}
+
+export function isNotSession(query: Query): boolean {
+  return query.queryKey[0] !== "session";
 }
 
 function invalidate(client: QueryClient, events: ApiEvent[]): void {

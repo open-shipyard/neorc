@@ -526,6 +526,77 @@ button.link {
   justify-content: center;
 }
 
+.profile .label {
+  min-width: 0;
+}
+
+.profile .label > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.avatar-signed-in {
+  display: grid;
+  place-items: center;
+  border-style: solid;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.sign-out {
+  align-self: flex-start;
+  padding: 0;
+  font-size: 0.8rem;
+}
+
+.profile .label > .sign-out-refused {
+  white-space: normal;
+  color: var(--bad);
+  font-size: 0.8rem;
+}
+
+/* Signing in: a card alone in the middle of the page. */
+
+.sign-in {
+  max-width: 26rem;
+  margin: 12vh auto 0;
+  padding: 2rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--paper);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.sign-in h1 {
+  margin: 0;
+  font-size: 1.4rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.sign-in .providers {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-self: stretch;
+}
+
+.sign-in .providers a {
+  display: block;
+  text-align: center;
+}
+
 .content {
   flex: 1;
   min-width: 0;

@@ -78,7 +78,7 @@ export default defineConfig({
     // matched against the URL with its query string, so `/runs?flow=a` and
     // `/runs/<id>` both reach the manager.
     proxy: {
-      "^/(flows|runs|tasks|events|queues|health)([/?].*)?$":
+      "^/(flows|runs|tasks|events|queues|health|auth)([/?].*)?$":
         "http://127.0.0.1:8420",
     },
   },

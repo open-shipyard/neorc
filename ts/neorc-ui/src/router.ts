@@ -10,6 +10,7 @@ export type Route =
   | { name: "flows" }
   | { name: "flow"; flow: string; version?: string }
   | { name: "run"; id: string; view?: RunView }
+  | { name: "sign-in"; error?: string }
   | { name: "unknown"; hash: string };
 
 export function parseHash(hash: string): Route {
@@ -28,6 +29,9 @@ export function parseHash(hash: string): Route {
     };
   }
   if (parts.length === 1 && parts[0] === "flows") return { name: "flows" };
+  if (parts.length === 1 && parts[0] === "sign-in") {
+    return { name: "sign-in", error: params.get("error") ?? undefined };
+  }
   if (parts.length === 2 && parts[0] === "flows" && parts[1]) {
     return {
       name: "flow",
@@ -76,6 +80,10 @@ export function href(route: Route): string {
       const base = `#/runs/${encodeURIComponent(route.id)}`;
       return route.view ? `${base}?view=${route.view}` : base;
     }
+    case "sign-in":
+      return route.error
+        ? `#/sign-in?error=${encodeURIComponent(route.error)}`
+        : "#/sign-in";
     case "unknown":
       return route.hash;
   }
@@ -83,6 +91,12 @@ export function href(route: Route): string {
 
 export function navigate(route: Route): void {
   location.hash = href(route);
+}
+
+/** Go to `route` in place of the page shown, so Back skips what it replaced. */
+export function replaceRoute(route: Route): void {
+  history.replaceState(history.state, "", href(route));
+  dispatchEvent(new HashChangeEvent("hashchange"));
 }
 
 function subscribe(onChange: () => void): () => void {

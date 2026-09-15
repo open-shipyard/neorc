@@ -1,6 +1,35 @@
 // Responses as the manager sends them, typed by the schema so a drift shows
 // here at compile time.
-import type { ApiEvent, Flow, Run, Task } from "../api";
+import type { ApiEvent, Flow, Run, Session, Task } from "../api";
+
+/** A manager started with --no-auth. */
+export const OPEN: Session = {
+  authentication: false,
+  public_url: null,
+  providers: [],
+  principal: null,
+};
+
+/** A manager with sign-in, and nobody signed in. */
+export const SIGNED_OUT: Session = {
+  authentication: true,
+  public_url: "https://neorc.example.com",
+  providers: [
+    { id: "google", title: "Google" },
+    { id: "okta", title: "Okta" },
+  ],
+  principal: null,
+};
+
+export const SIGNED_IN: Session = {
+  ...SIGNED_OUT,
+  principal: {
+    kind: "session",
+    name: "Ada Lovelace",
+    email: "ada@example.com",
+    provider: "google",
+  },
+};
 
 export const WORD_PICKER: Flow = {
   name: "word_picker",
