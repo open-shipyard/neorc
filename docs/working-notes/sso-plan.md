@@ -191,7 +191,7 @@ the address as the person's account holds it.
 | - | ------ | ---- | ------ |
 | 0 | `feature/sso-0-plan` | This plan | done |
 | 1 | `feature/sso-1-access-core` | Access in core: tokens, sessions, the allow list, in memory | done |
-| 2 | `feature/sso-2-postgres-credentials` | The credential store on Postgres | |
+| 2 | `feature/sso-2-postgres-credentials` | The credential store on Postgres | done |
 | 3 | `feature/sso-3-manager-tokens` | The manager asks for a token; the clients send one | |
 | 4 | `feature/sso-4-cli` | The command line: tokens, sessions, `--no-auth` | |
 | 5 | `feature/sso-5-oidc` | Sign-in with OpenID Connect | |

@@ -30,7 +30,11 @@ from neorc_core import Manager, ManagerClient
 from neorc_core.local import MemoryStore, MemoryTaskNotifier
 
 if TYPE_CHECKING:
-    from neorc.postgres import PostgresStore, PostgresTaskNotifier
+    from neorc.postgres import (
+        PostgresCredentialStore,
+        PostgresStore,
+        PostgresTaskNotifier,
+    )
 
 # Before a test module imports the contract suites, so their asserts explain a
 # failure the way asserts in test modules do.
@@ -90,6 +94,15 @@ async def pg_store(pg_schema: str) -> AsyncIterator[PostgresStore]:
 
     async with PostgresStore(pg_schema) as store:
         yield store
+
+
+@pytest.fixture
+async def pg_credentials(pg_schema: str) -> AsyncIterator[PostgresCredentialStore]:
+    """An open credential store on empty credential tables."""
+    from neorc.postgres import PostgresCredentialStore
+
+    async with PostgresCredentialStore(pg_schema) as credentials:
+        yield credentials
 
 
 @pytest.fixture
