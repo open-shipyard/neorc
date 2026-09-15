@@ -205,6 +205,22 @@ def test_a_certificate_that_cannot_be_used_is_said_to_be_that(
     assert runs == []
 
 
+def test_a_database_that_cannot_be_reached_is_said_in_a_line(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import psycopg
+
+    def fake_run(host: str, port: int, **kwargs: Any) -> None:
+        raise psycopg.OperationalError("connection refused")
+
+    monkeypatch.setattr("neorc.manager.run", fake_run)
+
+    with pytest.raises(
+        SystemExit, match="cannot reach the database: connection refused"
+    ):
+        _cli.main(["manager", "start"])
+
+
 def test_a_manager_that_cannot_start_says_why(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

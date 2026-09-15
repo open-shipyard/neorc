@@ -139,7 +139,13 @@ async def callback(
     if oidc is None:
         return _failed(sign_in, UNKNOWN_PROVIDER, f"no provider {provider!r}")
     cookie = request.cookies.get(sign_in.login_cookie)
-    if not state or not cookie or not hmac.compare_digest(cookie, state):
+    # As bytes: compare_digest refuses a str holding anything but ASCII, and
+    # the query and the cookie are whatever the browser was sent.
+    if (
+        not state
+        or not cookie
+        or not hmac.compare_digest(cookie.encode(), state.encode())
+    ):
         return _failed(
             sign_in, STATE_MISMATCH, "the state is not the one this browser began"
         )

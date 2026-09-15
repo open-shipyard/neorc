@@ -198,6 +198,7 @@ the address as the person's account holds it.
 | 5 | `feature/sso-5-oidc` | Sign-in with OpenID Connect | done |
 | 6 | `feature/sso-6-ui` | The UI: sign in, the profile, sign out | done |
 | 7 | `feature/sso-7-browser-test-docs` | Browser test, docs and changelog | done |
+| 8 | `feature/sso-8-review-fixes` | Fixes from the review of the whole | done |
 
 ### 1. Access in core: tokens, sessions, the allow list, in memory
 
@@ -469,6 +470,22 @@ Core only, and no new dependency: `secrets` and `hashlib`.
   sign-in, the UI.
 - `web-ui-plan.md`: a line under its choice about authentication pointing
   here.
+
+### 8. Fixes from the review of the whole
+
+A review of steps 1 to 7 together found three inputs that ended in a 500
+where the design promises a fixed failure, and three pieces of hardening:
+
+- The callback compares its `state` with the cookie's, and the ID token's
+  `nonce` with the sign-in's, as bytes: `hmac.compare_digest` refuses a `str`
+  holding anything but ASCII, and both come from outside.
+- An `iss` claim that is not a string is refused as an invalid ID token
+  before it is looked up among the issuers.
+- A provider's client secret is left out of its config's repr.
+- The route test walks the app's routes rather than its schema, which the
+  sign-in routes are not in, so a route kept out of the schema is covered.
+- `neorc manager start` says in a line that the database cannot be reached,
+  as the token commands do.
 
 ## Choices made while planning
 

@@ -171,8 +171,10 @@ class OidcProvider:
         issuers = {self.config.issuer, *self._published_issuers}
         if self.config.issuer == GOOGLE_ISSUER:
             issuers.add("accounts.google.com")  # Google documents both forms
-        if claims.get("iss") not in issuers:
-            raise SignInFailed(INVALID_ID_TOKEN, f"iss {claims.get('iss')!r}")
+        issuer = claims.get("iss")
+        # A str first: a list or an object cannot be looked up in a set.
+        if not isinstance(issuer, str) or issuer not in issuers:
+            raise SignInFailed(INVALID_ID_TOKEN, f"iss {issuer!r}")
         audience = claims.get("aud")
         audiences = [audience] if isinstance(audience, str) else audience
         if not isinstance(audiences, list) or self.config.client_id not in audiences:
@@ -191,7 +193,10 @@ class OidcProvider:
                 INVALID_ID_TOKEN, f"iat {claims.get('iat')!r}, now {now}"
             )
         got = claims.get("nonce")
-        if not isinstance(got, str) or not hmac.compare_digest(got, nonce):
+        # As bytes: compare_digest refuses a str holding anything but ASCII.
+        if not isinstance(got, str) or not hmac.compare_digest(
+            got.encode(), nonce.encode()
+        ):
             raise SignInFailed(INVALID_ID_TOKEN, "nonce is not this sign-in's")
         subject = claims.get("sub")
         if not isinstance(subject, str) or not subject:

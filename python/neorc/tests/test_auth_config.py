@@ -93,6 +93,13 @@ def test_a_whole_config_reads_with_its_urls_in_one_form() -> None:
     )
 
 
+def test_a_client_secret_is_never_in_a_repr() -> None:
+    config = parsed(FULL)
+
+    assert "g-secret" not in repr(config)
+    assert "o-secret" not in repr(config.providers)
+
+
 def test_a_config_is_read_from_a_file(tmp_path: Path) -> None:
     path = tmp_path / "auth.toml"
     path.write_text(FULL)

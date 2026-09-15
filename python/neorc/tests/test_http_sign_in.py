@@ -315,6 +315,20 @@ async def test_a_callback_in_a_browser_that_did_not_begin_it_is_refused(
     assert (await deployment.manager.get("/flows")).status_code == 401
 
 
+@pytest.mark.parametrize("state", ["é", "%E9", "\u2603" * 43])
+async def test_a_state_of_any_text_is_a_mismatch_not_a_crash(
+    deployment: Deployment, state: str
+) -> None:
+    await begin(deployment)  # the login cookie is set
+
+    refused = await deployment.manager.get(
+        "/auth/callback/stand-in", params={"state": state, "code": "c"}
+    )
+
+    assert refused.status_code == 303
+    assert error_of(refused) == "state_mismatch"
+
+
 async def test_a_callback_with_another_sign_in_s_state_is_refused(
     deployment: Deployment,
 ) -> None:
