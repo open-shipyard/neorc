@@ -1,7 +1,8 @@
 # For coding agents working in ts/neorc-ui
 
 This package ships to users inside the `neorc-ui` wheel and runs in a browser
-against an API with no authentication yet. Its dependency rules are in
+with a signed-in person's session cookie, so any code in it can do whatever
+that person may. Its dependency rules are in
 [contributing/js-dependencies.md](../../contributing/js-dependencies.md);
 read them before touching `package.json`, `package-lock.json`, `.npmrc`,
 `vite.config.ts` or `bundled-packages.txt`.

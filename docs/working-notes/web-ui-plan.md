@@ -315,6 +315,9 @@ Decided here to make progress. Revisit if they are wrong.
   runs, from the API and the UI. For development and testing only.
   Authentication is planned separately and lands before the first release;
   until then the UI and the READMEs say so.
+  Done: [sso-plan.md](sso-plan.md) added API tokens and sign-in with OpenID
+  Connect, on by default; the banner stays for a manager started with
+  `--no-auth`.
 - One way to serve the UI: the manager. An earlier draft added `neorc run
   --ui`, an in-memory cluster with a server on the same loop, for a laptop
   with no Postgres; it doubled the CLI's wiring, made `--flow` optional and

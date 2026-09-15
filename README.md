@@ -91,12 +91,64 @@ Start a run from anywhere:
 Or from the web UI the manager serves at `https://manager.internal:8420/ui/`:
 the flows, the runs and every task of each, live, as an outline or as a
 zoomable graph of the run's steps, with a form to start a run and a button
-to cancel one. Signing in to the UI is not there yet: until it is, the UI
-works only with a manager started with `--no-auth`, where anyone who reaches
-the manager can do all of that, so keep it to development and testing.
+to cancel one. People sign in to it with an identity provider, as below; a
+manager started with `--no-auth` asks nobody, and says so on every page.
 
 [examples/hello](examples/hello) and [examples/wordplay](examples/wordplay)
 walk through both ways of running, step by step.
+
+## Signing in with Google or Okta
+
+The UI signs people in with OpenID Connect. Describe the providers, and who
+may sign in, in a file the manager reads; secrets stay in the environment:
+
+```toml
+# auth.toml
+public_url = "https://manager.internal:8420"   # where people open the UI
+
+[providers.google]
+title = "Google"
+issuer = "https://accounts.google.com"
+client_id = "1234.apps.googleusercontent.com"
+client_secret_env = "NEORC_GOOGLE_CLIENT_SECRET"
+
+[providers.okta]
+title = "Okta"
+issuer = "https://example.okta.com/oauth2/default"
+client_id = "0oa..."
+client_secret_env = "NEORC_OKTA_CLIENT_SECRET"
+groups_claim = "groups"
+scopes = ["openid", "email", "profile", "groups"]
+
+[[allow]]
+provider = "google"
+hosted_domain = "example.com"        # everyone in the example.com Workspace
+
+[[allow]]
+provider = "google"
+email = "ada@gmail.com"              # one person, by a verified address
+
+[[allow]]
+provider = "okta"
+group = "neorc-users"
+```
+
+    export NEORC_GOOGLE_CLIENT_SECRET=... NEORC_OKTA_CLIENT_SECRET=...
+    neorc manager start --auth-config auth.toml \
+        --ssl-certfile manager.pem --ssl-keyfile manager-key.pem
+
+Register `{public_url}/auth/callback/<provider id>` with each provider as the
+redirect URI, here `https://manager.internal:8420/auth/callback/google`. An
+`[[allow]]` entry names a provider and one of `everyone = true`, `subject`,
+`email`, `email_domain`, `hosted_domain` (Google only) or `group`; anyone no
+entry matches is refused. For Google, an address counts only in a Workspace
+or at Gmail, since Google verifies personal accounts made with any address,
+so `email_domain` is refused for it: use `hosted_domain`. Everyone signed in,
+and every token, may do everything the API allows; roles are for later.
+
+`neorc sessions clear` signs everyone out, and a changed allow list applies
+from each person's next sign-in. The manager is served from the root of its
+origin; behind a proxy, `public_url` is the address people type.
 
 ## Documentation
 
@@ -106,6 +158,8 @@ walk through both ways of running, step by step.
   fan-outs, sub-flows and references
 - [docs/specs/postgres-implementation.md](docs/specs/postgres-implementation.md)
   — how the reference persistence layer claims, leases and recovers
+- [docs/working-notes/sso-plan.md](docs/working-notes/sso-plan.md) — API
+  tokens and signing in: what is checked, where, and why
 - [docs/working-notes/web-ui-plan.md](docs/working-notes/web-ui-plan.md) — the
   web UI: what it shows, how it is built and shipped, and why
 - [CONTRIBUTING.md](CONTRIBUTING.md) — repository layout and development setup
