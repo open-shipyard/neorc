@@ -354,6 +354,8 @@ def _exit_now(exit_code: int) -> None:
 def manager_start_command(args: argparse.Namespace) -> int:
     """Run the manager service. Needs the ``manager`` extra."""
     with _needs("manager", "postgres"):
+        import psycopg
+
         from neorc.manager import run
 
     if (args.ssl_certfile is None) != (args.ssl_keyfile is None):
@@ -398,6 +400,10 @@ def manager_start_command(args: argparse.Namespace) -> int:
         raise SystemExit(f"neorc manager start: {exc}, or pass --no-ui") from None
     except RuntimeError as exc:  # no database, or no credential tables in it
         raise SystemExit(f"neorc manager start: {exc}") from None
+    except (psycopg.OperationalError, OSError) as exc:  # checked before serving
+        raise SystemExit(
+            f"neorc manager start: cannot reach the database: {exc}"
+        ) from None
     return 0
 
 

@@ -138,6 +138,8 @@ async def test_groups_come_from_the_configured_claim(
     ("tamper", "why"),
     [
         ({"iss": "https://other.example.com"}, "iss"),
+        ({"iss": ["https://idp.example.com"]}, "iss"),
+        ({"iss": {"url": "https://idp.example.com"}}, "iss"),
         ({"aud": "someone-else"}, "aud"),
         ({"aud": ["someone-else", "neorc-client"]}, "azp"),
         ({"aud": ["neorc-client", "x"], "azp": "x"}, "azp"),
@@ -148,6 +150,7 @@ async def test_groups_come_from_the_configured_claim(
         ({"iat": None}, "iat"),
         ({"nonce": "another sign-in's"}, "nonce"),
         ({"nonce": None}, "nonce"),
+        ({"nonce": "é"}, "nonce"),
         ({"sub": ""}, "sub"),
     ],
 )

@@ -13,11 +13,13 @@ from __future__ import annotations
 import asyncio
 import re
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterable, Iterator
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
+from starlette.routing import Route
 
 from neorc.manager import create_app
 from neorc_core import Access, Manager
@@ -171,24 +173,42 @@ async def test_the_documentation_pages_are_served_only_without_authentication(
 
 PUBLIC = {
     "/health",
+    "/openapi.json",
     "/auth/session",
+    "/auth/login/{provider}",
+    "/auth/callback/{provider}",
     "/auth/logout",
 }
 """What a person with no session reaches: to sign in, and out."""
 
 
-async def test_every_route_in_the_schema_but_the_public_ones_needs_a_token(
-    guarded: httpx.AsyncClient,
+def every_route(routes: Iterable[Any], prefix: str = "") -> Iterator[tuple[str, str]]:
+    """Every method and path the app routes, whether the schema shows it or not.
+
+    FastAPI keeps an included router whole in the app's routes, from 0.141,
+    rather than copying its routes in; both shapes are walked.
+    """
+    for route in routes:
+        included = getattr(route, "original_router", None)
+        if included is not None:
+            yield from every_route(
+                included.routes, prefix + route.include_context.prefix
+            )
+        elif isinstance(route, Route):
+            for method in sorted(route.methods or ()):
+                yield method, prefix + route.path
+
+
+async def test_every_route_but_the_public_ones_needs_a_token(
+    manager: Manager, access: Access, guarded: httpx.AsyncClient
 ) -> None:
-    """Asked of the app, not of its router: a route added anywhere is covered."""
-    schema = (await guarded.get("/openapi.json")).json()
+    """Asked of the app's routes, not its schema, which leaves some out."""
+    app = create_app(manager, access=access)
     samples = {"run_id": str(uuid.uuid4()), "task_id": str(uuid.uuid4())}
-    operations = [
-        (method.upper(), path)
-        for path, item in schema["paths"].items()
-        for method in item
-    ]
+    operations = sorted(set(every_route(app.routes)) - {("HEAD", "/openapi.json")})
+    paths = {path for _, path in operations}
     assert len(operations) > 20
+    assert {"/auth/login/{provider}", "/auth/callback/{provider}"} <= paths
 
     for method, path in operations:
         url = re.sub(

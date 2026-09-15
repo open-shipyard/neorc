@@ -30,7 +30,7 @@ import os
 import re
 import tomllib
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -66,7 +66,8 @@ class ProviderConfig:
     issuer: str
     """Normalised: lower-case scheme and host, no default port, no trailing slash."""
     client_id: str
-    client_secret: str
+    client_secret: str = field(repr=False)
+    """Out of the repr, so a log or a failed assertion never prints it."""
     scopes: tuple[str, ...] = DEFAULT_SCOPES
     groups_claim: str | None = None
     token_endpoint_auth: str = "client_secret_basic"
