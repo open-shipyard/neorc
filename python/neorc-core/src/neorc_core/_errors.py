@@ -54,3 +54,11 @@ class RunNotFoundError(NeorcError):
 
 class RunStateError(NeorcError):
     """A run cannot take the request: it is no longer active, or already finished."""
+
+
+class AuthenticationError(NeorcError):
+    """A request carries no identity, or one that is not accepted."""
+
+
+class SignInRefusedError(NeorcError):
+    """An identity provider vouched for a person whom no allow entry lets in."""

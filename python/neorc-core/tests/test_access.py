@@ -1,0 +1,376 @@
+# Copyright 2026 The neorc Authors
+# SPDX-License-Identifier: Apache-2.0
+
+"""Tokens, the allow list, sign-ins and sessions, on the memory credential store."""
+
+from __future__ import annotations
+
+import asyncio
+
+import pytest
+
+from neorc_core import (
+    Access,
+    Allow,
+    AuthenticationError,
+    Identity,
+    InvalidValueError,
+    Matcher,
+    Principal,
+    PrincipalKind,
+    SignInRefusedError,
+)
+from neorc_core._access import MAX_SECONDS, TOKEN_PREFIX, allowed, secret_hash
+from neorc_core.local import MemoryCredentialStore
+
+ADA = Identity(
+    provider="google",
+    subject="248289761001",
+    name="Ada Lovelace",
+    email="Ada@Example.com",
+    email_verified=True,
+    hosted_domain="example.com",
+    groups=frozenset({"neorc-users"}),
+)
+
+EVERYONE = Allow("google", Matcher.EVERYONE)
+
+
+@pytest.fixture
+def credentials() -> MemoryCredentialStore:
+    return MemoryCredentialStore()
+
+
+@pytest.fixture
+def access(credentials: MemoryCredentialStore) -> Access:
+    return Access(
+        credentials,
+        allow=[
+            Allow("google", Matcher.HOSTED_DOMAIN, "example.com"),
+            Allow("okta", Matcher.GROUP, "neorc-users"),
+        ],
+    )
+
+
+# The allow list.
+
+
+@pytest.mark.parametrize(
+    ("matcher", "value", "matches"),
+    [
+        (Matcher.EVERYONE, None, True),
+        (Matcher.SUBJECT, "248289761001", True),
+        (Matcher.SUBJECT, "24828976100", False),
+        (Matcher.EMAIL, "ada@example.com", True),
+        (Matcher.EMAIL, "ADA@EXAMPLE.COM", True),
+        (Matcher.EMAIL, "ada@example.org", False),
+        (Matcher.EMAIL_DOMAIN, "EXAMPLE.com", True),
+        (Matcher.EMAIL_DOMAIN, "ample.com", False),
+        (Matcher.HOSTED_DOMAIN, "example.com", True),
+        (Matcher.HOSTED_DOMAIN, "example.org", False),
+        (Matcher.GROUP, "neorc-users", True),
+        (Matcher.GROUP, "Neorc-Users", False),
+    ],
+)
+def test_an_entry_matches_what_its_matcher_names(
+    matcher: Matcher, value: str | None, matches: bool
+) -> None:
+    assert Allow("google", matcher, value).matches(ADA) is matches
+
+
+def test_an_entry_matches_only_its_own_providers_people() -> None:
+    assert not Allow("okta", Matcher.EVERYONE).matches(ADA)
+
+
+def test_an_unverified_email_matches_no_email_entry() -> None:
+    unverified = Identity("google", "1", email="ada@example.com")
+    no_at = Identity("google", "1", email="example.com", email_verified=True)
+
+    for identity in (unverified, no_at):
+        assert not Allow("google", Matcher.EMAIL, "ada@example.com").matches(identity)
+        assert not Allow("google", Matcher.EMAIL_DOMAIN, "example.com").matches(
+            identity
+        )
+
+
+def test_an_identity_without_a_hosted_domain_matches_no_hosted_domain_entry() -> None:
+    personal = Identity("google", "1", email="ada@example.com", email_verified=True)
+
+    assert not Allow("google", Matcher.HOSTED_DOMAIN, "example.com").matches(personal)
+    assert Allow("google", Matcher.EMAIL_DOMAIN, "example.com").matches(personal)
+
+
+def test_one_matching_entry_is_enough() -> None:
+    entries = [
+        Allow("google", Matcher.GROUP, "nobody"),
+        Allow("google", Matcher.SUBJECT, ADA.subject),
+    ]
+
+    assert allowed(ADA, entries)
+    assert not allowed(ADA, entries[:1])
+    assert not allowed(ADA, [])
+
+
+@pytest.mark.parametrize(
+    ("provider", "matcher", "value", "problem"),
+    [
+        ("", Matcher.EVERYONE, None, "provider"),
+        ("google", Matcher.EVERYONE, "x", "compares with nothing"),
+        ("google", Matcher.EMAIL, None, "needs a value"),
+        ("google", Matcher.GROUP, "", "needs a value"),
+    ],
+)
+def test_an_entry_that_cannot_mean_anything_is_refused(
+    provider: str, matcher: Matcher, value: str | None, problem: str
+) -> None:
+    with pytest.raises(InvalidValueError, match=problem):
+        Allow(provider, matcher, value)
+
+
+# API tokens.
+
+
+async def test_a_token_authenticates_as_its_name(access: Access) -> None:
+    secret, token = await access.create_token("ci")
+
+    principal = await access.authenticate_token(secret)
+
+    assert secret.startswith(TOKEN_PREFIX) and len(secret) > 40
+    assert principal == Principal(PrincipalKind.TOKEN, str(token.id), "ci")
+
+
+async def test_a_token_secret_is_not_kept(
+    access: Access, credentials: MemoryCredentialStore
+) -> None:
+    secret, _ = await access.create_token("ci")
+
+    assert secret not in repr(vars(credentials))
+    assert secret_hash(secret) in repr(vars(credentials))
+
+
+async def test_every_new_token_has_a_secret_of_its_own(access: Access) -> None:
+    first, _ = await access.create_token("one")
+    second, _ = await access.create_token("two")
+
+    assert first != second
+    assert (await access.authenticate_token(second)).name == "two"
+
+
+@pytest.mark.parametrize(
+    "secret",
+    ["", "neorc_", "not-ours", "neorc_" + "x" * 43, "neorc_" + "x" * 300],
+)
+async def test_a_secret_that_is_no_token_is_refused_without_repeating_it(
+    access: Access, secret: str
+) -> None:
+    await access.create_token("ci")
+
+    with pytest.raises(AuthenticationError) as refused:
+        await access.authenticate_token(secret)
+    assert "API token" in str(refused.value)
+    if secret:
+        assert secret not in str(refused.value)
+
+
+async def test_a_revoked_token_is_refused(access: Access) -> None:
+    secret, _ = await access.create_token("ci")
+
+    assert await access.revoke_token("ci") is True
+    assert await access.revoke_token("ci") is False
+    with pytest.raises(AuthenticationError, match="revoked"):
+        await access.authenticate_token(secret)
+    assert await access.tokens() == []
+
+
+async def test_an_expired_token_is_refused_and_still_listed(access: Access) -> None:
+    secret, token = await access.create_token("brief", expires_seconds=0.1)
+    assert token.expires_at is not None
+
+    await asyncio.sleep(0.2)
+
+    with pytest.raises(AuthenticationError, match="expired"):
+        await access.authenticate_token(secret)
+    assert [t.name for t in await access.tokens()] == ["brief"]
+
+
+@pytest.mark.parametrize(
+    ("name", "expires", "problem"),
+    [
+        ("", None, "not a token name"),
+        ("-ci", None, "not a token name"),
+        ("ci/1", None, "not a token name"),
+        ("x" * 101, None, "not a token name"),
+        ("ci", 0, "token's life"),
+        ("ci", float("inf"), "token's life"),
+        ("ci", MAX_SECONDS * 2, "token's life"),
+    ],
+)
+async def test_a_token_that_cannot_be_made_is_refused(
+    access: Access, name: str, expires: float | None, problem: str
+) -> None:
+    with pytest.raises(InvalidValueError, match=problem):
+        await access.create_token(name, expires_seconds=expires)
+    assert await access.tokens() == []
+
+
+async def test_a_token_name_is_used_once(access: Access) -> None:
+    await access.create_token("ci.deploy-1")
+
+    with pytest.raises(InvalidValueError, match="exists"):
+        await access.create_token("ci.deploy-1")
+
+
+# Signing in.
+
+
+async def test_a_sign_in_opens_a_session(access: Access) -> None:
+    state, login = await access.begin_login("google")
+
+    taken = await access.take_login("google", state)
+    secret, principal = await access.open_session(ADA)
+
+    assert taken == login
+    assert login.nonce != login.verifier and 43 <= len(login.verifier) <= 128
+    assert principal == Principal(
+        kind=PrincipalKind.SESSION,
+        subject=ADA.subject,
+        name="Ada Lovelace",
+        provider="google",
+        email="Ada@Example.com",
+    )
+    assert await access.authenticate_session(secret) == principal
+
+
+async def test_a_sign_in_is_taken_once_and_by_its_own_provider(
+    access: Access,
+) -> None:
+    state, _ = await access.begin_login("google")
+    other, _ = await access.begin_login("google")
+
+    with pytest.raises(AuthenticationError, match="another provider"):
+        await access.take_login("okta", state)
+    with pytest.raises(AuthenticationError, match="already used"):
+        await access.take_login("google", state)
+    with pytest.raises(AuthenticationError, match="already used"):
+        await access.take_login("google", "a state never given")
+    with pytest.raises(AuthenticationError, match="not one"):
+        await access.take_login("google", "")
+    assert (await access.take_login("google", other)).provider == "google"
+
+
+async def test_an_expired_sign_in_is_refused(
+    credentials: MemoryCredentialStore,
+) -> None:
+    access = Access(credentials, login_seconds=0.1)
+    state, _ = await access.begin_login("google")
+
+    await asyncio.sleep(0.2)
+
+    with pytest.raises(AuthenticationError, match="expired"):
+        await access.take_login("google", state)
+
+
+async def test_a_person_no_entry_matches_is_not_let_in(access: Access) -> None:
+    stranger = Identity("google", "7", email="eve@example.org", email_verified=True)
+
+    with pytest.raises(SignInRefusedError, match=r"eve@example\.org"):
+        await access.open_session(stranger)
+
+
+async def test_with_no_allow_list_nobody_signs_in(
+    credentials: MemoryCredentialStore,
+) -> None:
+    with pytest.raises(SignInRefusedError):
+        await Access(credentials).open_session(ADA)
+
+
+async def test_a_name_falls_back_to_the_verified_email_then_the_subject(
+    credentials: MemoryCredentialStore,
+) -> None:
+    access = Access(credentials, allow=[EVERYONE])
+
+    _, by_email = await access.open_session(
+        Identity("google", "1", email="ada@example.com", email_verified=True)
+    )
+    _, by_subject = await access.open_session(Identity("google", "1"))
+
+    assert (by_email.name, by_email.email) == ("ada@example.com", "ada@example.com")
+    assert by_subject.name == "1"
+
+
+async def test_an_unverified_email_is_neither_kept_nor_shown(
+    credentials: MemoryCredentialStore,
+) -> None:
+    access = Access(credentials, allow=[EVERYONE])
+
+    _, principal = await access.open_session(
+        Identity("google", "1", email="ceo@example.com")
+    )
+
+    assert (principal.name, principal.email) == ("1", None)
+
+
+# Sessions.
+
+
+async def test_a_signed_out_session_is_refused(access: Access) -> None:
+    secret, _ = await access.open_session(ADA)
+    kept, _ = await access.open_session(ADA)
+
+    await access.end_session(secret)
+    await access.end_session(secret)
+    await access.end_session("")
+
+    with pytest.raises(AuthenticationError, match="ended"):
+        await access.authenticate_session(secret)
+    assert (await access.authenticate_session(kept)).subject == ADA.subject
+    assert await access.end_sessions() == 1
+    with pytest.raises(AuthenticationError):
+        await access.authenticate_session(kept)
+
+
+async def test_an_expired_session_is_refused(
+    credentials: MemoryCredentialStore,
+) -> None:
+    access = Access(credentials, allow=[EVERYONE], session_seconds=0.1)
+    secret, _ = await access.open_session(ADA)
+
+    await asyncio.sleep(0.2)
+
+    with pytest.raises(AuthenticationError, match="expired"):
+        await access.authenticate_session(secret)
+
+
+@pytest.mark.parametrize("secret", ["", "x" * 300, "never opened"])
+async def test_a_secret_that_is_no_session_is_refused(
+    access: Access, secret: str
+) -> None:
+    with pytest.raises(AuthenticationError, match="session"):
+        await access.authenticate_session(secret)
+
+
+async def test_beginning_a_sign_in_sweeps_away_what_has_expired(
+    credentials: MemoryCredentialStore,
+) -> None:
+    access = Access(
+        credentials, allow=[EVERYONE], session_seconds=0.1, login_seconds=0.1
+    )
+    first, _ = await access.begin_login("google")
+    session, _ = await access.open_session(ADA)
+    await asyncio.sleep(0.2)
+
+    await access.begin_login("google")
+
+    assert await credentials.take_login(secret_hash(first)) is None
+    assert await credentials.delete_session(secret_hash(session)) is False
+    assert await credentials.delete_sessions() == 0
+
+
+@pytest.mark.parametrize("seconds", [0, -1, float("nan"), MAX_SECONDS + 1])
+def test_lives_out_of_bounds_are_refused(
+    credentials: MemoryCredentialStore, seconds: float
+) -> None:
+    with pytest.raises(InvalidValueError, match="session's life"):
+        Access(credentials, session_seconds=seconds)
+    with pytest.raises(InvalidValueError, match="sign-in's life"):
+        Access(credentials, login_seconds=seconds)

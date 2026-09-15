@@ -19,6 +19,7 @@ from typing import Any
 
 import neorc_core
 from neorc_core import (
+    AuthenticationError,
     FlowDefinitionError,
     FlowNotFoundError,
     FlowVersionError,
@@ -30,6 +31,7 @@ from neorc_core import (
     ResolutionError,
     RunNotFoundError,
     RunStateError,
+    SignInRefusedError,
     TaskNotFoundError,
     TaskStateError,
 )
@@ -46,6 +48,9 @@ STATUS_OF: dict[type[NeorcError], int] = {
     FlowVersionError: 409,
     RunStateError: 409,
     TaskStateError: 409,
+    # Who is asking is not known, or not let in.
+    AuthenticationError: 401,
+    SignInRefusedError: 403,
     # What was named is not there.
     FlowNotFoundError: 404,
     RunNotFoundError: 404,

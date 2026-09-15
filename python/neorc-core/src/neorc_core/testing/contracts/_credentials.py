@@ -1,0 +1,185 @@
+# Copyright 2026 The neorc Authors
+# SPDX-License-Identifier: Apache-2.0
+
+"""What every ``CredentialStore`` must do: tokens, sessions, sign-ins, expiry."""
+
+from __future__ import annotations
+
+import asyncio
+from datetime import UTC, datetime, timedelta
+
+import pytest
+
+from neorc_core._access import PendingLogin, Principal, PrincipalKind, secret_hash
+from neorc_core._errors import InvalidValueError
+from neorc_core.ports._credentials import CredentialStore
+
+SHORT = 0.2
+"""A life that ends within a test."""
+
+PAST_SHORT = SHORT * 2
+"""Long enough to wait for ``SHORT`` to have ended, on any store's clock."""
+
+LONG = 3600.0
+
+PERSON = Principal(
+    kind=PrincipalKind.SESSION,
+    subject="248289761001",
+    name="Ada Lovelace",
+    provider="google",
+    email="ada@example.com",
+)
+
+LOGIN = PendingLogin(provider="google", nonce="n" * 43, verifier="v" * 64)
+
+
+class CredentialStoreContract:
+    """Subclass and provide a ``credentials`` fixture holding nothing."""
+
+    @pytest.fixture
+    def credentials(self) -> CredentialStore:
+        raise NotImplementedError(
+            "a CredentialStoreContract subclass provides `credentials`"
+        )
+
+    # API tokens.
+
+    async def test_a_token_is_found_by_its_hash_alone(
+        self, credentials: CredentialStore
+    ) -> None:
+        before = datetime.now(UTC) - timedelta(seconds=5)
+        added = await credentials.add_token("worker-1", secret_hash("s1"))
+
+        found = await credentials.token_by_hash(secret_hash("s1"))
+
+        assert found == added
+        assert (added.name, added.expires_at) == ("worker-1", None)
+        assert before < added.created_at < before + timedelta(seconds=60)
+        assert await credentials.token_by_hash(secret_hash("s2")) is None
+
+    async def test_tokens_are_listed_by_name(
+        self, credentials: CredentialStore
+    ) -> None:
+        await credentials.add_token("b", secret_hash("b"))
+        await credentials.add_token("a", secret_hash("a"))
+        await credentials.add_token("c", secret_hash("c"))
+
+        assert [t.name for t in await credentials.tokens()] == ["a", "b", "c"]
+
+    async def test_a_token_name_is_taken_once(
+        self, credentials: CredentialStore
+    ) -> None:
+        await credentials.add_token("ci", secret_hash("one"))
+
+        with pytest.raises(InvalidValueError, match="ci"):
+            await credentials.add_token("ci", secret_hash("two"))
+        assert await credentials.token_by_hash(secret_hash("two")) is None
+
+    async def test_an_expired_token_is_not_found_but_still_listed(
+        self, credentials: CredentialStore
+    ) -> None:
+        short = await credentials.add_token(
+            "short", secret_hash("short"), expires_seconds=SHORT
+        )
+        long = await credentials.add_token(
+            "long", secret_hash("long"), expires_seconds=LONG
+        )
+        assert short.expires_at is not None and long.expires_at is not None
+        assert short.expires_at - short.created_at == timedelta(seconds=SHORT)
+
+        await asyncio.sleep(PAST_SHORT)
+        await credentials.delete_expired()
+
+        assert await credentials.token_by_hash(secret_hash("short")) is None
+        assert await credentials.token_by_hash(secret_hash("long")) == long
+        assert [t.name for t in await credentials.tokens()] == ["long", "short"]
+
+    async def test_a_deleted_token_is_gone(self, credentials: CredentialStore) -> None:
+        await credentials.add_token("gone", secret_hash("g"))
+
+        assert await credentials.delete_token("gone") is True
+        assert await credentials.delete_token("gone") is False
+        assert await credentials.token_by_hash(secret_hash("g")) is None
+        assert await credentials.tokens() == []
+
+    # Sessions.
+
+    async def test_a_session_gives_back_its_principal(
+        self, credentials: CredentialStore
+    ) -> None:
+        await credentials.add_session(secret_hash("s"), PERSON, seconds=LONG)
+
+        assert await credentials.session_by_hash(secret_hash("s")) == PERSON
+        assert await credentials.session_by_hash(secret_hash("other")) is None
+
+    async def test_a_principal_with_nothing_optional_is_kept_as_it_is(
+        self, credentials: CredentialStore
+    ) -> None:
+        bare = Principal(
+            kind=PrincipalKind.SESSION,
+            subject="x",
+            name="x",
+        )
+        await credentials.add_session(secret_hash("bare"), bare, seconds=LONG)
+
+        assert await credentials.session_by_hash(secret_hash("bare")) == bare
+
+    async def test_an_expired_session_is_not_found(
+        self, credentials: CredentialStore
+    ) -> None:
+        await credentials.add_session(secret_hash("short"), PERSON, seconds=SHORT)
+        await credentials.add_session(secret_hash("long"), PERSON, seconds=LONG)
+
+        await asyncio.sleep(PAST_SHORT)
+
+        assert await credentials.session_by_hash(secret_hash("short")) is None
+        assert await credentials.session_by_hash(secret_hash("long")) == PERSON
+        await credentials.delete_expired()
+        assert await credentials.delete_session(secret_hash("short")) is False
+        assert await credentials.session_by_hash(secret_hash("long")) == PERSON
+
+    async def test_sessions_are_ended_one_or_all(
+        self, credentials: CredentialStore
+    ) -> None:
+        for key in ("a", "b", "c"):
+            await credentials.add_session(secret_hash(key), PERSON, seconds=LONG)
+
+        assert await credentials.delete_session(secret_hash("a")) is True
+        assert await credentials.delete_session(secret_hash("a")) is False
+        assert await credentials.session_by_hash(secret_hash("a")) is None
+        assert await credentials.delete_sessions() == 2
+        assert await credentials.session_by_hash(secret_hash("b")) is None
+        assert await credentials.delete_sessions() == 0
+
+    # Sign-ins in progress.
+
+    async def test_a_login_is_taken_once(self, credentials: CredentialStore) -> None:
+        await credentials.add_login(secret_hash("state"), LOGIN, seconds=LONG)
+
+        assert await credentials.take_login(secret_hash("state")) == LOGIN
+        assert await credentials.take_login(secret_hash("state")) is None
+        assert await credentials.take_login(secret_hash("never")) is None
+
+    async def test_of_two_takes_at_once_one_gets_the_login(
+        self, credentials: CredentialStore
+    ) -> None:
+        await credentials.add_login(secret_hash("state"), LOGIN, seconds=LONG)
+
+        taken = await asyncio.gather(
+            *(credentials.take_login(secret_hash("state")) for _ in range(5))
+        )
+
+        assert taken.count(LOGIN) == 1
+        assert taken.count(None) == 4
+
+    async def test_an_expired_login_is_not_taken(
+        self, credentials: CredentialStore
+    ) -> None:
+        await credentials.add_login(secret_hash("short"), LOGIN, seconds=SHORT)
+        await credentials.add_login(secret_hash("long"), LOGIN, seconds=LONG)
+
+        await asyncio.sleep(PAST_SHORT)
+        await credentials.delete_expired()
+
+        assert await credentials.take_login(secret_hash("short")) is None
+        assert await credentials.take_login(secret_hash("long")) == LOGIN
