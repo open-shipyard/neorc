@@ -65,66 +65,66 @@ function Loaded({
   );
   return (
     <>
-      <h1>
-        Run <code>{shortId(run.id)}</code> <StatusBadge status={run.status} />
-      </h1>
-      <dl className="facts">
-        <dt>Flow</dt>
-        <dd>
-          <a href={href({ name: "flow", flow: run.flow, version: run.version })}>
-            {run.flow} {run.version}
-          </a>
-        </dd>
-        <dt>Id</dt>
-        <dd>
-          <code>{run.id}</code>
-        </dd>
-        {run.parent_id && (
-          <>
-            <dt>Parent</dt>
-            <dd>
-              <a href={href({ name: "run", id: run.parent_id })}>
-                run <code>{shortId(run.parent_id)}</code>
-              </a>
-              {run.parent_address && (
-                <span className="muted">
-                  {" "}
-                  at {run.parent_address.step}
-                  {run.parent_address.scope.map(([name, n]) => ` ${name} ${n}`).join("")}
-                </span>
-              )}
-            </dd>
-          </>
-        )}
-        <dt>Started</dt>
-        <dd>{formatTime(run.created_at)}</dd>
-        <dt>Finished</dt>
-        <dd>
-          {formatTime(run.finished_at)}
-          {run.finished_at && (
-            <span className="muted"> took {formatDuration(run.created_at, run.finished_at)}</span>
-          )}
-        </dd>
-        {run.reason && (
-          <>
-            <dt>Reason</dt>
-            <dd>{run.reason}</dd>
-          </>
-        )}
-      </dl>
-
-      {run.status === "active" &&
-        (run.parent_id === null ? (
-          <CancelRun key={run.id} run={run} subRuns={subRuns.data ?? []} />
-        ) : (
-          <p className="muted">
-            Part of run{" "}
-            <a href={href({ name: "run", id: run.root_id })}>
-              <code>{shortId(run.root_id)}</code>
-            </a>
-            : a run is cancelled from its root, with its whole tree.
+      <p className="crumbs">
+        <a href={href({ name: "runs" })}>Runs</a> /{" "}
+        <a href={href({ name: "flow", flow: run.flow, version: run.version })}>{run.flow}</a> /{" "}
+        <span className="mono">{shortId(run.id)}</span>
+      </p>
+      <div className="page-head">
+        <div>
+          <h1 className="title-with-pill">
+            {run.flow} <span className="mono muted">{shortId(run.id)}</span>{" "}
+            <StatusBadge status={run.status} />
+          </h1>
+          <p className="mono-line subtitle">
+            {run.id} · version {run.version} · started {formatTime(run.created_at)}
+            {run.finished_at &&
+              ` · finished ${formatTime(run.finished_at)}, took ${formatDuration(run.created_at, run.finished_at)}`}
           </p>
-        ))}
+        </div>
+        {run.status === "active" && run.parent_id === null && (
+          <div className="actions">
+            <CancelRun key={run.id} run={run} subRuns={subRuns.data ?? []} />
+          </div>
+        )}
+      </div>
+      {(run.parent_id || run.reason) && (
+        <dl className="facts">
+          {run.parent_id && (
+            <>
+              <dt>Parent</dt>
+              <dd>
+                <a href={href({ name: "run", id: run.parent_id })}>
+                  run <code>{shortId(run.parent_id)}</code>
+                </a>
+                {run.parent_address && (
+                  <span className="muted">
+                    {" "}
+                    at {run.parent_address.step}
+                    {run.parent_address.scope.map(([name, n]) => ` ${name} ${n}`).join("")}
+                  </span>
+                )}
+              </dd>
+            </>
+          )}
+          {run.reason && (
+            <>
+              <dt>Reason</dt>
+              <dd>{run.reason}</dd>
+            </>
+          )}
+        </dl>
+      )}
+
+      {run.status === "active" && run.parent_id !== null && (
+        <p className="muted">
+          Part of run{" "}
+          <a href={href({ name: "run", id: run.root_id })}>
+            <code>{shortId(run.root_id)}</code>
+          </a>
+          : a run is cancelled from its root, with its whole tree.
+        </p>
+      )}
 
       <h2>Steps</h2>
       <ViewSwitch id={run.id} view={view} />

@@ -19,6 +19,7 @@ import type { Published, StepNode } from "../definition";
 import { shortId } from "../format";
 import { runGraph, type NodeData } from "../graph";
 import { href } from "../router";
+import { StatusDot } from "./StatusBadge";
 import { TaskDetails } from "./TaskDetails";
 
 type GraphFlowNode = Node<NodeData>;
@@ -117,7 +118,7 @@ function TaskNode({ data }: NodeProps<Node<Extract<NodeData, { kind: "task" }>>>
   return (
     <div className={`graph-node graph-task${data.task ? "" : " graph-none"}`}>
       <Handle type="target" position={Position.Top} isConnectable={false} />
-      <Dot status={data.status} />
+      <StatusDot status={data.status} />
       <div className="graph-node-text">
         <strong>{data.name}</strong>
         <span className="muted">{data.handler}</span>
@@ -132,7 +133,7 @@ function FlowNode({ data }: NodeProps<Node<Extract<NodeData, { kind: "flow" }>>>
   return (
     <div className={`graph-node graph-flow${data.run ? "" : " graph-none"}`}>
       <Handle type="target" position={Position.Top} isConnectable={false} />
-      <Dot status={data.status} />
+      <StatusDot status={data.status} />
       <div className="graph-node-text">
         <strong>{data.name}</strong>
         <span className="muted">sub-flow {data.flow}</span>
@@ -163,8 +164,4 @@ function ContainerNode({
       </div>
     </div>
   );
-}
-
-function Dot({ status }: { status: string }) {
-  return <span className={`dot dot-${status}`} data-status={status} aria-label={status} />;
 }

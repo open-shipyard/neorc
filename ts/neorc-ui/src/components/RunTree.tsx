@@ -5,9 +5,9 @@ import {
   type Scope,
   type StepNode,
 } from "../definition";
-import { shortId } from "../format";
+import { formatDuration, shortId } from "../format";
 import { href } from "../router";
-import { StatusBadge } from "./StatusBadge";
+import { StatusDot } from "./StatusBadge";
 import { TaskDetails } from "./TaskDetails";
 
 /**
@@ -48,40 +48,61 @@ function Step({
     case "task": {
       const task = done.tasks.get(addressKey(step.name, scope));
       return (
-        <>
-          {task ? <StatusBadge status={task.status} /> : <NotYet />}{" "}
-          <strong>{step.name}</strong>{" "}
-          <span className="muted">
-            <code>{step.handler}</code>
-          </span>
+        <div className={`card step-card${task ? "" : " not-yet"}`}>
+          <div className="step-line">
+            <StatusDot status={task?.status ?? "none"} />
+            <span className="step-text">
+              <strong>{step.name}</strong>
+              <span className="muted">
+                task · <code>{step.handler}</code>
+              </span>
+            </span>
+            <span className="mono muted step-when">
+              {task
+                ? when(task.status, formatDuration(task.started_at ?? task.created_at, task.finished_at))
+                : "not published"}
+            </span>
+          </div>
           {task && <TaskDetails task={task} />}
-        </>
+        </div>
       );
     }
     case "flow": {
       const run = done.subRuns.get(addressKey(step.name, scope));
       return (
-        <>
-          {run ? <StatusBadge status={run.status} /> : <NotYet />}{" "}
-          <strong>{step.name}</strong>{" "}
-          <span className="muted">
-            sub-flow <code>{step.flow}</code>
-          </span>
-          {run && (
-            <>
-              {" "}
-              <a href={href({ name: "run", id: run.id })}>
-                run <code>{shortId(run.id)}</code>
-              </a>
-            </>
-          )}
-        </>
+        <div className={`card step-card${run ? "" : " not-yet"}`}>
+          <div className="step-line">
+            <StatusDot status={run?.status ?? "none"} />
+            <span className="step-text">
+              <strong>{step.name}</strong>
+              <span className="muted">
+                sub-flow <code>{step.flow}</code>
+                {run && (
+                  <>
+                    {" · "}
+                    <a href={href({ name: "run", id: run.id })}>
+                      run <code>{shortId(run.id)}</code>
+                    </a>
+                  </>
+                )}
+              </span>
+            </span>
+            <span className="mono muted step-when">
+              {run ? when(run.status, formatDuration(run.created_at, run.finished_at)) : "not published"}
+            </span>
+          </div>
+        </div>
       );
     }
     case "loop":
     case "fan_out":
       return <Container step={step} scope={scope} done={done} />;
   }
+}
+
+/** The status in words, and how long it took once it has: colour alone says nothing to everyone. */
+function when(status: string, duration: string): string {
+  return duration ? `${status} · ${duration}` : status;
 }
 
 function Container({
@@ -100,8 +121,12 @@ function Container({
       ? `loop, at most ${step.maxCycles}, until ${step.exitCondition}`
       : `fan-out ${step.over}`;
   return (
-    <>
-      <strong>{step.name}</strong> <span className="muted">{about}</span>
+    <div className={`card container-card${instances.length === 0 ? " not-yet" : ""}`}>
+      <div className="step-line">
+        <span className="step-text">
+          <strong>{step.name}</strong> <span className="muted">{about}</span>
+        </span>
+      </div>
       {instances.length === 0 ? (
         <section className="instance not-yet">
           <h4 className="muted">not entered yet</h4>
@@ -117,14 +142,6 @@ function Container({
           </section>
         ))
       )}
-    </>
-  );
-}
-
-function NotYet() {
-  return (
-    <span className="badge badge-none" data-status="none">
-      not published
-    </span>
+    </div>
   );
 }
