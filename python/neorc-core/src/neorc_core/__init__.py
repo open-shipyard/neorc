@@ -5,7 +5,18 @@
 
 from importlib.metadata import PackageNotFoundError, version
 
+from neorc_core._access import (
+    Access,
+    Allow,
+    ApiToken,
+    Identity,
+    Matcher,
+    PendingLogin,
+    Principal,
+    PrincipalKind,
+)
 from neorc_core._errors import (
+    AuthenticationError,
     FlowDefinitionError,
     FlowNotFoundError,
     FlowVersionError,
@@ -16,6 +27,7 @@ from neorc_core._errors import (
     ResolutionError,
     RunNotFoundError,
     RunStateError,
+    SignInRefusedError,
     TaskNotFoundError,
     TaskStateError,
 )
@@ -40,6 +52,7 @@ from neorc_core._task import (
 )
 from neorc_core._worker import HandlerError, Worker
 from neorc_core.ports import (
+    CredentialStore,
     ManagerClient,
     QueueClient,
     Store,
@@ -55,18 +68,28 @@ except PackageNotFoundError:  # a source checkout on sys.path, not installed
 __all__ = [
     "LEASED_STATUSES",
     "TERMINAL_STATUSES",
+    "Access",
+    "Allow",
+    "ApiToken",
+    "AuthenticationError",
+    "CredentialStore",
     "Event",
     "EventKind",
     "FlowDefinitionError",
     "FlowNotFoundError",
     "FlowVersionError",
     "HandlerError",
+    "Identity",
     "InvalidValueError",
     "Manager",
     "ManagerClient",
     "ManagerUnavailableError",
+    "Matcher",
     "NeorcError",
     "PayloadTooLargeError",
+    "PendingLogin",
+    "Principal",
+    "PrincipalKind",
     "QueueClient",
     "ResolutionError",
     "Run",
@@ -75,6 +98,7 @@ __all__ = [
     "RunStateError",
     "RunStatus",
     "Scheduler",
+    "SignInRefusedError",
     "Store",
     "StoredFlow",
     "Subscription",
