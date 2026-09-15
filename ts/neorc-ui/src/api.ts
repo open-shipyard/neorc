@@ -111,13 +111,14 @@ export const PAGE_SIZE = 50;
 export async function listRuns(
   filters: RunFilters,
   before?: string,
+  limit: number = PAGE_SIZE,
 ): Promise<Run[]> {
   const params = {
     flow: filters.flow,
     status: filters.status,
     root_only: filters.rootOnly ?? true,
     before,
-    limit: PAGE_SIZE,
+    limit,
   };
   return (await getJson<{ runs: Run[] }>("/runs", params)).runs;
 }
