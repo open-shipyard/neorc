@@ -43,8 +43,20 @@ FLOW_VERSIONS_TABLE = "neorc_flow_versions"
 RUNS_TABLE = "neorc_runs"
 FLOW_TASKS_TABLE = "neorc_flow_tasks"
 EVENTS_TABLE = "neorc_events"
+TOKENS_TABLE = "neorc_api_tokens"
+SESSIONS_TABLE = "neorc_sessions"
+PENDING_LOGINS_TABLE = "neorc_pending_logins"
 
-TABLES = (FLOW_VERSIONS_TABLE, RUNS_TABLE, FLOW_TASKS_TABLE, EVENTS_TABLE)
+CREDENTIAL_TABLES = (TOKENS_TABLE, SESSIONS_TABLE, PENDING_LOGINS_TABLE)
+"""The tables of the credential store, which a manager with authentication needs."""
+
+TABLES = (
+    FLOW_VERSIONS_TABLE,
+    RUNS_TABLE,
+    FLOW_TASKS_TABLE,
+    EVENTS_TABLE,
+    *CREDENTIAL_TABLES,
+)
 """Every table ``create_schema`` creates."""
 
 RETIRED_TABLES = ("neorc_tasks",)
@@ -58,6 +70,8 @@ INDEXES = (
     f"{RUNS_TABLE}_flow_position_idx",
     f"{FLOW_TASKS_TABLE}_run_idx",
     f"{FLOW_TASKS_TABLE}_claim_idx",
+    f"{SESSIONS_TABLE}_expires_idx",
+    f"{PENDING_LOGINS_TABLE}_expires_idx",
 )
 """Every index ``create_schema`` creates, besides primary keys."""
 
@@ -187,6 +201,44 @@ CREATE TABLE IF NOT EXISTS {EVENTS_TABLE} (
                      CHECK (kind IN ('run_started', 'task_finished',
                                      'run_finished'))
 );
+
+-- Credentials. Secrets are never stored, only their SHA-256 in hex, which
+-- rows are found by. Times come from now(), so expiry is decided by one clock.
+CREATE TABLE IF NOT EXISTS {TOKENS_TABLE} (
+    id               uuid PRIMARY KEY,
+    name             text NOT NULL UNIQUE,
+    secret_hash      text NOT NULL UNIQUE,
+    created_at       timestamptz NOT NULL DEFAULT now(),
+    expires_at       timestamptz
+);
+
+-- Who signed in, as their provider said; kind mirrors PrincipalKind.
+CREATE TABLE IF NOT EXISTS {SESSIONS_TABLE} (
+    secret_hash      text PRIMARY KEY,
+    kind             text NOT NULL CHECK (kind IN ('token', 'session')),
+    subject          text NOT NULL,
+    name             text NOT NULL,
+    provider         text,
+    email            text,
+    created_at       timestamptz NOT NULL DEFAULT now(),
+    expires_at       timestamptz NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS {PENDING_LOGINS_TABLE} (
+    state_hash       text PRIMARY KEY,
+    provider         text NOT NULL,
+    nonce            text NOT NULL,
+    verifier         text NOT NULL,
+    created_at       timestamptz NOT NULL DEFAULT now(),
+    expires_at       timestamptz NOT NULL
+);
+
+-- The sweep of expired sessions and sign-ins deletes by expiry; anyone may
+-- start a sign-in, so it must not scan the table.
+CREATE INDEX IF NOT EXISTS {SESSIONS_TABLE}_expires_idx
+    ON {SESSIONS_TABLE} (expires_at);
+CREATE INDEX IF NOT EXISTS {PENDING_LOGINS_TABLE}_expires_idx
+    ON {PENDING_LOGINS_TABLE} (expires_at);
 """
 
 DROP_SCHEMA = f"DROP TABLE IF EXISTS {', '.join(TABLES + RETIRED_TABLES)}"
