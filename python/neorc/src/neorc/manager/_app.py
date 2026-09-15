@@ -12,14 +12,21 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from neorc._errors import error_body, status_of
+from neorc.manager._access import guard
 from neorc.manager._routes import router
 from neorc.manager._ui import mount_ui
-from neorc_core import InvalidValueError, Manager, NeorcError
+from neorc_core import (
+    Access,
+    AuthenticationError,
+    InvalidValueError,
+    Manager,
+    NeorcError,
+)
 
 DEFAULT_LONG_POLL_TIMEOUT = 25.0
 """How long a fetch waits before answering "nothing yet".
@@ -32,21 +39,42 @@ that hits it simply asks again.
 def create_app(
     manager: Manager,
     *,
+    access: Access | None,
     long_poll_timeout: float = DEFAULT_LONG_POLL_TIMEOUT,
     ui: Path | None = None,
 ) -> FastAPI:
     """Build the ASGI application serving ``manager``.
 
+    ``access`` authenticates every request to the API; ``None`` serves it to
+    anyone, and must be said. Whoever built ``access`` opens and closes its
+    credential store. With authentication on, the Swagger and ReDoc pages are
+    not served: they load scripts from a CDN, outside the UI's
+    Content-Security-Policy. ``/openapi.json`` is served either way.
+
     With ``ui``, a directory holding the built web UI, the app serves it at
     ``/ui/`` and sends ``/`` there; without, ``/`` is not found.
     """
-    app = FastAPI(title="neorc manager", version="0")
+    pages = access is None
+    app = FastAPI(
+        title="neorc manager",
+        version="0",
+        docs_url="/docs" if pages else None,
+        redoc_url="/redoc" if pages else None,
+    )
     app.state.manager = manager
+    app.state.access = access
     app.state.long_poll_timeout = long_poll_timeout
 
     @app.exception_handler(NeorcError)
     async def _neorc_error(request: Request, exc: NeorcError) -> JSONResponse:
-        return JSONResponse(error_body(exc), status_code=status_of(exc))
+        headers = (
+            {"www-authenticate": "Bearer"}
+            if isinstance(exc, AuthenticationError)
+            else None
+        )
+        return JSONResponse(
+            error_body(exc), status_code=status_of(exc), headers=headers
+        )
 
     @app.exception_handler(RequestValidationError)
     async def _bad_request(
@@ -57,7 +85,7 @@ def create_app(
         error = InvalidValueError(f"request: {exc}")
         return JSONResponse(error_body(error), status_code=status_of(error))
 
-    app.include_router(router)
+    app.include_router(router, dependencies=[Depends(guard)])
 
     @app.get("/health")
     async def health() -> dict[str, str]:

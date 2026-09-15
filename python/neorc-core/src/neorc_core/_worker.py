@@ -5,6 +5,12 @@
 
 Handlers are plain functions named by import path, called with a task's inputs
 as keyword arguments; they need not import neorc.
+
+A refused token ends the worker: ``run`` raises the ``AuthenticationError``
+rather than poll again. Refused while a handler runs, by a heartbeat, it ends
+the handler too, since without heartbeats the lease lapses and another worker
+may take the task: an async handler is cancelled, and a handler in a thread,
+which cannot be, is left behind; ``run`` raises without waiting for it.
 """
 
 from __future__ import annotations
@@ -12,12 +18,13 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+from asyncio import FIRST_COMPLETED
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from neorc_core import _values
-from neorc_core._errors import NeorcError, RunStateError
+from neorc_core._errors import AuthenticationError, NeorcError, RunStateError
 from neorc_core._handlers import resolve_handler, signature_problems
 from neorc_core._runs import TaskDelivery, storable_text
 from neorc_core._task import TaskId
@@ -48,6 +55,11 @@ class Worker:
 
     Call ``prepare`` before ``run`` or ``run_once``: it checks every handler on
     the queue imports and takes exactly its task's inputs.
+
+    A program running a worker whose handlers run in threads must end its
+    process when ``run`` raises ``AuthenticationError``, as ``neorc worker
+    start`` does: a handler thread left behind still runs, and the task it
+    holds may be taken and run again by another worker once its lease lapses.
     """
 
     def __init__(
@@ -100,11 +112,14 @@ class Worker:
             polling.cancel()
 
     async def run(self) -> None:
-        """Take and run tasks until ``stop`` is called."""
+        """Take and run tasks until ``stop`` is called, or the token is refused."""
         _log.info("worker started on queue %r", self._queue)
         while not self._stopping:
             try:
                 await self.run_once()
+            except AuthenticationError:
+                _log.error("the manager refused the worker's API token")
+                raise
             except NeorcError:
                 _log.exception("worker iteration failed")
                 await asyncio.sleep(1)
@@ -146,8 +161,38 @@ class Worker:
             return
 
         heartbeat = asyncio.create_task(self._heartbeat(task.id))
-        result: _values.JsonValue = None
-        error: str | None = None
+        work = asyncio.create_task(self._call(delivery))
+        try:
+            await asyncio.wait({work, heartbeat}, return_when=FIRST_COMPLETED)
+            if not work.done():
+                # A heartbeat ends only when the token was refused: the lease
+                # will lapse, so the handler must not go on holding the task.
+                work.cancel()
+                heartbeat.result()
+                raise AssertionError("unreachable: a heartbeat ended unrefused")
+            # Let the lease lapse on a cancellation: the task belongs to
+            # whoever takes it next.
+            result, error = work.result()
+        finally:
+            heartbeat.cancel()
+            work.cancel()
+        if error is not None:
+            # A message, not a value: what no store or transport could carry
+            # is replaced, as the stores do, and a huge one is cut short,
+            # rather than have the report refused on every lease.
+            error = storable_text(error)[:MAX_ERROR_LENGTH]
+        await self._client.report_finished(task.id, result=result, error=error)
+
+    async def _call(
+        self, delivery: TaskDelivery
+    ) -> tuple[_values.JsonValue, str | None]:
+        """The handler's result in its JSON form, or why the task failed.
+
+        Whatever the handler raises is caught here, ``SystemExit`` included,
+        which a task would otherwise hand to the event loop; a cancellation
+        alone goes through.
+        """
+        task = delivery.task
         try:
             function = self._resolve(task.handler)
             # Values already accepted, and collected into lists by the loops
@@ -166,32 +211,22 @@ class Worker:
             else:
                 value = await asyncio.to_thread(function, **arguments)
         except asyncio.CancelledError:
-            # Let the lease lapse: the task belongs to whoever takes it next.
             raise
         except BaseException as exc:  # SystemExit from a handler fails its task too
             _log.exception("task %s failed", task.id)
-            error = f"{type(exc).__name__}: {exc}"
-        else:
-            try:
-                # A result too deep or too big is one the manager would fail
-                # the task for; but a transport would refuse the report before
-                # the manager could, and the task would run again on every
-                # lease. So it is failed here, once.
-                result = _values.encode(value)
-                _values.ensure_fits(_values.dumps_json(result))
-            except (ValueError, TypeError, RecursionError) as exc:
-                # InvalidValueError is a ValueError; the rest is whatever
-                # writing the result as JSON refused.
-                result = None
-                error = f"invalid result: {type(exc).__name__}: {exc}"
-        finally:
-            heartbeat.cancel()
-        if error is not None:
-            # A message, not a value: what no store or transport could carry
-            # is replaced, as the stores do, and a huge one is cut short,
-            # rather than have the report refused on every lease.
-            error = storable_text(error)[:MAX_ERROR_LENGTH]
-        await self._client.report_finished(task.id, result=result, error=error)
+            return None, f"{type(exc).__name__}: {exc}"
+        try:
+            # A result too deep or too big is one the manager would fail the
+            # task for; but a transport would refuse the report before the
+            # manager could, and the task would run again on every lease. So
+            # it is failed here, once.
+            result = _values.encode(value)
+            _values.ensure_fits(_values.dumps_json(result))
+        except (ValueError, TypeError, RecursionError) as exc:
+            # InvalidValueError is a ValueError; the rest is whatever writing
+            # the result as JSON refused.
+            return None, f"invalid result: {type(exc).__name__}: {exc}"
+        return result, None
 
     def _resolve(self, handler: str) -> Callable[..., Any]:
         function = self._handlers.get(handler)
@@ -201,12 +236,15 @@ class Worker:
         return function
 
     async def _heartbeat(self, task_id: TaskId) -> None:
+        """Keep the lease until cancelled; end only by raising a refused token."""
         while True:
             await asyncio.sleep(self._lease_seconds * HEARTBEAT_FRACTION)
             try:
                 await self._client.extend_lease(
                     task_id, lease_seconds=self._lease_seconds
                 )
+            except AuthenticationError:
+                raise
             except Exception:
                 # Keep beating: one failed call should not cost the task.
                 _log.warning("heartbeat for task %s failed", task_id, exc_info=True)

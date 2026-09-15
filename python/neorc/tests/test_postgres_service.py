@@ -46,7 +46,7 @@ async def processes(pg_schema: str) -> AsyncIterator[tuple[_Process, _Process]]:
     async with AsyncExitStack() as stack:
         built = []
         for _ in range(2):
-            app = build_app(pg_schema, long_poll_timeout=5, ui=False)
+            app = build_app(pg_schema, auth=False, long_poll_timeout=5, ui=False)
             await stack.enter_async_context(app.router.lifespan_context(app))
             transport = httpx.ASGITransport(app=app)
             manager = await stack.enter_async_context(
@@ -105,7 +105,7 @@ async def test_the_flow_tables_are_created_at_startup(pg_schema: str) -> None:
     from neorc.postgres import drop_schema
 
     await drop_schema(pg_schema)
-    app = build_app(pg_schema, create_schema=True, ui=False)
+    app = build_app(pg_schema, auth=False, create_schema=True, ui=False)
 
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app)

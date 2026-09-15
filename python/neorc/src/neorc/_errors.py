@@ -20,6 +20,7 @@ from typing import Any
 import neorc_core
 from neorc_core import (
     AuthenticationError,
+    CrossSiteRequestError,
     FlowDefinitionError,
     FlowNotFoundError,
     FlowVersionError,
@@ -34,6 +35,7 @@ from neorc_core import (
     SignInRefusedError,
     TaskNotFoundError,
     TaskStateError,
+    UnsupportedMediaTypeError,
 )
 
 STATUS_OF: dict[type[NeorcError], int] = {
@@ -44,6 +46,7 @@ STATUS_OF: dict[type[NeorcError], int] = {
     ResolutionError: 422,
     HandlerError: 422,
     PayloadTooLargeError: 413,
+    UnsupportedMediaTypeError: 415,
     # What was asked does not fit where things are.
     FlowVersionError: 409,
     RunStateError: 409,
@@ -51,6 +54,7 @@ STATUS_OF: dict[type[NeorcError], int] = {
     # Who is asking is not known, or not let in.
     AuthenticationError: 401,
     SignInRefusedError: 403,
+    CrossSiteRequestError: 403,
     # What was named is not there.
     FlowNotFoundError: 404,
     RunNotFoundError: 404,

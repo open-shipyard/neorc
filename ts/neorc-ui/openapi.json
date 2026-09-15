@@ -625,6 +625,13 @@
         "title": "UploadResponse",
         "type": "object"
       }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "description": "An API token, from `neorc tokens create`.",
+        "scheme": "bearer",
+        "type": "http"
+      }
     }
   },
   "info": {
@@ -690,6 +697,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -720,6 +747,16 @@
             },
             "description": "The exception the manager raised"
           },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -731,6 +768,11 @@
             "description": "The exception the manager raised"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Wait For Events"
       }
     },
@@ -749,6 +791,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -779,6 +841,16 @@
             },
             "description": "The exception the manager raised"
           },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -790,6 +862,11 @@
             "description": "The exception the manager raised"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Latest Event"
       }
     },
@@ -808,6 +885,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -838,6 +935,16 @@
             },
             "description": "The exception the manager raised"
           },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -849,6 +956,11 @@
             "description": "The exception the manager raised"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "List Flows"
       },
       "post": {
@@ -865,6 +977,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -895,6 +1027,16 @@
             },
             "description": "The exception the manager raised"
           },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -906,6 +1048,11 @@
             "description": "The exception the manager raised"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Upload Flows"
       }
     },
@@ -935,6 +1082,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -965,6 +1132,16 @@
             },
             "description": "The exception the manager raised"
           },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -976,6 +1153,11 @@
             "description": "The exception the manager raised"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Get Latest Flow"
       }
     },
@@ -1005,6 +1187,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1035,6 +1237,16 @@
             },
             "description": "The exception the manager raised"
           },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1046,6 +1258,11 @@
             "description": "The exception the manager raised"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Start Run"
       }
     },
@@ -1075,6 +1292,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1105,6 +1342,16 @@
             },
             "description": "The exception the manager raised"
           },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1116,6 +1363,11 @@
             "description": "The exception the manager raised"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Flow Versions"
       }
     },
@@ -1154,6 +1406,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1184,6 +1456,16 @@
             },
             "description": "The exception the manager raised"
           },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1195,6 +1477,11 @@
             "description": "The exception the manager raised"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Get Flow Version"
       }
     },
@@ -1247,6 +1534,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1277,6 +1584,16 @@
             },
             "description": "The exception the manager raised"
           },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1288,6 +1605,11 @@
             "description": "The exception the manager raised"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Task Definitions"
       }
     },
@@ -1348,6 +1670,26 @@
           "204": {
             "description": "The wait ended with no task"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1378,6 +1720,16 @@
             },
             "description": "The exception the manager raised"
           },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1389,6 +1741,11 @@
             "description": "The exception the manager raised"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Pick Next Task"
       }
     },
@@ -1480,6 +1837,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1510,6 +1887,16 @@
             },
             "description": "The exception the manager raised"
           },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1521,6 +1908,11 @@
             "description": "The exception the manager raised"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "List Runs"
       }
     },
@@ -1551,6 +1943,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1581,6 +1993,16 @@
             },
             "description": "The exception the manager raised"
           },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1592,6 +2014,11 @@
             "description": "The exception the manager raised"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Get Run"
       }
     },
@@ -1615,6 +2042,26 @@
           "204": {
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1645,6 +2092,16 @@
             },
             "description": "The exception the manager raised"
           },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1656,6 +2113,11 @@
             "description": "The exception the manager raised"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Cancel Run"
       }
     },
@@ -1679,6 +2141,26 @@
           "204": {
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1709,6 +2191,16 @@
             },
             "description": "The exception the manager raised"
           },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1720,6 +2212,11 @@
             "description": "The exception the manager raised"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Fail Run"
       }
     },
@@ -1750,6 +2247,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1780,6 +2297,16 @@
             },
             "description": "The exception the manager raised"
           },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1791,6 +2318,11 @@
             "description": "The exception the manager raised"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Run State"
       }
     },
@@ -1821,6 +2353,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1851,6 +2403,16 @@
             },
             "description": "The exception the manager raised"
           },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1862,6 +2424,11 @@
             "description": "The exception the manager raised"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Sub Runs"
       },
       "post": {
@@ -1890,6 +2457,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1920,6 +2507,16 @@
             },
             "description": "The exception the manager raised"
           },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1931,6 +2528,11 @@
             "description": "The exception the manager raised"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Start Sub Run"
       }
     },
@@ -1961,6 +2563,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1991,6 +2613,16 @@
             },
             "description": "The exception the manager raised"
           },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -2002,6 +2634,11 @@
             "description": "The exception the manager raised"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Succeed Run"
       }
     },
@@ -2032,6 +2669,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -2062,6 +2719,16 @@
             },
             "description": "The exception the manager raised"
           },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -2073,6 +2740,11 @@
             "description": "The exception the manager raised"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Run Tasks"
       },
       "post": {
@@ -2101,6 +2773,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -2131,6 +2823,16 @@
             },
             "description": "The exception the manager raised"
           },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -2142,6 +2844,11 @@
             "description": "The exception the manager raised"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Publish Task"
       }
     },
@@ -2172,6 +2879,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -2202,6 +2929,16 @@
             },
             "description": "The exception the manager raised"
           },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -2213,6 +2950,11 @@
             "description": "The exception the manager raised"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Get Task"
       }
     },
@@ -2236,6 +2978,26 @@
           "204": {
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -2266,6 +3028,16 @@
             },
             "description": "The exception the manager raised"
           },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -2277,6 +3049,11 @@
             "description": "The exception the manager raised"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Report Finished"
       }
     },
@@ -2307,6 +3084,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -2337,6 +3134,16 @@
             },
             "description": "The exception the manager raised"
           },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -2348,6 +3155,11 @@
             "description": "The exception the manager raised"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Extend Lease"
       }
     },
@@ -2371,6 +3183,26 @@
           "204": {
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -2401,6 +3233,16 @@
             },
             "description": "The exception the manager raised"
           },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -2412,6 +3254,11 @@
             "description": "The exception the manager raised"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Report Started"
       }
     }

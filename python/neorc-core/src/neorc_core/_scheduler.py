@@ -8,6 +8,10 @@ definition of that run's version, calls ``plan``, and applies the actions
 through a manager client. It keeps no state of its own beyond where it is in
 the event log, so a restarted scheduler that reads events again plans nothing
 new.
+
+A refused token is neither a rejected request nor a passing failure: it fails
+no run, and ends ``run`` with the refusal, since asking again would be refused
+again.
 """
 
 from __future__ import annotations
@@ -15,7 +19,11 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from neorc_core._errors import ManagerUnavailableError, NeorcError
+from neorc_core._errors import (
+    AuthenticationError,
+    ManagerUnavailableError,
+    NeorcError,
+)
 from neorc_core._planner import (
     Action,
     FailRun,
@@ -54,11 +62,14 @@ class Scheduler:
             polling.cancel()
 
     async def run(self) -> None:
-        """Handle events until ``stop`` is called."""
+        """Handle events until ``stop`` is called, or the manager refuses the token."""
         _log.info("scheduler started")
         while not self._stopping:
             try:
                 await self.run_once()
+            except AuthenticationError:
+                _log.error("the manager refused the scheduler's API token")
+                raise
             except NeorcError:
                 _log.exception("scheduler iteration failed")
                 await asyncio.sleep(1)
@@ -100,7 +111,7 @@ class Scheduler:
         for action in plan(definition, state):
             try:
                 await self._apply(run, action)
-            except ManagerUnavailableError:
+            except (ManagerUnavailableError, AuthenticationError):
                 raise
             except NeorcError as exc:
                 await self._rejected(run, action, exc)

@@ -14,6 +14,10 @@ FastAPI's own parsing would hand a deeply nested body to the C parser first.
 The models check the shape of the envelope alone; values inside it are checked
 by core, so a request the in-memory manager accepts is not refused by HTTP
 first, and one it refuses is refused the same way.
+
+No route declares a body parameter: FastAPI would read that body before the
+router's guard in ``_access.py`` runs, and a request with no token, or a
+cross-site write, must be refused before its body is read.
 """
 
 from __future__ import annotations
@@ -162,9 +166,12 @@ _ERROR = {"model": ErrorResponse, "description": "The exception the manager rais
 # types from the schema.
 router = APIRouter(
     responses={
+        status.HTTP_401_UNAUTHORIZED: _ERROR,
+        status.HTTP_403_FORBIDDEN: _ERROR,
         status.HTTP_404_NOT_FOUND: _ERROR,
         status.HTTP_409_CONFLICT: _ERROR,
         status.HTTP_413_CONTENT_TOO_LARGE: _ERROR,
+        status.HTTP_415_UNSUPPORTED_MEDIA_TYPE: _ERROR,
         status.HTTP_422_UNPROCESSABLE_CONTENT: _ERROR,
     }
 )

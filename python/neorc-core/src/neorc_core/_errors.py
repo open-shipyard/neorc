@@ -62,3 +62,11 @@ class AuthenticationError(NeorcError):
 
 class SignInRefusedError(NeorcError):
     """An identity provider vouched for a person whom no allow entry lets in."""
+
+
+class CrossSiteRequestError(NeorcError):
+    """A write a browser sent on behalf of a page on another site."""
+
+
+class UnsupportedMediaTypeError(NeorcError):
+    """A write not sent as ``application/json``, which every write must be."""
