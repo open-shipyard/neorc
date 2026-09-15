@@ -17,6 +17,8 @@ describe("routes", () => {
     ["#/nothing/here", { name: "unknown", hash: "#/nothing/here" }],
     ["#/runs/%E0", { name: "unknown", hash: "#/runs/%E0" }],
     ["#/flows/100%", { name: "unknown", hash: "#/flows/100%" }],
+    ["#/sign-in", { name: "sign-in", error: undefined }],
+    ["#/sign-in?error=expired", { name: "sign-in", error: "expired" }],
   ])("parses %s", (hash, route) => {
     expect(parseHash(hash)).toEqual(route);
   });
@@ -29,6 +31,8 @@ describe("routes", () => {
       { name: "flow", flow: "a/b", version: "2.0.0" },
       { name: "run", id: "abc" },
       { name: "run", id: "abc", view: "graph" },
+      { name: "sign-in" },
+      { name: "sign-in", error: "not allowed&more" },
     ];
     for (const route of routes) {
       expect(parseHash(href(route))).toMatchObject(route);

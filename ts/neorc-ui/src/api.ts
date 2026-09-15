@@ -11,6 +11,7 @@ export type TaskStatus = Schemas["TaskStatus"];
 export type Address = Schemas["AddressResponse"];
 export type ApiEvent = Schemas["EventResponse"];
 export type ErrorBody = Schemas["ErrorResponse"];
+export type Session = Schemas["SessionResponse"];
 
 export const RUN_STATUSES: readonly RunStatus[] = [
   "active",
@@ -46,11 +47,27 @@ export function apiUrl(
   return url;
 }
 
+const unauthorizedListeners = new Set<() => void>();
+
+/**
+ * Call `listener` whenever the manager answers 401: the session this page
+ * signed in with has ended. Returns the function that stops it.
+ */
+export function onUnauthorized(listener: () => void): () => void {
+  unauthorizedListeners.add(listener);
+  return () => unauthorizedListeners.delete(listener);
+}
+
 async function request<T>(url: URL, init: RequestInit = {}): Promise<T> {
   const response = await fetch(url, {
     ...init,
     headers: { accept: "application/json", ...init.headers },
   });
+  // The session's own route is what the listeners ask again: its refusal
+  // telling them would only ask again, and again.
+  if (response.status === 401 && !url.pathname.endsWith("/auth/session")) {
+    for (const listener of unauthorizedListeners) listener();
+  }
   if (!response.ok) {
     let body: ErrorBody;
     try {
