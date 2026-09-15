@@ -37,10 +37,19 @@ A deployment installs what each host needs — the base install pulls in nothing
     pip install 'neorc[manager,postgres]'   # the manager host
     pip install 'neorc[http]'               # scheduler and worker hosts
 
-Start the manager:
+Start the manager, and create an API token for each process that will reach
+it. Every request needs one; `neorc tokens create` prints its secret once:
 
     export NEORC_DATABASE_URL=postgresql://localhost/neorc
-    neorc manager start --create-schema
+    neorc manager start --create-schema \
+        --ssl-certfile manager.pem --ssl-keyfile manager-key.pem
+    neorc tokens create scheduler
+    neorc tokens create worker-1
+
+A token is sent only over HTTPS, or to a loopback address: serve the manager
+with a certificate as above, or behind a proxy that terminates TLS. `neorc
+tokens list` and `neorc tokens revoke <name>` manage them. To try it on one
+machine nobody else reaches, `neorc manager start --no-auth` asks for none.
 
 Write the work, as plain functions that need not import neorc:
 
@@ -64,22 +73,26 @@ steps:
 ```
 
 Upload the flows, start the scheduler, and a worker on any host that can reach
-the manager, with the code the handlers import from:
+the manager, with the code the handlers import from, each with its token in
+`NEORC_API_TOKEN`:
 
-    export NEORC_MANAGER_ADDRESS=manager.internal:8420
+    export NEORC_MANAGER_ADDRESS=https://manager.internal:8420
+    export NEORC_API_TOKEN=neorc_...
     neorc flows upload flows
     neorc scheduler start
     neorc worker start --code-location .
 
 Start a run from anywhere:
 
-    curl -X POST manager.internal:8420/flows/hello/runs \
+    curl -X POST https://manager.internal:8420/flows/hello/runs \
+        -H "authorization: Bearer $NEORC_API_TOKEN" \
         -H 'content-type: application/json' -d '{"inputs": {"name": "world"}}'
 
-Or from the web UI the manager serves at `http://manager.internal:8420/ui/`:
+Or from the web UI the manager serves at `https://manager.internal:8420/ui/`:
 the flows, the runs and every task of each, live, as an outline or as a
 zoomable graph of the run's steps, with a form to start a run and a button
-to cancel one. There is no authentication yet: anyone who reaches
+to cancel one. Signing in to the UI is not there yet: until it is, the UI
+works only with a manager started with `--no-auth`, where anyone who reaches
 the manager can do all of that, so keep it to development and testing.
 
 [examples/hello](examples/hello) and [examples/wordplay](examples/wordplay)

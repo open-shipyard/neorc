@@ -29,11 +29,13 @@ It will be implemented as three services: a "manager", a "scheduler" and one or 
 
 After installing neorc users should be able to start
 
-neorc manager start
+neorc manager start --ssl-certfile manager.pem --ssl-keyfile manager-key.pem
+neorc tokens create worker-1
 
-And, in different hosts
+And, in different hosts, each with a token
 
-export NEORC_MANAGER_ADDRESS="xx.xx.xx.xx"
+export NEORC_MANAGER_ADDRESS="https://xx.xx.xx.xx:8420"
+export NEORC_API_TOKEN="neorc_..."
 neorc flows upload flows/
 neorc scheduler start
 neorc worker start --code-location .

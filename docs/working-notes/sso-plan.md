@@ -193,7 +193,7 @@ the address as the person's account holds it.
 | 1 | `feature/sso-1-access-core` | Access in core: tokens, sessions, the allow list, in memory | done |
 | 2 | `feature/sso-2-postgres-credentials` | The credential store on Postgres | done |
 | 3 | `feature/sso-3-manager-tokens` | The manager asks for a token; the clients send one | done |
-| 4 | `feature/sso-4-cli` | The command line: tokens, sessions, `--no-auth` | |
+| 4 | `feature/sso-4-cli` | The command line: tokens, sessions, `--no-auth` | done |
 | 5 | `feature/sso-5-oidc` | Sign-in with OpenID Connect | |
 | 6 | `feature/sso-6-ui` | The UI: sign in, the profile, sign out | |
 | 7 | `feature/sso-7-browser-test-docs` | Browser test, docs and changelog | |

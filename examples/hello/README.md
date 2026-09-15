@@ -22,18 +22,28 @@ each step from the repository root in its own terminal, after `uv sync`.
 
    It prints an `export NEORC_DATABASE_URL=...` line; copy it for step 2.
 
-2. The manager:
+2. The manager, and an API token for the processes below:
 
        export NEORC_DATABASE_URL=...   # from step 1
        uv run neorc manager start --host 127.0.0.1 --create-schema --no-ui
+
+       export NEORC_DATABASE_URL=...   # in another terminal
+       uv run neorc tokens create local
+
+   The second command prints the token's secret, once. In every terminal
+   below, `export NEORC_API_TOKEN=<that secret>` first: the manager answers
+   no request without it. A token is sent over plain `http` only to a
+   loopback address, as here.
 
    `--no-ui` because a checkout holds no built web UI; the `neorc-ui` wheel
    does, and `neorc manager start` serves it at `/ui/` unless told not to.
    To serve it from a checkout, build it and put it where the manager
    looks (`npm ci && npm run build` in `ts/neorc-ui`, then copy `dist/` to
-   `python/neorc-ui/src/neorc_ui/static/`), drop `--no-ui`, and open
-   <http://127.0.0.1:8420/ui/> to watch the runs below, start more and
-   cancel them. No authentication yet.
+   `python/neorc-ui/src/neorc_ui/static/`), and drop `--no-ui`. Signing in
+   to the UI is not there yet, so to open <http://127.0.0.1:8420/ui/> and
+   watch the runs below, start more and cancel them, start the manager with
+   `--no-auth` too, which needs no token anywhere: anyone who reaches the
+   manager can then do everything.
 
 3. Upload the flows, as CI/CD would:
 
@@ -52,13 +62,15 @@ each step from the repository root in its own terminal, after `uv sync`.
 6. Start runs, as often as you like. The worker prints `a` or `b`:
 
        curl -X POST 127.0.0.1:8420/flows/a/runs \
+           -H "authorization: Bearer $NEORC_API_TOKEN" \
            -H 'content-type: application/json' -d '{"inputs": {}}'
 
        curl -X POST 127.0.0.1:8420/flows/b/runs \
+           -H "authorization: Bearer $NEORC_API_TOKEN" \
            -H 'content-type: application/json' -d '{"inputs": {}}'
 
    Each response carries the run's `id`; check on it with
-   `curl 127.0.0.1:8420/runs/<id>`.
+   `curl -H "authorization: Bearer $NEORC_API_TOKEN" 127.0.0.1:8420/runs/<id>`.
 
 [python/neorc/tests/test_end_to_end.py](../../python/neorc/tests/test_end_to_end.py)
 runs these steps, on a Postgres of its own, and asserts what the worker

@@ -250,6 +250,35 @@ async def create_schema(dsn: str) -> None:
         await conn.execute(CREATE_SCHEMA)
 
 
+async def missing_tables(dsn: str, tables: tuple[str, ...]) -> list[str]:
+    """Which of ``tables`` the database does not have, in their order."""
+    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+        cursor = await conn.execute(
+            "SELECT t.name FROM unnest(%s::text[]) WITH ORDINALITY AS t (name, n)"
+            " WHERE to_regclass(t.name) IS NULL ORDER BY t.n",
+            [list(tables)],
+        )
+        return [row[0] for row in await cursor.fetchall()]
+
+
+class MissingTablesError(RuntimeError):
+    """The database lacks tables the manager needs; the message names the fix."""
+
+
+async def ensure_credential_tables(dsn: str) -> None:
+    """Raise ``MissingTablesError`` naming the fix if the credential tables are missing.
+
+    A manager with authentication on would otherwise answer every request with
+    a 500, which workers and schedulers take for an outage and retry forever.
+    """
+    missing = await missing_tables(dsn, CREDENTIAL_TABLES)
+    if missing:
+        raise MissingTablesError(
+            f"the database has no {', '.join(missing)}: start the manager once "
+            "with `neorc manager start --create-schema` to create them"
+        )
+
+
 async def drop_schema(dsn: str) -> None:
     """Remove the neorc tables. For tests and teardown."""
     async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:

@@ -5,12 +5,16 @@
 
     neorc run examples/hello --flow a
     neorc manager start
+    neorc tokens create worker-1
     neorc flows upload examples/hello/flows --manager-address 127.0.0.1:8420
     neorc scheduler start --manager-address 127.0.0.1:8420
     neorc worker start --manager-address 127.0.0.1:8420 --code-location examples/hello
 
 Adapters are imported inside the handlers, so a host that installed only the
 extras it needs can still run the CLI.
+
+The commands that reach a manager send the API token in ``NEORC_API_TOKEN``,
+never taken from the command line, which every user of the host can read.
 """
 
 from __future__ import annotations
@@ -22,17 +26,21 @@ import json
 import logging
 import os
 import signal
+import ssl
 import sys
 import threading
 import uuid
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Awaitable, Callable, Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
+from typing import TypeVar
 
 from neorc_core import (
+    AuthenticationError,
     FlowDefinitionError,
     HandlerError,
+    InvalidValueError,
     ManagerUnavailableError,
     NeorcError,
     RunStatus,
@@ -44,6 +52,9 @@ from neorc_core.flows import DEFAULT_QUEUE, is_queue_name, read_flows
 from neorc_core.local import run_local
 
 MANAGER_ADDRESS_ENV = "NEORC_MANAGER_ADDRESS"
+API_TOKEN_ENV = "NEORC_API_TOKEN"
+ALLOW_INSECURE_HTTP_ENV = "NEORC_ALLOW_INSECURE_HTTP"
+DATABASE_URL_ENV = "NEORC_DATABASE_URL"
 
 DEFAULT_HOST = "0.0.0.0"  # a manager serves workers on other hosts
 DEFAULT_PORT = 8420
@@ -81,7 +92,53 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="serve the API alone, without the web UI at /ui/",
     )
+    manager_start.add_argument(
+        "--no-auth",
+        action="store_true",
+        help="serve anyone who reaches the manager, with no API token: "
+        "for trying it on a machine nobody else reaches",
+    )
+    manager_start.add_argument(
+        "--ssl-certfile", default=None, help="serve HTTPS with this certificate"
+    )
+    manager_start.add_argument(
+        "--ssl-keyfile", default=None, help="and this private key"
+    )
     manager_start.set_defaults(handler=manager_start_command)
+
+    tokens = commands.add_parser(
+        "tokens", help="manage the API tokens a manager accepts, on its database"
+    )
+    tokens_commands = tokens.add_subparsers(dest="subcommand", required=True)
+    tokens_create = tokens_commands.add_parser(
+        "create", help="create a token and print its secret, which is shown once"
+    )
+    tokens_create.add_argument("name", help="letters, digits, _, . and -")
+    tokens_create.add_argument(
+        "--expires-days",
+        type=float,
+        default=None,
+        help="stop accepting it after this many days; never by default",
+    )
+    _database_url_option(tokens_create)
+    tokens_create.set_defaults(handler=tokens_create_command)
+    tokens_list = tokens_commands.add_parser("list", help="list the tokens")
+    _database_url_option(tokens_list)
+    tokens_list.set_defaults(handler=tokens_list_command)
+    tokens_revoke = tokens_commands.add_parser(
+        "revoke", help="stop accepting a token, at once"
+    )
+    tokens_revoke.add_argument("name")
+    _database_url_option(tokens_revoke)
+    tokens_revoke.set_defaults(handler=tokens_revoke_command)
+
+    sessions = commands.add_parser(
+        "sessions", help="manage the sessions of people signed in to the UI"
+    )
+    sessions_commands = sessions.add_subparsers(dest="subcommand", required=True)
+    sessions_clear = sessions_commands.add_parser("clear", help="sign everyone out")
+    _database_url_option(sessions_clear)
+    sessions_clear.set_defaults(handler=sessions_clear_command)
 
     flows = commands.add_parser("flows", help="manage the flows a manager holds")
     flows_commands = flows.add_subparsers(dest="subcommand", required=True)
@@ -148,12 +205,40 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _database_url_option(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--database-url",
+        default=None,
+        help=f"the manager's database; defaults to ${DATABASE_URL_ENV}",
+    )
+
+
 def _manager_address_option(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--manager-address",
         default=None,
         help=f"defaults to ${MANAGER_ADDRESS_ENV}",
     )
+
+
+def _client_options() -> dict[str, object]:
+    """The token, and whether plain http may carry it, from the environment."""
+    options: dict[str, object] = {}
+    token = os.environ.get(API_TOKEN_ENV)
+    if token:
+        options["token"] = token
+    if os.environ.get(ALLOW_INSECURE_HTTP_ENV) == "1":
+        options["allow_insecure"] = True
+    return options
+
+
+def _refused(exc: AuthenticationError) -> str:
+    where = (
+        f"the API token in ${API_TOKEN_ENV}"
+        if os.environ.get(API_TOKEN_ENV)
+        else f"a request with no API token (set ${API_TOKEN_ENV})"
+    )
+    return f"the manager refused {where}: {exc}"
 
 
 def _manager_address(args: argparse.Namespace, what: str) -> str:
@@ -260,18 +345,152 @@ def manager_start_command(args: argparse.Namespace) -> int:
     with _needs("manager", "postgres"):
         from neorc.manager import run
 
+    if (args.ssl_certfile is None) != (args.ssl_keyfile is None):
+        raise SystemExit(
+            "neorc manager start: pass both --ssl-certfile and --ssl-keyfile"
+        )
+    if args.ssl_certfile is not None:
+        # Loaded here once, so a missing, unreadable or malformed file is said
+        # to be that, not left to fail inside the server's startup.
+        try:
+            ssl.create_default_context(ssl.Purpose.CLIENT_AUTH).load_cert_chain(
+                args.ssl_certfile, args.ssl_keyfile
+            )
+        except (OSError, ssl.SSLError) as exc:
+            raise SystemExit(
+                "neorc manager start: cannot serve HTTPS with "
+                f"{args.ssl_certfile!r} and {args.ssl_keyfile!r}: {exc}"
+            ) from None
+    if args.no_auth:
+        where = f"{args.host}:{args.port}"
+        if args.host == DEFAULT_HOST:
+            where += ", every interface of this host"
+        _log.warning(
+            "no authentication: anyone who reaches %s can do everything, and so "
+            "can any web page this machine's browser opens, through DNS rebinding",
+            where,
+        )
     try:
         run(
             args.host,
             args.port,
-            auth=False,  # until the commands to create tokens exist
+            auth=not args.no_auth,
             database_url=args.database_url,
             create_schema=args.create_schema,
             ui=not args.no_ui,
+            ssl_certfile=args.ssl_certfile,
+            ssl_keyfile=args.ssl_keyfile,
         )
     except FileNotFoundError as exc:  # no built UI to serve: say how to get one
         raise SystemExit(f"neorc manager start: {exc}, or pass --no-ui") from None
+    except RuntimeError as exc:  # no database, or no credential tables in it
+        raise SystemExit(f"neorc manager start: {exc}") from None
     return 0
+
+
+def tokens_create_command(args: argparse.Namespace) -> int:
+    """Create a token; its secret alone on stdout, what it is on stderr."""
+    from neorc_core import Access
+
+    expires = None if args.expires_days is None else args.expires_days * 86400
+
+    async def create(access: Access) -> int:
+        try:
+            secret, token = await access.create_token(
+                args.name, expires_seconds=expires
+            )
+        except InvalidValueError as exc:
+            raise SystemExit(f"cannot create the token: {exc}") from None
+        until = token.expires_at.isoformat() if token.expires_at else "never"
+        print(
+            f"created token {token.name!r}, expiring {until}; this is the only "
+            "time its secret is shown:",
+            file=sys.stderr,
+        )
+        print(secret)
+        return 0
+
+    return _on_credentials(args, create)
+
+
+def tokens_list_command(args: argparse.Namespace) -> int:
+    """One line per token: name, created, expiry. Never a secret."""
+    from datetime import UTC, datetime
+
+    from neorc_core import Access
+
+    async def listing(access: Access) -> int:
+        now = datetime.now(UTC)
+        for token in await access.tokens():
+            if token.expires_at is None:
+                expiry = "never expires"
+            elif token.expires_at <= now:
+                expiry = f"expired {token.expires_at.isoformat()}"
+            else:
+                expiry = f"expires {token.expires_at.isoformat()}"
+            print(f"{token.name}\tcreated {token.created_at.isoformat()}\t{expiry}")
+        return 0
+
+    return _on_credentials(args, listing)
+
+
+def tokens_revoke_command(args: argparse.Namespace) -> int:
+    """Revoke a token by name; exits 1 if there is none."""
+    from neorc_core import Access
+
+    async def revoke(access: Access) -> int:
+        if await access.revoke_token(args.name):
+            print(f"revoked token {args.name!r}")
+            return 0
+        print(f"no token called {args.name!r}", file=sys.stderr)
+        return 1
+
+    return _on_credentials(args, revoke)
+
+
+def sessions_clear_command(args: argparse.Namespace) -> int:
+    """End every session: everyone signed in signs in again."""
+    from neorc_core import Access
+
+    async def clear(access: Access) -> int:
+        count = await access.end_sessions()
+        print(f"ended {count} session{'' if count == 1 else 's'}")
+        return 0
+
+    return _on_credentials(args, clear)
+
+
+def _on_credentials(
+    args: argparse.Namespace, act: Callable[..., Awaitable[int]]
+) -> int:
+    """Run ``act`` on an ``Access`` over the manager's database.
+
+    The credential tables must be there already: these commands create none,
+    so a mistyped database URL is not given a set of empty tables.
+    """
+    with _needs("postgres"):
+        import psycopg
+
+        from neorc.postgres import PostgresCredentialStore
+        from neorc.postgres._schema import MissingTablesError, ensure_credential_tables
+
+    from neorc_core import Access
+
+    dsn: str | None = args.database_url or os.environ.get(DATABASE_URL_ENV)
+    if not dsn:
+        raise SystemExit(f"no database: pass --database-url or set ${DATABASE_URL_ENV}")
+
+    async def main() -> int:
+        await ensure_credential_tables(dsn)
+        async with PostgresCredentialStore(dsn, max_size=1) as credentials:
+            return await act(Access(credentials))
+
+    try:
+        return asyncio.run(main())
+    except MissingTablesError as exc:
+        raise SystemExit(str(exc)) from None
+    except (psycopg.OperationalError, OSError) as exc:
+        raise SystemExit(f"cannot reach the database: {exc}") from None
 
 
 def flows_upload_command(args: argparse.Namespace) -> int:
@@ -298,11 +517,14 @@ def flows_upload_command(args: argparse.Namespace) -> int:
         raise SystemExit(f"no flow files in {str(args.directory)!r}")
 
     async def upload() -> list[bool]:
-        async with HttpManagerClient(address) as client:
+        async with _client(HttpManagerClient, address) as client:
             return await client.upload_flows(contents)
 
     try:
         stored = asyncio.run(upload())
+    except AuthenticationError as exc:
+        print(_refused(exc), file=sys.stderr)
+        return 1
     except FlowDefinitionError as exc:
         print("upload refused:", file=sys.stderr)
         for problem in exc.problems:
@@ -325,12 +547,17 @@ def scheduler_start_command(args: argparse.Namespace) -> int:
     address = _manager_address(args, "schedule for")
 
     async def serve() -> None:
-        async with HttpManagerClient(address, poll_timeout=args.poll_timeout) as client:
+        async with _client(
+            HttpManagerClient, address, poll_timeout=args.poll_timeout
+        ) as client:
             scheduler = Scheduler(client, poll_timeout=args.poll_timeout)
             _stop_on_signals(scheduler.stop)
             await scheduler.run()
 
-    asyncio.run(serve())
+    try:
+        asyncio.run(serve())
+    except AuthenticationError as exc:
+        raise SystemExit(_refused(exc)) from None
     return 0
 
 
@@ -355,8 +582,10 @@ def _serve_queue(args: argparse.Namespace, address: str) -> int:
             f"{args.queue!r} is not a queue name: letters, digits, _ and -"
         )
 
-    async def serve() -> None:
-        async with HttpQueueClient(address, poll_timeout=args.poll_timeout) as client:
+    async def serve() -> int:
+        async with _client(
+            HttpQueueClient, address, poll_timeout=args.poll_timeout
+        ) as client:
             worker = Worker(
                 client,
                 queue=args.queue,
@@ -371,11 +600,22 @@ def _serve_queue(args: argparse.Namespace, address: str) -> int:
                 worker.stop()
 
             _stop_on_signals(stop)
-            if await _prepared(worker, args, stopping):
+            if not await _prepared(worker, args, stopping):
+                return 0
+            try:
                 await worker.run()
+            except AuthenticationError as exc:
+                print(_refused(exc), file=sys.stderr)
+                sys.stdout.flush()
+                sys.stderr.flush()
+                # A handler thread may still be running the task, whose lease
+                # no longer beats: ending the process ends it, before another
+                # worker takes the task and runs it too.
+                _exit_now(1)
+                return 1
+        return 0
 
-    asyncio.run(serve())
-    return 0
+    return asyncio.run(serve())
 
 
 PREPARE_RETRY_SECONDS = 5.0
@@ -396,6 +636,8 @@ async def _prepared(
         try:
             await worker.prepare()
             return True
+        except AuthenticationError as exc:
+            raise SystemExit(_refused(exc)) from exc
         except HandlerError as exc:
             raise SystemExit(
                 f"the handlers in {str(args.code_location)!r} do not fit the "
@@ -413,6 +655,17 @@ async def _prepared(
         except NeorcError as exc:  # refused, and would be again: not worth retrying
             raise SystemExit(f"cannot start the worker: {exc}") from exc
     return False
+
+
+_C = TypeVar("_C")
+
+
+def _client(cls: Callable[..., _C], address: str, **options: object) -> _C:
+    """An HTTP client for ``address`` with the token from the environment."""
+    try:
+        return cls(address, **options, **_client_options())
+    except InvalidValueError as exc:  # a token that plain http would carry
+        raise SystemExit(str(exc)) from None
 
 
 def main(argv: Sequence[str] | None = None) -> int:

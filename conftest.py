@@ -161,27 +161,33 @@ def own_tasks_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
 @asynccontextmanager
 async def deployed_example(
-    manager_address: str, example: str, queues: list[str], *, scheduler: bool = True
+    manager_address: str,
+    example: str,
+    queues: list[str],
+    *,
+    scheduler: bool = True,
+    token: str | None = None,
 ) -> AsyncIterator[ManagerClient]:
     """A scheduler and a worker per queue on the HTTP clients, for the block.
 
     The client yielded reaches the same manager, to upload and start runs.
     Without ``scheduler``, only the workers: for more workers beside a block
-    that already runs the deployment's one scheduler.
+    that already runs the deployment's one scheduler. Every client sends
+    ``token``, if given.
     """
     from neorc.http import HttpManagerClient, HttpQueueClient
     from neorc_core import Scheduler, Worker
 
     async with contextlib.AsyncExitStack() as stack:
         client = await stack.enter_async_context(
-            HttpManagerClient(manager_address, poll_timeout=2)
+            HttpManagerClient(manager_address, poll_timeout=2, token=token)
         )
         schedulers = []
         if scheduler:
             schedulers.append(
                 Scheduler(
                     await stack.enter_async_context(
-                        HttpManagerClient(manager_address, poll_timeout=2)
+                        HttpManagerClient(manager_address, poll_timeout=2, token=token)
                     ),
                     poll_timeout=2,
                 )
@@ -189,7 +195,7 @@ async def deployed_example(
         workers = [
             Worker(
                 await stack.enter_async_context(
-                    HttpQueueClient(manager_address, poll_timeout=2)
+                    HttpQueueClient(manager_address, poll_timeout=2, token=token)
                 ),
                 queue=queue,
                 code_location=EXAMPLES / example,
