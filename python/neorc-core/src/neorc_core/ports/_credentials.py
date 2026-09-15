@@ -69,9 +69,14 @@ class CredentialStore(ABC):
 
     @abstractmethod
     async def add_login(
-        self, state_hash: str, login: PendingLogin, *, seconds: float
-    ) -> None:
-        """Store a sign-in in progress, expiring ``seconds`` from now."""
+        self, state_hash: str, login: PendingLogin, *, seconds: float, limit: int
+    ) -> bool:
+        """Store a sign-in in progress, expiring ``seconds`` from now.
+
+        Unless ``limit`` sign-ins are in progress already, not counting expired
+        ones: then nothing is stored, and this returns ``False``. Counting and
+        storing are one step.
+        """
         raise NotImplementedError
 
     @abstractmethod

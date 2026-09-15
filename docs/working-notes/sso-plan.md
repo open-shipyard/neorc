@@ -123,9 +123,9 @@ where the session cookie works.
   local servers are trusted, and says so in a warning at startup.
 - The store keeps the clock for expiries, as it does for leases: it is given
   a duration, not a time. A find never returns an expired row, and
-  `begin_login` deletes expired sessions and pending logins first, so the
-  tables are swept at the pace people sign in, with no job of their own.
-  Expired tokens stay listed until revoked.
+  `begin_login` deletes expired sessions and pending logins first, at most
+  once a minute, so the tables are swept as people sign in, with no job of
+  their own. Expired tokens stay listed until revoked.
 
 ### Configuration
 
@@ -163,8 +163,9 @@ group = "neorc-users"
 
 An `[[allow]]` entry names a provider and one matcher: `everyone`, `subject`,
 `email` (a verified address), `email_domain` (a verified address's domain),
-`hosted_domain` (Google's `hd`), or `group` (a value of the provider's groups
-claim). A person any entry matches may sign in; anyone else is refused. A
+`hosted_domain` (Google's `hd`; refused for any other provider, where a claim
+of that name means nothing fixed), or `group` (a value of the provider's
+groups claim). A person any entry matches may sign in; anyone else is refused. A
 missing `email_verified` counts as unverified.
 
 Google verifies the addresses of personal accounts registered with a work
@@ -194,7 +195,7 @@ the address as the person's account holds it.
 | 2 | `feature/sso-2-postgres-credentials` | The credential store on Postgres | done |
 | 3 | `feature/sso-3-manager-tokens` | The manager asks for a token; the clients send one | done |
 | 4 | `feature/sso-4-cli` | The command line: tokens, sessions, `--no-auth` | done |
-| 5 | `feature/sso-5-oidc` | Sign-in with OpenID Connect | |
+| 5 | `feature/sso-5-oidc` | Sign-in with OpenID Connect | done |
 | 6 | `feature/sso-6-ui` | The UI: sign in, the profile, sign out | |
 | 7 | `feature/sso-7-browser-test-docs` | Browser test, docs and changelog | |
 
@@ -505,8 +506,12 @@ Decided here to make progress. Revisit if they are wrong.
 - Tokens are managed on the database from the CLI, not through the API.
   Nothing to protect a token-issuing route with, and no UI for it yet.
 - `GET /auth/login/{provider}` is public and writes a pending login, so
-  anyone can add rows; each expires in 10 minutes and is swept at the next
-  sign-in. Rate limits on it are not in this plan.
+  anyone can add rows. Discovery comes before the row, so a provider that
+  is down leaves none; at most 10,000 are in progress at once, counted and
+  stored in one statement, past which a sign-in is refused with the `busy`
+  code until some expire, 10 minutes each. A flood can so fill the ceiling
+  and keep people from signing in for as long as it lasts; rate limits per
+  client, which would stop that, are not in this plan.
 - CSRF is refused by an `Origin` check on cookie-authenticated writes, on top
   of `SameSite=Lax`, which does not cover sibling subdomains. No CSRF token:
   every write the UI makes is a `fetch` that sends `Origin`.

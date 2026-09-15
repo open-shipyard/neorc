@@ -58,6 +58,7 @@ def test_manager_start_takes_its_settings_from_the_command_line(
             9000,
             {
                 "auth": True,
+                "auth_config": None,
                 "database_url": "postgresql:///neorc",
                 "create_schema": True,
                 "ui": True,

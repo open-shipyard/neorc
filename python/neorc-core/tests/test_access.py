@@ -353,7 +353,11 @@ async def test_beginning_a_sign_in_sweeps_away_what_has_expired(
     credentials: MemoryCredentialStore,
 ) -> None:
     access = Access(
-        credentials, allow=[EVERYONE], session_seconds=0.1, login_seconds=0.1
+        credentials,
+        allow=[EVERYONE],
+        session_seconds=0.1,
+        login_seconds=0.1,
+        sweep_seconds=0,
     )
     first, _ = await access.begin_login("google")
     session, _ = await access.open_session(ADA)
@@ -364,6 +368,38 @@ async def test_beginning_a_sign_in_sweeps_away_what_has_expired(
     assert await credentials.take_login(secret_hash(first)) is None
     assert await credentials.delete_session(secret_hash(session)) is False
     assert await credentials.delete_sessions() == 0
+
+
+async def test_expired_rows_are_swept_at_most_once_an_interval(
+    credentials: MemoryCredentialStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sweeps: list[None] = []
+    original = credentials.delete_expired
+
+    async def counted() -> None:
+        sweeps.append(None)
+        await original()
+
+    monkeypatch.setattr(credentials, "delete_expired", counted)
+    access = Access(credentials, sweep_seconds=3600)
+
+    for _ in range(5):
+        await access.begin_login("google")
+
+    assert len(sweeps) == 1
+
+
+async def test_a_sign_in_past_the_limit_is_refused_until_one_is_taken(
+    credentials: MemoryCredentialStore,
+) -> None:
+    access = Access(credentials, max_pending_logins=2)
+    first, _ = await access.begin_login("google")
+    await access.begin_login("google")
+
+    with pytest.raises(AuthenticationError, match="too many sign-ins"):
+        await access.begin_login("google")
+    await access.take_login("google", first)
+    await access.begin_login("google")
 
 
 @pytest.mark.parametrize("seconds", [0, -1, float("nan"), MAX_SECONDS + 1])

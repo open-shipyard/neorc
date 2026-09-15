@@ -16,15 +16,24 @@ those tests skip.
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
+import hashlib
+import json
 import os
 import sys
-from collections.abc import AsyncIterator, Iterator
+import time
+import uuid
+from collections.abc import AsyncIterator, Iterator, Mapping
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from urllib.parse import parse_qs, unquote
 
 import pytest
+
+# At module level: FastAPI resolves the stand-in provider's annotations here.
+from starlette.requests import Request
 
 from neorc_core import Manager, ManagerClient
 from neorc_core.local import MemoryStore, MemoryTaskNotifier
@@ -216,3 +225,140 @@ async def deployed_example(
             await asyncio.wait_for(
                 asyncio.gather(*running, return_exceptions=True), timeout=30
             )
+
+
+# A stand-in OpenID Connect provider, for signing in without a real one.
+
+
+class StandInProvider:
+    """An OpenID Connect provider in an ASGI app, issuing unsigned ID tokens.
+
+    ``person`` is who signs in next: the claims the ID token carries, beside
+    the ones the flow sets. ``tamper`` overrides any claim, to make an ID token
+    the manager must refuse. What the provider was asked is recorded, so a
+    test can check the manager sent what it should.
+    """
+
+    def __init__(
+        self,
+        issuer: str,
+        *,
+        client_id: str = "neorc-client",
+        client_secret: str = "stand-in-secret",
+    ) -> None:
+        from fastapi import FastAPI
+        from fastapi.responses import JSONResponse, RedirectResponse
+
+        self.issuer = issuer
+        base = issuer.rstrip("/")
+        self.client_id = client_id
+        self.client_secret = client_secret
+        self.person: dict[str, Any] = {
+            "sub": "248289761001",
+            "name": "Ada Lovelace",
+            "email": "ada@example.com",
+            "email_verified": True,
+        }
+        self.tamper: dict[str, Any] = {}
+        self.discovery: dict[str, Any] = {}
+        self.unavailable = 0
+        """How many discovery requests to fail before answering."""
+        self.authorized: list[dict[str, str]] = []
+        self.exchanged: list[dict[str, str]] = []
+        self._codes: dict[str, dict[str, str]] = {}
+
+        app = FastAPI()
+        self.app = app
+
+        @app.get("/.well-known/openid-configuration")
+        async def discovery() -> JSONResponse:
+            if self.unavailable > 0:
+                self.unavailable -= 1
+                return JSONResponse({"error": "down"}, status_code=503)
+            return JSONResponse(
+                {
+                    "issuer": self.issuer,
+                    "authorization_endpoint": f"{base}/authorize",
+                    "token_endpoint": f"{base}/token",
+                    "response_types_supported": ["code"],
+                    **self.discovery,
+                }
+            )
+
+        @app.get("/authorize")
+        async def authorize(request: Request) -> RedirectResponse:
+            asked = dict(request.query_params)
+            self.authorized.append(asked)
+            code = uuid.uuid4().hex
+            self._codes[code] = asked
+            return RedirectResponse(
+                f"{asked['redirect_uri']}?code={code}&state={asked['state']}",
+                status_code=303,
+            )
+
+        @app.post("/token")
+        async def token(request: Request) -> JSONResponse:
+            # Parsed here: Starlette's form parsing needs python-multipart.
+            form = parse_qs((await request.body()).decode())
+            asked = {key: values[0] for key, values in form.items()}
+            asked["authorization"] = request.headers.get("authorization", "")
+            self.exchanged.append(asked)
+            authorized = self._codes.pop(asked.get("code", ""), None)
+            if authorized is None:
+                return JSONResponse({"error": "invalid_grant"}, status_code=400)
+            if not self._client_authenticated(asked):
+                return JSONResponse({"error": "invalid_client"}, status_code=401)
+            challenge = (
+                base64.urlsafe_b64encode(
+                    hashlib.sha256(asked.get("code_verifier", "").encode()).digest()
+                )
+                .rstrip(b"=")
+                .decode()
+            )
+            if (
+                challenge != authorized["code_challenge"]
+                or asked.get("redirect_uri") != authorized["redirect_uri"]
+            ):
+                return JSONResponse({"error": "invalid_grant"}, status_code=400)
+            now = int(time.time())
+            claims = {
+                "iss": self.issuer,
+                "aud": self.client_id,
+                "iat": now,
+                "exp": now + 300,
+                "nonce": authorized["nonce"],
+                **self.person,
+                **self.tamper,
+            }
+            claims = {key: value for key, value in claims.items() if value is not None}
+            return JSONResponse(
+                {
+                    "access_token": "stand-in-access-token",
+                    "token_type": "Bearer",
+                    "id_token": unsigned_jwt(claims),
+                }
+            )
+
+    def _client_authenticated(self, asked: Mapping[str, str]) -> bool:
+        if asked["authorization"].startswith("Basic "):
+            pair = base64.b64decode(asked["authorization"][6:]).decode()
+            client_id, _, secret = pair.partition(":")
+            return (unquote(client_id), unquote(secret)) == (
+                self.client_id,
+                self.client_secret,
+            )
+        return (asked.get("client_id"), asked.get("client_secret")) == (
+            self.client_id,
+            self.client_secret,
+        )
+
+
+def unsigned_jwt(claims: Mapping[str, Any]) -> str:
+    """A JWT with ``claims`` and no signature, as the stand-in issues them."""
+
+    def part(value: Mapping[str, Any]) -> str:
+        return (
+            base64.urlsafe_b64encode(json.dumps(value).encode()).rstrip(b"=").decode()
+        )
+
+    return f"{part({'alg': 'none', 'typ': 'JWT'})}.{part(claims)}."

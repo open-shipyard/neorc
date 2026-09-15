@@ -15,7 +15,12 @@ body, or FastAPI reads its path and query:
   body through ``read_body``, never through a declared body parameter, which
   FastAPI would read before any dependency runs.
 - With authentication on, the request must carry an API token as
-  ``Authorization: Bearer``; its principal is the dependency's value.
+  ``Authorization: Bearer``, or, with sign-in configured, a session cookie;
+  not both. A session's write must also come from a page on the public URL:
+  its ``Origin``, or with none ``Sec-Fetch-Site: same-origin``, since a
+  cookie goes with any request the browser sends. A token is not ambient, so
+  a token's request is not checked so. The principal is the dependency's
+  value.
 
 Routes outside the router, ``/health`` and the UI, hold no data and are not
 guarded.
@@ -23,7 +28,7 @@ guarded.
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -35,6 +40,9 @@ from neorc_core import (
     Principal,
     UnsupportedMediaTypeError,
 )
+
+if TYPE_CHECKING:  # the sign-in module uses this one's checks
+    from neorc.manager._sign_in import SignIn
 
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
@@ -56,23 +64,34 @@ async def guard(
     write that may not be taken, and ``AuthenticationError`` for a request
     without an accepted token.
     """
-    if request.method not in SAFE_METHODS:
-        _ensure_same_site_json(request)
+    ensure_same_site_json(request)
     access: Access | None = request.app.state.access
     if access is None:
         return None
-    if credentials is None:
-        raise AuthenticationError(
-            "this manager needs an API token, sent as 'Authorization: Bearer <token>'"
-        )
-    return await access.authenticate_token(credentials.credentials)
+    sign_in: SignIn | None = request.app.state.sign_in
+    session = request.cookies.get(sign_in.session_cookie) if sign_in else None
+    if credentials is not None and session:
+        raise AuthenticationError("send an API token or a session, not both")
+    if credentials is not None:
+        return await access.authenticate_token(credentials.credentials)
+    if sign_in is not None and session:
+        principal = await access.authenticate_session(session)
+        sign_in.ensure_same_origin(request)
+        return principal
+    raise AuthenticationError(
+        "this manager needs an API token, sent as 'Authorization: Bearer <token>'"
+        + (", or a session: sign in at /ui/" if sign_in is not None else "")
+    )
 
 
 Guarded = Annotated[Principal | None, Depends(guard)]
 """The principal, injected; a module-level name, for FastAPI."""
 
 
-def _ensure_same_site_json(request: Request) -> None:
+def ensure_same_site_json(request: Request) -> None:
+    """Refuse a write from a page on another site, or not sent as JSON."""
+    if request.method in SAFE_METHODS:
+        return
     site = request.headers.get("sec-fetch-site", "").lower()
     if site in _CROSS_SITE:
         raise CrossSiteRequestError(

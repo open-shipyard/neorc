@@ -169,7 +169,15 @@ async def test_the_documentation_pages_are_served_only_without_authentication(
         assert (await open_app.get(path)).status_code == 200
 
 
-async def test_every_route_in_the_schema_but_health_needs_a_token(
+PUBLIC = {
+    "/health",
+    "/auth/session",
+    "/auth/logout",
+}
+"""What a person with no session reaches: to sign in, and out."""
+
+
+async def test_every_route_in_the_schema_but_the_public_ones_needs_a_token(
     guarded: httpx.AsyncClient,
 ) -> None:
     """Asked of the app, not of its router: a route added anywhere is covered."""
@@ -187,8 +195,10 @@ async def test_every_route_in_the_schema_but_health_needs_a_token(
             r"{(\w+)}", lambda m: samples.get(m.group(1), "sample"), path
         ).replace("/versions/sample", "/versions/1.0.0")
         response = await guarded.request(method, url, headers=JSON)
-        expected = 200 if path == "/health" else 401
-        assert response.status_code == expected, f"{method} {path}"
+        if path in PUBLIC:
+            assert response.status_code != 401, f"{method} {path}"
+        else:
+            assert response.status_code == 401, f"{method} {path}"
 
 
 # Writes from other sites, with authentication off.

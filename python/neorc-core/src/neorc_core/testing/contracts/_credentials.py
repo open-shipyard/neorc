@@ -154,7 +154,9 @@ class CredentialStoreContract:
     # Sign-ins in progress.
 
     async def test_a_login_is_taken_once(self, credentials: CredentialStore) -> None:
-        await credentials.add_login(secret_hash("state"), LOGIN, seconds=LONG)
+        assert await credentials.add_login(
+            secret_hash("state"), LOGIN, seconds=LONG, limit=10
+        )
 
         assert await credentials.take_login(secret_hash("state")) == LOGIN
         assert await credentials.take_login(secret_hash("state")) is None
@@ -163,7 +165,7 @@ class CredentialStoreContract:
     async def test_of_two_takes_at_once_one_gets_the_login(
         self, credentials: CredentialStore
     ) -> None:
-        await credentials.add_login(secret_hash("state"), LOGIN, seconds=LONG)
+        await credentials.add_login(secret_hash("state"), LOGIN, seconds=LONG, limit=10)
 
         taken = await asyncio.gather(
             *(credentials.take_login(secret_hash("state")) for _ in range(5))
@@ -175,11 +177,45 @@ class CredentialStoreContract:
     async def test_an_expired_login_is_not_taken(
         self, credentials: CredentialStore
     ) -> None:
-        await credentials.add_login(secret_hash("short"), LOGIN, seconds=SHORT)
-        await credentials.add_login(secret_hash("long"), LOGIN, seconds=LONG)
+        await credentials.add_login(
+            secret_hash("short"), LOGIN, seconds=SHORT, limit=10
+        )
+        await credentials.add_login(secret_hash("long"), LOGIN, seconds=LONG, limit=10)
 
         await asyncio.sleep(PAST_SHORT)
         await credentials.delete_expired()
 
         assert await credentials.take_login(secret_hash("short")) is None
         assert await credentials.take_login(secret_hash("long")) == LOGIN
+
+    async def test_no_more_logins_than_the_limit_are_in_progress(
+        self, credentials: CredentialStore
+    ) -> None:
+        added = [
+            await credentials.add_login(
+                secret_hash(f"s{n}"), LOGIN, seconds=LONG, limit=3
+            )
+            for n in range(4)
+        ]
+        await credentials.take_login(secret_hash("s0"))
+        after_one_is_taken = await credentials.add_login(
+            secret_hash("s4"), LOGIN, seconds=LONG, limit=3
+        )
+
+        assert added == [True, True, True, False]
+        assert after_one_is_taken is True
+        assert await credentials.take_login(secret_hash("s3")) is None
+
+    async def test_expired_logins_do_not_count_toward_the_limit(
+        self, credentials: CredentialStore
+    ) -> None:
+        for n in range(2):
+            await credentials.add_login(
+                secret_hash(f"short{n}"), LOGIN, seconds=SHORT, limit=2
+            )
+
+        await asyncio.sleep(PAST_SHORT)
+
+        assert await credentials.add_login(
+            secret_hash("fresh"), LOGIN, seconds=LONG, limit=2
+        )

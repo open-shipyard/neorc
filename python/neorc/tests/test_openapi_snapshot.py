@@ -69,8 +69,8 @@ def test_every_refusal_is_documented_with_the_body_the_manager_sends() -> None:
     error = schema["components"]["schemas"]["ErrorResponse"]["properties"]
     assert set(error) == {"error", "detail", "problems"}
     for path, methods in schema["paths"].items():
-        if path == "/health":
-            continue
+        if path == "/health" or path.startswith("/auth/"):
+            continue  # no body, no parameter, nothing there to refuse
         for operation in methods.values():
             for code in ("404", "409", "413", "422"):
                 body = operation["responses"][code]["content"]["application/json"]
