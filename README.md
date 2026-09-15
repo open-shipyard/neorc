@@ -77,8 +77,9 @@ Start a run from anywhere:
         -H 'content-type: application/json' -d '{"inputs": {"name": "world"}}'
 
 Or from the web UI the manager serves at `http://manager.internal:8420/ui/`:
-the flows, the runs and every task of each, live, with a form to start a run
-and a button to cancel one. There is no authentication yet: anyone who reaches
+the flows, the runs and every task of each, live, as an outline or as a
+zoomable graph of the run's steps, with a form to start a run and a button
+to cancel one. There is no authentication yet: anyone who reaches
 the manager can do all of that, so keep it to development and testing.
 
 [examples/hello](examples/hello) and [examples/wordplay](examples/wordplay)

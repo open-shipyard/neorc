@@ -189,6 +189,23 @@ one version, cut from a single tag on `main`.
   and an `AGENTS.md` for coding agents, the allowlist and bundled-package
   list in `vite.config.ts`, `.npmrc`, the Dependabot configuration, and the
   CI steps that fail on them.
+- `neorc-ui`: a run's steps as a graph, beside the outline: one node per
+  step instance, iterations and branches as boxes around them, an edge from
+  every step instance a reference resolves to, the fan-out's `over` into
+  each of its branches, laid out top to bottom by dagre a container level at
+  a time and drawn by React Flow, zoomable, with a minimap and a task's
+  details in a side panel. The choice of view is in the address,
+  `#/runs/<id>?view=graph`, and remembered. `@xyflow/react` and
+  `@dagrejs/dagre` join the bundle, vetted as `contributing/js-dependencies.md`
+  asks; the bundle goes from 75 to 152 KB gzipped, against a budget of 500.
+- `neorc-ui`: a new look. A sidebar with the flows, the latest runs with
+  their status dots and a stand-in for a profile, collapsible to a rail of
+  icons; a warm off-white ground with white cards, status pills, small
+  uppercase labels, a monospace face for ids and durations, in light and
+  dark; the runs list with counts by status among the runs loaded, and a
+  run's page with a breadcrumb, its facts on one line and its steps as
+  cards. The browser test also switches to the graph, zooms it and opens a
+  task's details from a node.
 
 ### Changed
 
