@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from collections.abc import AsyncIterator
 from contextlib import AsyncExitStack, asynccontextmanager
@@ -43,7 +44,9 @@ def build_app(
 
     With ``auth``, every request to the API needs an API token, checked
     against a credential store on the same database, which the lifespan opens
-    beside the flow store, after the schema step, and closes with it. Without,
+    beside the flow store, after the schema step, and closes with it; without
+    ``create_schema``, the lifespan first checks the credential tables exist,
+    and fails with ``RuntimeError`` naming the fix if not. Without ``auth``,
     anyone who reaches the service may do everything.
 
     With ``ui``, the web UI from the ``neorc-ui`` distribution is served at
@@ -57,6 +60,7 @@ def build_app(
     )
     from neorc.postgres import create_schema as create_postgres_schema
     from neorc.postgres._notifier import EVENTS_CHANNEL, TASKS_CHANNEL
+    from neorc.postgres._schema import ensure_credential_tables
 
     dsn = database_url or os.environ.get(DATABASE_URL_ENV)
     if not dsn:
@@ -76,6 +80,8 @@ def build_app(
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if create_schema:
             await create_postgres_schema(dsn)
+        elif credentials is not None:
+            await ensure_credential_tables(dsn)
         async with AsyncExitStack() as stack:
             await stack.enter_async_context(store)
             await stack.enter_async_context(tasks)
@@ -102,7 +108,28 @@ def run(
     database_url: str | None = None,
     create_schema: bool = False,
     ui: bool = True,
+    ssl_certfile: str | None = None,
+    ssl_keyfile: str | None = None,
 ) -> None:
-    """Serve the manager until interrupted. Blocks."""
+    """Serve the manager until interrupted. Blocks.
+
+    With ``ssl_certfile`` and ``ssl_keyfile``, it serves HTTPS. Raises
+    ``RuntimeError`` before serving when there is no database, or when
+    authentication is on and the credential tables are missing.
+    """
     app = build_app(database_url, auth=auth, create_schema=create_schema, ui=ui)
-    uvicorn.run(app, host=host, port=port)
+    if auth and not create_schema:
+        # Checked again by the lifespan; here, so the command can say so and
+        # exit rather than leave it to uvicorn's startup failure.
+        from neorc.postgres._schema import ensure_credential_tables
+
+        asyncio.run(
+            ensure_credential_tables(database_url or os.environ[DATABASE_URL_ENV])
+        )
+    uvicorn.run(
+        app,
+        host=host,
+        port=port,
+        ssl_certfile=ssl_certfile,
+        ssl_keyfile=ssl_keyfile,
+    )

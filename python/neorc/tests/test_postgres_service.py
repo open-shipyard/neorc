@@ -111,3 +111,31 @@ async def test_the_flow_tables_are_created_at_startup(pg_schema: str) -> None:
         transport = httpx.ASGITransport(app=app)
         async with HttpManagerClient("manager.test", transport=transport) as client:
             assert await client.upload_flows([FLOW]) == [True]
+
+
+async def test_with_authentication_the_manager_needs_the_credential_tables(
+    pg_schema: str,
+) -> None:
+    import psycopg
+
+    from neorc.postgres._schema import SESSIONS_TABLE, MissingTablesError
+
+    async with await psycopg.AsyncConnection.connect(
+        pg_schema, autocommit=True
+    ) as conn:
+        await conn.execute(f"DROP TABLE {SESSIONS_TABLE}")
+    refused = build_app(pg_schema, auth=True, ui=False)
+    unguarded = build_app(pg_schema, auth=False, ui=False)
+    created = build_app(pg_schema, auth=True, create_schema=True, ui=False)
+
+    with pytest.raises(MissingTablesError, match=rf"{SESSIONS_TABLE}.*--create-schema"):
+        async with refused.router.lifespan_context(refused):
+            pass
+    async with unguarded.router.lifespan_context(unguarded):
+        pass
+    async with created.router.lifespan_context(created):
+        transport = httpx.ASGITransport(app=created)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://manager.test"
+        ) as http:
+            assert (await http.get("/runs")).status_code == 401

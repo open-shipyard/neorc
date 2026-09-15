@@ -28,18 +28,16 @@ are the same as in [hello](../hello/README.md#deployed).
 
        uv run python examples/hello/postgres.py
 
-2. The manager:
+2. The manager, and an API token, as in
+   [hello](../hello/README.md#deployed): `export NEORC_API_TOKEN=<secret>`
+   in every terminal below, or start the manager with `--no-auth` as well to
+   use the UI, which has no sign-in yet:
 
        export NEORC_DATABASE_URL=...   # from step 1
        uv run neorc manager start --host 127.0.0.1 --create-schema --no-ui
 
-   `--no-ui` because a checkout holds no built web UI; the `neorc-ui` wheel
-   does, and `neorc manager start` serves it at `/ui/` unless told not to.
-   To serve it from a checkout, build it and put it where the manager
-   looks (`npm ci && npm run build` in `ts/neorc-ui`, then copy `dist/` to
-   `python/neorc-ui/src/neorc_ui/static/`), drop `--no-ui`, and open
-   <http://127.0.0.1:8420/ui/> to watch the runs below, start more and
-   cancel them. No authentication yet.
+       export NEORC_DATABASE_URL=...   # in another terminal
+       uv run neorc tokens create local
 
 3. Upload the flows:
 
@@ -62,12 +60,14 @@ are the same as in [hello](../hello/README.md#deployed).
 6. Start a run:
 
        curl -X POST 127.0.0.1:8420/flows/word_picker/runs \
+           -H "authorization: Bearer $NEORC_API_TOKEN" \
            -H 'content-type: application/json' \
            -d '{"inputs": {"sentence": "potato tomate berry watermelon", "preferred_letter": "t"}}'
 
    The response carries the run's `id`; once it has succeeded,
-   `curl 127.0.0.1:8420/runs/<id>` shows `"output": ["potato", "tomate"]`, and
-   `curl 127.0.0.1:8420/runs/<id>/state` every step's result.
+   `curl -H "authorization: Bearer $NEORC_API_TOKEN" 127.0.0.1:8420/runs/<id>`
+   shows `"output": ["potato", "tomate"]`, and `/runs/<id>/state` every step's
+   result.
 
 [`flow_example.py`](../../docs/specs/flow_example.py) written the neorc way: the
 `while` and `for` loops move into flow files, and `tasks.py` keeps only plain
