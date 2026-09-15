@@ -1,26 +1,68 @@
+import { useEffect, useMemo } from "react";
+
 import { CancelRun } from "../components/CancelRun";
 import { Failed, Loading } from "../components/Layout";
+import { RunGraph } from "../components/RunGraph";
 import { RunTree } from "../components/RunTree";
 import { StatusBadge } from "../components/StatusBadge";
 import { published, stepsOf } from "../definition";
 import { formatDuration, formatTime, formatValue, shortId } from "../format";
 import { useFlow, useRun, useRunTasks, useSubRuns } from "../queries";
-import { href } from "../router";
+import { href, type RunView } from "../router";
 
 /** One run: what it is, where it stands, and each step of its flow, live. */
-export function RunPage({ id }: { id: string }) {
+export function RunPage({ id, view }: { id: string; view?: RunView }) {
   const run = useRun(id);
+  const chosen = useRunView(view);
   if (run.isPending) return <Loading what={`run ${shortId(id)}`} />;
   if (run.isError) return <Failed what={`run ${shortId(id)}`} error={run.error} />;
-  return <Loaded run={run.data} />;
+  return <Loaded run={run.data} view={chosen} />;
 }
 
-function Loaded({ run }: { run: ReturnType<typeof useRun>["data"] & object }) {
+/** Where the last choice of view is kept, for the next run opened. */
+export const VIEW_KEY = "neorc-ui.run-view";
+
+/**
+ * The view to show: the route's if it names one, else the one last chosen,
+ * else the outline. A choice in the route is remembered.
+ */
+function useRunView(view: RunView | undefined): RunView {
+  useEffect(() => {
+    if (view) {
+      try {
+        localStorage.setItem(VIEW_KEY, view);
+      } catch {
+        // Storage may be off; the route still carries the choice.
+      }
+    }
+  }, [view]);
+  if (view) return view;
+  try {
+    return localStorage.getItem(VIEW_KEY) === "graph" ? "graph" : "outline";
+  } catch {
+    return "outline";
+  }
+}
+
+function Loaded({
+  run,
+  view,
+}: {
+  run: ReturnType<typeof useRun>["data"] & object;
+  view: RunView;
+}) {
   const flow = useFlow(run.flow, run.version);
   const live = { active: run.status === "active" };
   const tasks = useRunTasks(run.id, live);
   const subRuns = useSubRuns(run.id, live);
-
+  // The queries keep the same data while nothing changed, so the steps and
+  // what the run did there are read again, and the graph laid out again,
+  // only when the poll brings news.
+  const steps = useMemo(() => flow.data && stepsOf(flow.data.content), [flow.data]);
+  const done = useMemo(
+    () => tasks.data && subRuns.data && published(tasks.data, subRuns.data),
+    [tasks.data, subRuns.data],
+  );
   return (
     <>
       <h1>
@@ -85,19 +127,20 @@ function Loaded({ run }: { run: ReturnType<typeof useRun>["data"] & object }) {
         ))}
 
       <h2>Steps</h2>
+      <ViewSwitch id={run.id} view={view} />
       {(flow.isPending || tasks.isPending || subRuns.isPending) && (
         <Loading what="the steps" />
       )}
       {flow.isError && <Failed what="the flow's definition" error={flow.error} />}
       {tasks.isError && <Failed what="the tasks" error={tasks.error} />}
       {subRuns.isError && <Failed what="the sub-runs" error={subRuns.error} />}
-      {flow.isSuccess && tasks.isSuccess && subRuns.isSuccess && (
-        <RunTree
-          steps={stepsOf(flow.data.content)}
-          scope={[]}
-          done={published(tasks.data, subRuns.data)}
-        />
-      )}
+      {steps &&
+        done &&
+        (view === "graph" ? (
+          <RunGraph steps={steps} done={done} />
+        ) : (
+          <RunTree steps={steps} scope={[]} done={done} />
+        ))}
 
       {subRuns.isSuccess && subRuns.data.length > 0 && (
         <>
@@ -147,5 +190,27 @@ function Loaded({ run }: { run: ReturnType<typeof useRun>["data"] & object }) {
         </>
       )}
     </>
+  );
+}
+
+const VIEWS: { view: RunView; label: string }[] = [
+  { view: "outline", label: "Outline" },
+  { view: "graph", label: "Graph" },
+];
+
+/** Outline or graph: links, so the choice is in the address and can be shared. */
+function ViewSwitch({ id, view }: { id: string; view: RunView }) {
+  return (
+    <nav className="segmented" aria-label="View">
+      {VIEWS.map((item) => (
+        <a
+          key={item.view}
+          href={href({ name: "run", id, view: item.view })}
+          aria-current={item.view === view ? "true" : undefined}
+        >
+          {item.label}
+        </a>
+      ))}
+    </nav>
   );
 }

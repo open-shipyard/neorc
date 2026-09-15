@@ -10,7 +10,10 @@ describe("routes", () => {
     ["#/flows", { name: "flows" }],
     ["#/flows/word_picker", { name: "flow", flow: "word_picker", version: undefined }],
     ["#/flows/a%2Fb?version=1.0.0", { name: "flow", flow: "a/b", version: "1.0.0" }],
-    ["#/runs/abc-123", { name: "run", id: "abc-123" }],
+    ["#/runs/abc-123", { name: "run", id: "abc-123", view: undefined }],
+    ["#/runs/abc-123?view=graph", { name: "run", id: "abc-123", view: "graph" }],
+    ["#/runs/abc-123?view=outline", { name: "run", id: "abc-123", view: "outline" }],
+    ["#/runs/abc-123?view=sideways", { name: "run", id: "abc-123", view: undefined }],
     ["#/nothing/here", { name: "unknown", hash: "#/nothing/here" }],
     ["#/runs/%E0", { name: "unknown", hash: "#/runs/%E0" }],
     ["#/flows/100%", { name: "unknown", hash: "#/flows/100%" }],
@@ -25,6 +28,7 @@ describe("routes", () => {
       { name: "flows" },
       { name: "flow", flow: "a/b", version: "2.0.0" },
       { name: "run", id: "abc" },
+      { name: "run", id: "abc", view: "graph" },
     ];
     for (const route of routes) {
       expect(parseHash(href(route))).toMatchObject(route);
