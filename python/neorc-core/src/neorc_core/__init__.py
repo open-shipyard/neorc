@@ -17,6 +17,7 @@ from neorc_core._access import (
 )
 from neorc_core._errors import (
     AuthenticationError,
+    CrossSiteRequestError,
     FlowDefinitionError,
     FlowNotFoundError,
     FlowVersionError,
@@ -30,6 +31,7 @@ from neorc_core._errors import (
     SignInRefusedError,
     TaskNotFoundError,
     TaskStateError,
+    UnsupportedMediaTypeError,
 )
 from neorc_core._manager import Manager
 from neorc_core._runs import (
@@ -73,6 +75,7 @@ __all__ = [
     "ApiToken",
     "AuthenticationError",
     "CredentialStore",
+    "CrossSiteRequestError",
     "Event",
     "EventKind",
     "FlowDefinitionError",
@@ -109,6 +112,7 @@ __all__ = [
     "TaskNotifier",
     "TaskStateError",
     "TaskStatus",
+    "UnsupportedMediaTypeError",
     "Worker",
     "__version__",
     "ensure_transition",

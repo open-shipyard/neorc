@@ -56,7 +56,12 @@ def test_manager_start_takes_its_settings_from_the_command_line(
         (
             "127.0.0.1",
             9000,
-            {"database_url": "postgresql:///neorc", "create_schema": True, "ui": True},
+            {
+                "auth": False,
+                "database_url": "postgresql:///neorc",
+                "create_schema": True,
+                "ui": True,
+            },
         )
     ]
 

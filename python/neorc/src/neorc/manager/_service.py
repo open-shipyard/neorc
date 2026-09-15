@@ -13,7 +13,7 @@ import uvicorn
 from fastapi import FastAPI
 
 from neorc.manager._app import DEFAULT_LONG_POLL_TIMEOUT, create_app
-from neorc_core import Manager
+from neorc_core import Access, Manager
 
 # A manager serves workers on other hosts, so it binds every interface.
 DEFAULT_HOST = "0.0.0.0"
@@ -26,6 +26,7 @@ DATABASE_URL_ENV = "NEORC_DATABASE_URL"
 def build_app(
     database_url: str | None = None,
     *,
+    auth: bool,
     create_schema: bool = False,
     long_poll_timeout: float = DEFAULT_LONG_POLL_TIMEOUT,
     ui: bool = True,
@@ -40,11 +41,20 @@ def build_app(
     the other wakes a scheduler when an event is recorded. Both are hints sent
     after the transaction commits; a waiter re-reads the store.
 
+    With ``auth``, every request to the API needs an API token, checked
+    against a credential store on the same database, which the lifespan opens
+    beside the flow store, after the schema step, and closes with it. Without,
+    anyone who reaches the service may do everything.
+
     With ``ui``, the web UI from the ``neorc-ui`` distribution is served at
     ``/ui/``; ``FileNotFoundError`` names the fix if that holds no built UI,
     as in a checkout that was never built.
     """
-    from neorc.postgres import PostgresStore, PostgresTaskNotifier
+    from neorc.postgres import (
+        PostgresCredentialStore,
+        PostgresStore,
+        PostgresTaskNotifier,
+    )
     from neorc.postgres import create_schema as create_postgres_schema
     from neorc.postgres._notifier import EVENTS_CHANNEL, TASKS_CHANNEL
 
@@ -60,6 +70,7 @@ def build_app(
     store = PostgresStore(dsn)
     tasks = PostgresTaskNotifier(dsn, channel=TASKS_CHANNEL)
     events = PostgresTaskNotifier(dsn, channel=EVENTS_CHANNEL)
+    credentials = PostgresCredentialStore(dsn) if auth else None
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -69,10 +80,13 @@ def build_app(
             await stack.enter_async_context(store)
             await stack.enter_async_context(tasks)
             await stack.enter_async_context(events)
+            if credentials is not None:
+                await stack.enter_async_context(credentials)
             yield
 
     app = create_app(
         Manager(store, tasks=tasks, events=events),
+        access=Access(credentials) if credentials is not None else None,
         long_poll_timeout=long_poll_timeout,
         ui=static,
     )
@@ -84,10 +98,11 @@ def run(
     host: str = DEFAULT_HOST,
     port: int = DEFAULT_PORT,
     *,
+    auth: bool,
     database_url: str | None = None,
     create_schema: bool = False,
     ui: bool = True,
 ) -> None:
     """Serve the manager until interrupted. Blocks."""
-    app = build_app(database_url, create_schema=create_schema, ui=ui)
+    app = build_app(database_url, auth=auth, create_schema=create_schema, ui=ui)
     uvicorn.run(app, host=host, port=port)

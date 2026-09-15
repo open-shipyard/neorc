@@ -264,6 +264,7 @@ def manager_start_command(args: argparse.Namespace) -> int:
         run(
             args.host,
             args.port,
+            auth=False,  # until the commands to create tokens exist
             database_url=args.database_url,
             create_schema=args.create_schema,
             ui=not args.no_ui,

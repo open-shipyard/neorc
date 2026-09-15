@@ -26,7 +26,8 @@ SNAPSHOT = Path(__file__).resolve().parents[1] / "ts" / "neorc-ui" / "openapi.js
 def openapi_text() -> str:
     """The schema as the snapshot holds it: sorted keys, indented, one final newline."""
     app = create_app(
-        Manager(MemoryStore(), tasks=MemoryTaskNotifier(), events=MemoryTaskNotifier())
+        Manager(MemoryStore(), tasks=MemoryTaskNotifier(), events=MemoryTaskNotifier()),
+        access=None,
     )
     return json.dumps(app.openapi(), indent=2, sort_keys=True) + "\n"
 

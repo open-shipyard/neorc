@@ -8,10 +8,16 @@ the direct clients send. A body goes through the checks ``transmit`` makes
 before it is sent, so a value fails here as it does on a direct client. An
 error body raises the core exception its ``error`` field names; a body that
 names none, and any transport failure, raise ``ManagerUnavailableError``.
+
+With a ``token``, every request carries it as ``Authorization: Bearer``. A
+token can do everything, so it is not sent over plain ``http`` to anything but
+a loopback address unless ``allow_insecure`` says so. Every ``POST`` is sent
+as ``application/json``, body or not, as the manager takes writes.
 """
 
 from __future__ import annotations
 
+import ipaddress
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from types import TracebackType
@@ -64,12 +70,21 @@ class _HttpClient:
         manager_address: str,
         *,
         poll_timeout: float = DEFAULT_POLL_TIMEOUT,
+        token: str | None = None,
+        allow_insecure: bool = False,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
+        base_url = _base_url(manager_address)
+        headers = {}
+        if token is not None:
+            if not allow_insecure:
+                _ensure_private(base_url)
+            headers["authorization"] = f"Bearer {token}"
         self._manager_address = manager_address
         self._poll_timeout = poll_timeout
         self._client = httpx.AsyncClient(
-            base_url=_base_url(manager_address),
+            base_url=base_url,
+            headers=headers,
             timeout=httpx.Timeout(10.0, read=poll_timeout + _POLL_GRACE),
             transport=transport,
         )
@@ -102,6 +117,7 @@ class _HttpClient:
         kwargs: dict[str, Any] = {"params": params}
         if body is not None:
             kwargs["content"] = _encoded(body)
+        if method == "POST":
             kwargs["headers"] = {"content-type": "application/json"}
         if read_timeout is not None:
             kwargs["timeout"] = httpx.Timeout(10.0, read=read_timeout + _POLL_GRACE)
@@ -156,6 +172,27 @@ def _base_url(manager_address: str) -> str:
     if "://" in manager_address:
         return manager_address.rstrip("/")
     return f"http://{manager_address.rstrip('/')}"
+
+
+def _ensure_private(base_url: str) -> None:
+    """Refuse to send a token where the network between could read it."""
+    url = httpx.URL(base_url)
+    if url.scheme == "https" or _is_loopback(url.host):
+        return
+    raise InvalidValueError(
+        f"refusing to send an API token over plain http to {url.host}: name the "
+        "manager with an https:// address, or allow it with "
+        "NEORC_ALLOW_INSECURE_HTTP=1 on a network nobody else can read"
+    )
+
+
+def _is_loopback(host: str) -> bool:
+    if host == "localhost" or host.endswith(".localhost"):
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 def _flow_segment(name: str) -> str:

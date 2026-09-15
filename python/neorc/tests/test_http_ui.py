@@ -30,7 +30,7 @@ def static(tmp_path: Path) -> Path:
 
 @pytest.fixture
 async def http(manager: Manager, static: Path) -> AsyncIterator[httpx.AsyncClient]:
-    app = create_app(manager, ui=static)
+    app = create_app(manager, access=None, ui=static)
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://manager.test"
     ) as client:
@@ -93,7 +93,7 @@ def test_the_policy_keeps_scripts_and_connections_at_home() -> None:
 
 
 async def test_without_a_ui_the_api_stands_alone(manager: Manager) -> None:
-    app = create_app(manager)
+    app = create_app(manager, access=None)
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://manager.test"
     ) as http:
@@ -106,4 +106,4 @@ def test_a_directory_without_index_html_is_refused(
     manager: Manager, tmp_path: Path
 ) -> None:
     with pytest.raises(FileNotFoundError, match=r"index\.html"):
-        create_app(manager, ui=tmp_path)
+        create_app(manager, access=None, ui=tmp_path)

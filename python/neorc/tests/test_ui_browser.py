@@ -56,7 +56,7 @@ async def ui_address(
     finish: without one, a run stays active for as long as it takes to cancel.
     """
     monkeypatch.setattr("neorc_ui.STATIC", _built_ui())
-    app = build_app(pg_schema, create_schema=True, long_poll_timeout=2)
+    app = build_app(pg_schema, auth=False, create_schema=True, long_poll_timeout=2)
     async with (
         serve_app(app) as address,
         deployed_example(address, "wordplay", ["default"]) as client,

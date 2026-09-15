@@ -192,7 +192,7 @@ the address as the person's account holds it.
 | 0 | `feature/sso-0-plan` | This plan | done |
 | 1 | `feature/sso-1-access-core` | Access in core: tokens, sessions, the allow list, in memory | done |
 | 2 | `feature/sso-2-postgres-credentials` | The credential store on Postgres | done |
-| 3 | `feature/sso-3-manager-tokens` | The manager asks for a token; the clients send one | |
+| 3 | `feature/sso-3-manager-tokens` | The manager asks for a token; the clients send one | done |
 | 4 | `feature/sso-4-cli` | The command line: tokens, sessions, `--no-auth` | |
 | 5 | `feature/sso-5-oidc` | Sign-in with OpenID Connect | |
 | 6 | `feature/sso-6-ui` | The UI: sign in, the profile, sign out | |
@@ -308,8 +308,9 @@ Core only, and no new dependency: `secrets` and `hashlib`.
   do the same, or a refused token may let a task run twice. Tested in core
   with a client that refuses: the scheduler's requests, a poll, a heartbeat
   refused while a long async handler runs (cancelled before the lease
-  lapses), and while a thread handler runs (`run` returns without it); and in
-  `neorc`, that the command exits with the thread still busy.
+  lapses), and while a thread handler runs (`run` returns without it). The
+  command's exit, and its test, come with the token in step 4, the first
+  step in which the command can be refused.
 - Route tests on the memory stores: no token, a wrong one, an expired one,
   401 before a malformed body, `/health` and `/ui/` open. The client contract
   suites keep running on an app with no authentication, plus a test that the
@@ -337,6 +338,9 @@ Core only, and no new dependency: `secrets` and `hashlib`.
   proxy in front: one process stays enough to deploy.
 - `flows upload`, `scheduler start` and `worker start` read `NEORC_API_TOKEN`,
   and `NEORC_ALLOW_INSECURE_HTTP` for a token over `http` beyond loopback.
+  `neorc worker start` exits the process at once when the worker raises
+  `AuthenticationError`, a handler thread still busy or not, and a test
+  shows it does.
   Never a flag: a command line is visible to every user of the host. A 401
   exits 1 saying the token was refused and why, and a worker does not retry
   it as it retries an unreachable manager.

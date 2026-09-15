@@ -34,10 +34,13 @@ MAIN: JsonValue = {
 
 @pytest.fixture
 async def http(manager: Manager) -> AsyncIterator[httpx.AsyncClient]:
-    app = create_app(manager, long_poll_timeout=2)
+    app = create_app(manager, access=None, long_poll_timeout=2)
     transport = httpx.ASGITransport(app=app)
+    # Every write is sent as JSON, as the clients send it, body or not.
     async with httpx.AsyncClient(
-        transport=transport, base_url="http://manager.test"
+        transport=transport,
+        base_url="http://manager.test",
+        headers={"content-type": "application/json"},
     ) as client:
         yield client
 

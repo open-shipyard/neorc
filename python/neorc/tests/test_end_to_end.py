@@ -34,7 +34,7 @@ async def manager_address(
     """
     (tmp_path / "index.html").write_text("<!doctype html><title>stand-in</title>")
     monkeypatch.setattr("neorc_ui.STATIC", tmp_path)
-    app = build_app(pg_schema, create_schema=True, long_poll_timeout=2)
+    app = build_app(pg_schema, auth=False, create_schema=True, long_poll_timeout=2)
     async with serve_app(app) as address:
         yield address
 
