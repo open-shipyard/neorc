@@ -81,11 +81,17 @@ class MemoryCredentialStore(CredentialStore):
             return count
 
     async def add_login(
-        self, state_hash: str, login: PendingLogin, *, seconds: float
-    ) -> None:
+        self, state_hash: str, login: PendingLogin, *, seconds: float, limit: int
+    ) -> bool:
         async with self._lock:
             now = datetime.now(UTC)
+            alive = sum(
+                1 for _, expires in self._logins.values() if _alive(expires, now)
+            )
+            if alive >= limit:
+                return False
             self._logins[state_hash] = (login, now + timedelta(seconds=seconds))
+            return True
 
     async def take_login(self, state_hash: str) -> PendingLogin | None:
         async with self._lock:

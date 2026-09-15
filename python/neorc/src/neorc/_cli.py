@@ -34,7 +34,7 @@ from collections.abc import Awaitable, Callable, Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TypeVar
+from typing import TYPE_CHECKING, TypeVar
 
 from neorc_core import (
     AuthenticationError,
@@ -55,9 +55,13 @@ MANAGER_ADDRESS_ENV = "NEORC_MANAGER_ADDRESS"
 API_TOKEN_ENV = "NEORC_API_TOKEN"
 ALLOW_INSECURE_HTTP_ENV = "NEORC_ALLOW_INSECURE_HTTP"
 DATABASE_URL_ENV = "NEORC_DATABASE_URL"
+AUTH_CONFIG_ENV = "NEORC_AUTH_CONFIG"
 
 DEFAULT_HOST = "0.0.0.0"  # a manager serves workers on other hosts
 DEFAULT_PORT = 8420
+
+if TYPE_CHECKING:
+    from neorc.auth import AuthConfig
 
 _log = logging.getLogger("neorc")
 
@@ -97,6 +101,13 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="serve anyone who reaches the manager, with no API token: "
         "for trying it on a machine nobody else reaches",
+    )
+    manager_start.add_argument(
+        "--auth-config",
+        type=Path,
+        default=None,
+        help="sign-in to the UI: providers and who may sign in; defaults to "
+        f"${AUTH_CONFIG_ENV}",
     )
     manager_start.add_argument(
         "--ssl-certfile", default=None, help="serve HTTPS with this certificate"
@@ -361,6 +372,7 @@ def manager_start_command(args: argparse.Namespace) -> int:
                 "neorc manager start: cannot serve HTTPS with "
                 f"{args.ssl_certfile!r} and {args.ssl_keyfile!r}: {exc}"
             ) from None
+    auth_config = _auth_config(args)
     if args.no_auth:
         where = f"{args.host}:{args.port}"
         if args.host == DEFAULT_HOST:
@@ -375,6 +387,7 @@ def manager_start_command(args: argparse.Namespace) -> int:
             args.host,
             args.port,
             auth=not args.no_auth,
+            auth_config=auth_config,
             database_url=args.database_url,
             create_schema=args.create_schema,
             ui=not args.no_ui,
@@ -386,6 +399,42 @@ def manager_start_command(args: argparse.Namespace) -> int:
     except RuntimeError as exc:  # no database, or no credential tables in it
         raise SystemExit(f"neorc manager start: {exc}") from None
     return 0
+
+
+def _auth_config(args: argparse.Namespace) -> AuthConfig | None:
+    """The sign-in configuration named, read and checked; ``None`` if none is."""
+    path: Path | None = args.auth_config
+    if path is None and os.environ.get(AUTH_CONFIG_ENV):
+        path = Path(os.environ[AUTH_CONFIG_ENV])
+    if path is None:
+        if not args.no_auth:
+            _log.warning(
+                "no --auth-config: API tokens only, and nobody can sign in to the UI"
+            )
+        return None
+    if args.no_auth:
+        raise SystemExit(
+            "neorc manager start: --no-auth asks for no identity, so there is no "
+            f"signing in to configure: drop --auth-config or ${AUTH_CONFIG_ENV}"
+        )
+    with _needs("manager"):
+        from neorc.auth import AuthConfigError, load_auth_config
+    try:
+        config = load_auth_config(path)
+    except AuthConfigError as exc:
+        raise SystemExit(
+            f"neorc manager start: {path} cannot be used:\n"
+            + "\n".join(f"  {problem}" for problem in exc.problems)
+        ) from None
+    except OSError as exc:
+        raise SystemExit(f"neorc manager start: cannot read {path}: {exc}") from None
+    if not config.secure:
+        _log.warning(
+            "the public URL %s is http: browsers share its cookies with every other "
+            "server on this machine, so sign in here only where those are trusted",
+            config.public_url,
+        )
+    return config
 
 
 def tokens_create_command(args: argparse.Namespace) -> int:

@@ -13,7 +13,9 @@ from contextlib import AsyncExitStack, asynccontextmanager
 import uvicorn
 from fastapi import FastAPI
 
+from neorc.auth._config import AuthConfig
 from neorc.manager._app import DEFAULT_LONG_POLL_TIMEOUT, create_app
+from neorc.manager._sign_in import SignIn
 from neorc_core import Access, Manager
 
 # A manager serves workers on other hosts, so it binds every interface.
@@ -28,6 +30,7 @@ def build_app(
     database_url: str | None = None,
     *,
     auth: bool,
+    auth_config: AuthConfig | None = None,
     create_schema: bool = False,
     long_poll_timeout: float = DEFAULT_LONG_POLL_TIMEOUT,
     ui: bool = True,
@@ -46,8 +49,10 @@ def build_app(
     against a credential store on the same database, which the lifespan opens
     beside the flow store, after the schema step, and closes with it; without
     ``create_schema``, the lifespan first checks the credential tables exist,
-    and fails with ``RuntimeError`` naming the fix if not. Without ``auth``,
-    anyone who reaches the service may do everything.
+    and fails with ``RuntimeError`` naming the fix if not. ``auth_config``
+    adds signing in to the UI with its providers, for the people its allow
+    list names. Without ``auth``, anyone who reaches the service may do
+    everything.
 
     With ``ui``, the web UI from the ``neorc-ui`` distribution is served at
     ``/ui/``; ``FileNotFoundError`` names the fix if that holds no built UI,
@@ -62,6 +67,8 @@ def build_app(
     from neorc.postgres._notifier import EVENTS_CHANNEL, TASKS_CHANNEL
     from neorc.postgres._schema import ensure_credential_tables
 
+    if auth_config is not None and not auth:
+        raise ValueError("sign-in needs authentication on")
     dsn = database_url or os.environ.get(DATABASE_URL_ENV)
     if not dsn:
         raise RuntimeError(f"no database to serve: pass one or set {DATABASE_URL_ENV}")
@@ -90,9 +97,22 @@ def build_app(
                 await stack.enter_async_context(credentials)
             yield
 
+    access = None
+    sign_in = None
+    if credentials is not None:
+        if auth_config is None:
+            access = Access(credentials)
+        else:
+            access = Access(
+                credentials,
+                allow=auth_config.allow,
+                session_seconds=auth_config.session_seconds,
+            )
+            sign_in = SignIn.build(auth_config, access)
     app = create_app(
         Manager(store, tasks=tasks, events=events),
-        access=Access(credentials) if credentials is not None else None,
+        access=access,
+        sign_in=sign_in,
         long_poll_timeout=long_poll_timeout,
         ui=static,
     )
@@ -105,6 +125,7 @@ def run(
     port: int = DEFAULT_PORT,
     *,
     auth: bool,
+    auth_config: AuthConfig | None = None,
     database_url: str | None = None,
     create_schema: bool = False,
     ui: bool = True,
@@ -117,7 +138,13 @@ def run(
     ``RuntimeError`` before serving when there is no database, or when
     authentication is on and the credential tables are missing.
     """
-    app = build_app(database_url, auth=auth, create_schema=create_schema, ui=ui)
+    app = build_app(
+        database_url,
+        auth=auth,
+        auth_config=auth_config,
+        create_schema=create_schema,
+        ui=ui,
+    )
     if auth and not create_schema:
         # Checked again by the lifespan; here, so the command can say so and
         # exit rather than leave it to uvicorn's startup failure.

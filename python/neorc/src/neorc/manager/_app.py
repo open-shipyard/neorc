@@ -18,7 +18,9 @@ from fastapi.responses import JSONResponse
 
 from neorc._errors import error_body, status_of
 from neorc.manager._access import guard
+from neorc.manager._auth_routes import auth_router
 from neorc.manager._routes import router
+from neorc.manager._sign_in import SignIn
 from neorc.manager._ui import mount_ui
 from neorc_core import (
     Access,
@@ -40,16 +42,19 @@ def create_app(
     manager: Manager,
     *,
     access: Access | None,
+    sign_in: SignIn | None = None,
     long_poll_timeout: float = DEFAULT_LONG_POLL_TIMEOUT,
     ui: Path | None = None,
 ) -> FastAPI:
     """Build the ASGI application serving ``manager``.
 
     ``access`` authenticates every request to the API; ``None`` serves it to
-    anyone, and must be said. Whoever built ``access`` opens and closes its
-    credential store. With authentication on, the Swagger and ReDoc pages are
-    not served: they load scripts from a CDN, outside the UI's
-    Content-Security-Policy. ``/openapi.json`` is served either way.
+    anyone, and must be said. ``sign_in``, on the same ``access``, lets people
+    sign in to the UI with its providers, and accepts their sessions. Whoever
+    built ``access`` opens and closes its credential store. With
+    authentication on, the Swagger and ReDoc pages are not served: they load
+    scripts from a CDN, outside the UI's Content-Security-Policy.
+    ``/openapi.json`` is served either way.
 
     With ``ui``, a directory holding the built web UI, the app serves it at
     ``/ui/`` and sends ``/`` there; without, ``/`` is not found.
@@ -62,7 +67,10 @@ def create_app(
         redoc_url="/redoc" if pages else None,
     )
     app.state.manager = manager
+    if sign_in is not None and (access is None or sign_in.access is not access):
+        raise ValueError("sign-in opens sessions on the app's own Access")
     app.state.access = access
+    app.state.sign_in = sign_in
     app.state.long_poll_timeout = long_poll_timeout
 
     @app.exception_handler(NeorcError)
@@ -86,6 +94,7 @@ def create_app(
         return JSONResponse(error_body(error), status_code=status_of(error))
 
     app.include_router(router, dependencies=[Depends(guard)])
+    app.include_router(auth_router)
 
     @app.get("/health")
     async def health() -> dict[str, str]:

@@ -57,11 +57,16 @@ _DELETE_SESSION = f"DELETE FROM {SESSIONS_TABLE} WHERE secret_hash = %(hash)s"
 
 _DELETE_SESSIONS = f"DELETE FROM {SESSIONS_TABLE}"
 
+# The count and the insert are one statement. Two at once may both count
+# under the limit, so it can be passed by the number of concurrent sign-ins:
+# a ceiling on growth, not an exact number, which is all it is for.
 _INSERT_LOGIN = f"""
 INSERT INTO {PENDING_LOGINS_TABLE} (state_hash, provider, nonce, verifier,
                                     created_at, expires_at)
-VALUES (%(hash)s, %(provider)s, %(nonce)s, %(verifier)s,
-        now(), now() + make_interval(secs => %(seconds)s::double precision))
+SELECT %(hash)s, %(provider)s, %(nonce)s, %(verifier)s,
+       now(), now() + make_interval(secs => %(seconds)s::double precision)
+ WHERE (SELECT count(*) FROM {PENDING_LOGINS_TABLE}
+         WHERE expires_at > now()) < %(limit)s
 """
 
 # Deleting and reading are one statement: of two takes at once, the second
@@ -160,10 +165,10 @@ class PostgresCredentialStore(Pooled, CredentialStore):
             return cursor.rowcount
 
     async def add_login(
-        self, state_hash: str, login: PendingLogin, *, seconds: float
-    ) -> None:
+        self, state_hash: str, login: PendingLogin, *, seconds: float, limit: int
+    ) -> bool:
         async with self.pool.connection() as conn:
-            await conn.execute(
+            cursor = await conn.execute(
                 _INSERT_LOGIN,
                 {
                     "hash": state_hash,
@@ -171,8 +176,10 @@ class PostgresCredentialStore(Pooled, CredentialStore):
                     "nonce": login.nonce,
                     "verifier": login.verifier,
                     "seconds": seconds,
+                    "limit": limit,
                 },
             )
+            return cursor.rowcount > 0
 
     async def take_login(self, state_hash: str) -> PendingLogin | None:
         async with self.pool.connection() as conn:

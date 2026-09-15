@@ -33,8 +33,9 @@ dependencies = [
 # plays. See docs/specs/core.md.
 [project.optional-dependencies]
 http = ["httpx>=0.28"]
-# The manager serves the UI, so its extra brings the built assets too.
-manager = ["fastapi>=0.120", "uvicorn>=0.38", "neorc-ui"]
+# The manager serves the UI, so its extra brings the built assets too; and it
+# signs people in with OpenID Connect providers, which it reaches with httpx.
+manager = ["fastapi>=0.120", "uvicorn>=0.38", "neorc-ui", "httpx>=0.28"]
 postgres = ["psycopg[binary,pool]>=3.2"]
 
 [project.scripts]

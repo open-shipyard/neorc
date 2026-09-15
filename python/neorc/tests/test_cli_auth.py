@@ -57,14 +57,89 @@ def test_the_manager_needs_tokens_unless_told_not_to(
 ) -> None:
     with caplog.at_level(logging.WARNING, logger="neorc"):
         assert _cli.main(["manager", "start"]) == 0
-        assert caplog.records == []
+        (tokens_only,) = caplog.records
+        caplog.clear()
         assert _cli.main(["manager", "start", "--no-auth"]) == 0
 
     assert [call["auth"] for call in runs] == [True, False]
+    assert [call["auth_config"] for call in runs] == [None, None]
+    assert "nobody can sign in to the UI" in tokens_only.message
     (warning,) = caplog.records
     assert "no authentication" in warning.message
     assert "every interface" in warning.message
     assert "DNS rebinding" in warning.message
+
+
+AUTH_TOML = """
+public_url = "https://neorc.example.com"
+
+[providers.google]
+title = "Google"
+issuer = "https://accounts.google.com/"
+client_id = "1234.apps.googleusercontent.com"
+client_secret_env = "NEORC_TEST_GOOGLE_SECRET"
+
+[[allow]]
+provider = "google"
+hosted_domain = "example.com"
+"""
+
+
+def test_sign_in_is_configured_from_a_file_named_on_the_command_line_or_not(
+    runs: list[dict[str, Any]],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "auth.toml"
+    path.write_text(AUTH_TOML)
+    monkeypatch.setenv("NEORC_TEST_GOOGLE_SECRET", "shh")
+
+    assert _cli.main(["manager", "start", "--auth-config", str(path)]) == 0
+    monkeypatch.setenv(_cli.AUTH_CONFIG_ENV, str(path))
+    assert _cli.main(["manager", "start"]) == 0
+
+    for call in runs:
+        config = call["auth_config"]
+        assert config.public_url == "https://neorc.example.com"
+        assert config.providers["google"].client_secret == "shh"
+        assert config.providers["google"].issuer == "https://accounts.google.com"
+
+
+def test_a_sign_in_config_that_cannot_be_used_lists_every_problem(
+    runs: list[dict[str, Any]], tmp_path: Path
+) -> None:
+    path = tmp_path / "auth.toml"
+    path.write_text(AUTH_TOML.replace("hosted_domain", "email_domain"))
+
+    with pytest.raises(SystemExit) as refused:
+        _cli.main(["manager", "start", "--auth-config", str(path)])
+    with pytest.raises(SystemExit, match="cannot read"):
+        _cli.main(["manager", "start", "--auth-config", str(tmp_path / "none")])
+    with pytest.raises(SystemExit, match="--no-auth asks for no identity"):
+        _cli.main(["manager", "start", "--no-auth", "--auth-config", str(path)])
+
+    message = str(refused.value)
+    assert "NEORC_TEST_GOOGLE_SECRET is not set" in message
+    assert "email_domain is refused for Google" in message
+    assert runs == []
+
+
+def test_signing_in_over_http_on_loopback_is_warned_about(
+    runs: list[dict[str, Any]],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    path = tmp_path / "auth.toml"
+    path.write_text(
+        AUTH_TOML.replace("https://neorc.example.com", "http://127.0.0.1:8420")
+    )
+    monkeypatch.setenv("NEORC_TEST_GOOGLE_SECRET", "shh")
+
+    with caplog.at_level(logging.WARNING, logger="neorc"):
+        assert _cli.main(["manager", "start", "--auth-config", str(path)]) == 0
+
+    assert any("every other server" in r.message for r in caplog.records)
 
 
 @pytest.fixture

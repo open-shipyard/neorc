@@ -21,6 +21,7 @@ import hashlib
 import math
 import re
 import secrets
+import time
 import uuid
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
@@ -180,6 +181,16 @@ TOKEN_PREFIX = "neorc_"
 DEFAULT_SESSION_SECONDS = 12 * 60 * 60.0
 DEFAULT_LOGIN_SECONDS = 10 * 60.0
 
+MAX_PENDING_LOGINS = 10_000
+"""How many sign-ins may be in progress at once.
+
+Anyone may begin one, so this is what keeps a flood of them from growing the
+table without end: past it, a sign-in is refused until some expire.
+"""
+
+SWEEP_SECONDS = 60.0
+"""How often, at most, expired sessions and sign-ins are deleted."""
+
 MAX_SECONDS = 5 * 366 * 24 * 60 * 60.0
 """The longest life a token, session or sign-in may be given."""
 
@@ -227,17 +238,34 @@ class Access:
         allow: Sequence[Allow] = (),
         session_seconds: float = DEFAULT_SESSION_SECONDS,
         login_seconds: float = DEFAULT_LOGIN_SECONDS,
+        max_pending_logins: int = MAX_PENDING_LOGINS,
+        sweep_seconds: float = SWEEP_SECONDS,
     ) -> None:
         check_seconds(session_seconds, "a session's life")
         check_seconds(login_seconds, "a sign-in's life")
+        if max_pending_logins < 1:
+            raise InvalidValueError("at least one sign-in must be allowed at once")
         self._credentials = credentials
         self._allow = tuple(allow)
         self._session_seconds = session_seconds
         self._login_seconds = login_seconds
+        self._max_pending_logins = max_pending_logins
+        self._sweep_seconds = sweep_seconds
+        self._swept_at: float | None = None
 
     @property
     def allow(self) -> tuple[Allow, ...]:
         return self._allow
+
+    @property
+    def session_seconds(self) -> float:
+        """How long a session opened now lasts."""
+        return self._session_seconds
+
+    @property
+    def login_seconds(self) -> float:
+        """How long a sign-in begun now may take."""
+        return self._login_seconds
 
     # API tokens.
 
@@ -287,11 +315,16 @@ class Access:
         """Start a sign-in with ``provider``: its ``state``, and what is kept for it.
 
         The ``state`` goes to the provider and comes back to the callback,
-        which hands it to ``take_login``.
+        which hands it to ``take_login``. Raises ``AuthenticationError`` when
+        too many sign-ins are in progress already.
         """
-        # Expired rows go at the pace people sign in, which keeps the tables
-        # from growing without a job of their own.
-        await self._credentials.delete_expired()
+        # Expired rows go as people sign in, at most once a sweep interval:
+        # the tables need no job of their own, and a flood of sign-ins does
+        # not become a flood of deletes.
+        now = time.monotonic()
+        if self._swept_at is None or now - self._swept_at >= self._sweep_seconds:
+            self._swept_at = now
+            await self._credentials.delete_expired()
         state = secrets.token_urlsafe(_SECRET_BYTES)
         login = PendingLogin(
             provider=provider,
@@ -299,9 +332,16 @@ class Access:
             # 64 characters, within the 43 to 128 PKCE allows.
             verifier=secrets.token_urlsafe(48),
         )
-        await self._credentials.add_login(
-            secret_hash(state), login, seconds=self._login_seconds
+        stored = await self._credentials.add_login(
+            secret_hash(state),
+            login,
+            seconds=self._login_seconds,
+            limit=self._max_pending_logins,
         )
+        if not stored:
+            raise AuthenticationError(
+                "too many sign-ins are in progress; try again in a few minutes"
+            )
         return state, login
 
     async def take_login(self, provider: str, state: str) -> PendingLogin:

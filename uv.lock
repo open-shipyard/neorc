@@ -669,6 +669,7 @@ http = [
 ]
 manager = [
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "neorc-ui" },
     { name = "uvicorn" },
 ]
@@ -680,6 +681,7 @@ postgres = [
 requires-dist = [
     { name = "fastapi", marker = "extra == 'manager'", specifier = ">=0.120" },
     { name = "httpx", marker = "extra == 'http'", specifier = ">=0.28" },
+    { name = "httpx", marker = "extra == 'manager'", specifier = ">=0.28" },
     { name = "neorc-core", editable = "python/neorc-core" },
     { name = "neorc-ui", marker = "extra == 'manager'", editable = "python/neorc-ui" },
     { name = "psycopg", extras = ["binary", "pool"], marker = "extra == 'postgres'", specifier = ">=3.2" },

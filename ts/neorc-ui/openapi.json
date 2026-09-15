@@ -230,6 +230,68 @@
         "title": "Outcome",
         "type": "string"
       },
+      "PrincipalResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          }
+        },
+        "required": [
+          "kind",
+          "name",
+          "email",
+          "provider"
+        ],
+        "title": "PrincipalResponse",
+        "type": "object"
+      },
+      "ProviderResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title"
+        ],
+        "title": "ProviderResponse",
+        "type": "object"
+      },
       "RunListResponse": {
         "additionalProperties": false,
         "properties": {
@@ -382,6 +444,51 @@
         ],
         "title": "RunStatus",
         "type": "string"
+      },
+      "SessionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "authentication": {
+            "title": "Authentication",
+            "type": "boolean"
+          },
+          "principal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PrincipalResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "providers": {
+            "items": {
+              "$ref": "#/components/schemas/ProviderResponse"
+            },
+            "title": "Providers",
+            "type": "array"
+          },
+          "public_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Public Url"
+          }
+        },
+        "required": [
+          "authentication",
+          "public_url",
+          "providers",
+          "principal"
+        ],
+        "title": "SessionResponse",
+        "type": "object"
       },
       "StepResponse": {
         "additionalProperties": false,
@@ -640,6 +747,43 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/auth/logout": {
+      "post": {
+        "description": "End the session, if any, and clear its cookie.",
+        "operationId": "logout_auth_logout_post",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Logout",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/auth/session": {
+      "get": {
+        "description": "Whether authentication is on, the providers to sign in with, and who is in.",
+        "operationId": "session_auth_session_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Session",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
     "/events": {
       "get": {
         "description": "Events after a sequence, long-polled; an empty list when the wait ends.",
