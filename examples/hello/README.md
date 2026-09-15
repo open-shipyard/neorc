@@ -39,11 +39,13 @@ each step from the repository root in its own terminal, after `uv sync`.
    does, and `neorc manager start` serves it at `/ui/` unless told not to.
    To serve it from a checkout, build it and put it where the manager
    looks (`npm ci && npm run build` in `ts/neorc-ui`, then copy `dist/` to
-   `python/neorc-ui/src/neorc_ui/static/`), and drop `--no-ui`. Signing in
-   to the UI is not there yet, so to open <http://127.0.0.1:8420/ui/> and
-   watch the runs below, start more and cancel them, start the manager with
-   `--no-auth` too, which needs no token anywhere: anyone who reaches the
-   manager can then do everything.
+   `python/neorc-ui/src/neorc_ui/static/`), and drop `--no-ui`. People sign
+   in to the UI with an identity provider, configured as the
+   [README](../../README.md#signing-in-with-google-or-okta) says; to open
+   <http://127.0.0.1:8420/ui/> without one, and watch the runs below, start
+   more and cancel them, start the manager with `--no-auth` instead, which
+   needs no token anywhere: anyone who reaches the manager can then do
+   everything.
 
 3. Upload the flows, as CI/CD would:
 

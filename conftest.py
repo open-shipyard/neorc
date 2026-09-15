@@ -137,11 +137,15 @@ def free_port() -> int:
 
 
 @asynccontextmanager
-async def serve_app(app: Any) -> AsyncIterator[str]:
-    """Serve an ASGI app on uvicorn at a free port, for the block; its address."""
+async def serve_app(app: Any, *, port: int | None = None) -> AsyncIterator[str]:
+    """Serve an ASGI app on uvicorn, at ``port`` or a free one, for the block.
+
+    Yields its address. A port chosen first lets an app be told its own
+    address before it is served, as a public URL is.
+    """
     import uvicorn
 
-    port = free_port()
+    port = free_port() if port is None else port
     config = uvicorn.Config(
         app, host="127.0.0.1", port=port, log_level="warning", lifespan="on"
     )

@@ -3,7 +3,7 @@
 Dependencies follow [contributing/js-dependencies.md](../../contributing/js-dependencies.md):
 read it before adding, removing or updating a package, and
 [AGENTS.md](AGENTS.md) if you are a coding agent. What ships here runs in a
-browser against an API with no authentication yet.
+browser with a signed-in person's session, able to do whatever they may.
 
 The manager's web UI: React, TypeScript and Vite. It is built into the
 `neorc-ui` Python distribution under `python/neorc-ui`, and served by

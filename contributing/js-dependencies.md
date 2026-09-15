@@ -1,9 +1,9 @@
 # JavaScript dependencies
 
 Rules for the packages under `ts/`. Their code ships to users inside a wheel,
-compiled into a bundle nobody reads, and runs in a browser against an API
-that has no authentication yet. Every dependency is code the project vouches
-for, at every version it takes.
+compiled into a bundle nobody reads, and runs in a browser beside a person's
+session on the manager, able to do whatever they may. Every dependency is
+code the project vouches for, at every version it takes.
 
 ## Keep them few
 

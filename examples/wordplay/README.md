@@ -30,8 +30,8 @@ are the same as in [hello](../hello/README.md#deployed).
 
 2. The manager, and an API token, as in
    [hello](../hello/README.md#deployed): `export NEORC_API_TOKEN=<secret>`
-   in every terminal below, or start the manager with `--no-auth` as well to
-   use the UI, which has no sign-in yet:
+   in every terminal below; or start the manager with `--no-auth` to use the
+   UI without configuring an identity provider to sign in with:
 
        export NEORC_DATABASE_URL=...   # from step 1
        uv run neorc manager start --host 127.0.0.1 --create-schema --no-ui

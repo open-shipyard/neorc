@@ -206,6 +206,40 @@ one version, cut from a single tag on `main`.
   run's page with a breadcrumb, its facts on one line and its steps as
   cards. The browser test also switches to the graph, zooms it and opens a
   task's details from a node.
+- `neorc-core`: `Access`, API tokens, sessions and sign-ins in progress on
+  the `CredentialStore` port, which keeps only the SHA-256 of a secret;
+  `MemoryCredentialStore` and `CredentialStoreContract`. An allow list says
+  who may sign in: everyone, a subject, a verified email or its domain,
+  Google's hosted domain, or a group. `AuthenticationError` crosses HTTP as
+  401, `SignInRefusedError` and `CrossSiteRequestError` as 403, and
+  `UnsupportedMediaTypeError` as 415. The scheduler and worker stop on a
+  refused token, failing no run; a heartbeat refused ends the handler
+  holding the task, and `neorc worker start` its process.
+- `neorc.postgres`: `PostgresCredentialStore`, on `neorc_api_tokens`,
+  `neorc_sessions` and `neorc_pending_logins`, created by `create_schema`.
+- `neorc.manager`: every route of the API needs an API token or a session;
+  `/health`, the UI and `/openapi.json` stay open, and the Swagger and ReDoc
+  pages go when authentication is on. A write is refused in every mode when a
+  browser says another site sent it, or when it is not sent as JSON; a
+  session's write must come from the public URL's origin. The HTTP clients
+  send a token, never over plain http beyond loopback unless allowed.
+- `neorc tokens create|list|revoke` and `neorc sessions clear`, on the
+  manager's database. `neorc manager start` asks for tokens unless
+  `--no-auth`, checks the credential tables are there, serves HTTPS with
+  `--ssl-certfile` and `--ssl-keyfile`, and signs people in with
+  `--auth-config`. `flows upload`, `scheduler start` and `worker start` send
+  `NEORC_API_TOKEN`.
+- `neorc.auth`: sign-in with OpenID Connect providers, Google and Okta
+  among them, from `auth.toml`: the code flow with state, nonce and PKCE,
+  the ID token's claims checked, sessions in `__Host-` cookies, at most
+  10,000 sign-ins in progress. The `/auth` routes: `session`, `login`,
+  `callback`, `logout`.
+- `neorc-ui`: a sign-in page with a link per provider and the reason a
+  sign-in failed; the profile shows who is signed in and signs them out;
+  the no-authentication banner only for `--no-auth`. A session ending
+  mid-page shows the sign-in page, and the page the reader was on is
+  restored after signing in. The browser test signs in through a stand-in
+  OpenID provider and runs its deployment with a token.
 
 ### Changed
 
