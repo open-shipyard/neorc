@@ -223,13 +223,13 @@ ON CONFLICT (id) DO NOTHING
 RETURNING {TASK_COLUMNS}
 """
 
-# One statement, so the claim and everything that goes with it are atomic. The
+# One statement, so the lease and everything that goes with it are atomic. The
 # inner SELECT takes the oldest ready task of the queue and locks it, skipping
-# rows another claimer already holds; ready is pending, or leased past the
+# rows another receiver already holds; ready is pending, or leased past the
 # lease's end.
-_CLAIM_TASK = f"""
+_RECEIVE_TASK = f"""
 UPDATE {FLOW_TASKS_TABLE} AS t
-   SET status = 'claimed',
+   SET status = 'received',
        attempts = t.attempts + 1,
        lease_expires_at = now() + make_interval(secs => %(lease_seconds)s)
  WHERE t.id = (
@@ -237,7 +237,7 @@ UPDATE {FLOW_TASKS_TABLE} AS t
          FROM {FLOW_TASKS_TABLE} AS c
         WHERE c.queue = %(queue)s
           AND (c.status = 'pending'
-               OR (c.status IN ('claimed', 'running')
+               OR (c.status IN ('received', 'running')
                    AND c.lease_expires_at <= now()))
         ORDER BY c.position
           FOR UPDATE SKIP LOCKED
@@ -245,7 +245,7 @@ UPDATE {FLOW_TASKS_TABLE} AS t
 RETURNING {TASK_COLUMNS}
 """
 
-_START_TASK = f"""
+_CLAIM_TASK = f"""
 UPDATE {FLOW_TASKS_TABLE}
    SET status = 'running', started_at = COALESCE(started_at, now())
  WHERE id = %(id)s
@@ -497,17 +497,17 @@ class PostgresStore(Pooled, Store):
                 return await _task(conn, task.id)
             return task_from_row(row)
 
-    async def claim_task(
+    async def receive_task(
         self, queue: str, *, lease_seconds: float = DEFAULT_LEASE_SECONDS
     ) -> Task | None:
         async with self.pool.connection() as conn:
             cursor = await conn.execute(
-                _CLAIM_TASK, {"queue": queue, "lease_seconds": lease_seconds}
+                _RECEIVE_TASK, {"queue": queue, "lease_seconds": lease_seconds}
             )
             row = await cursor.fetchone()
         return None if row is None else task_from_row(row)
 
-    async def start_task(self, task_id: TaskId) -> Task:
+    async def claim_task(self, task_id: TaskId) -> Task:
         inactive: Run | None = None
         row = None
         async with self.pool.connection() as conn, conn.transaction():
@@ -530,7 +530,7 @@ class PostgresStore(Pooled, Store):
                 )
                 inactive = run
             else:
-                cursor = await conn.execute(_START_TASK, {"id": task_id})
+                cursor = await conn.execute(_CLAIM_TASK, {"id": task_id})
                 row = await cursor.fetchone()
         if inactive is not None:
             ensure_active(inactive)

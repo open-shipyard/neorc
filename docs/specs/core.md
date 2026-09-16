@@ -58,15 +58,15 @@ await worker.run()
 ```
 
 
-The worker class uses its queue client to pick the next task and execute it.
+The worker class uses its queue client to receive the next task, claim it and execute it.
 
-The queue client long-polls the manager's pick-next-task. That long polling could be replaced by Redis or SQS in the future, which is why it is a port, `QueueClient`, supporting multiple implementations. The worker receives it by its constructor; the scheduler reaches the manager through its own port, `ManagerClient`.
+The queue client receives tasks by long-polling the manager. That long polling could be replaced by Redis or SQS in the future, which is why it is a port, `QueueClient`, supporting multiple implementations. The worker receives it by its constructor; the scheduler reaches the manager through its own port, `ManagerClient`.
 
 The "neorc" library implements both over HTTP.
 
 scheduler > queue_cli > http > manager service > db
 
-Then for next task retrieval.
+Then for receiving and claiming tasks.
 
 worker > queue_cli > http > manager service > db
 
@@ -76,22 +76,38 @@ worker > queue_cli > http > manager service > db
 
 The manager will use HTTP/JSON with FastAPI, async mechanism.
 
-The "pick next task" endpoint should comfortably keep several workers waiting
+The "receive a task" endpoint should comfortably keep several workers waiting
 without holding one database connection per waiting worker. See
 [postgres-implementation.md](postgres-implementation.md).
 
 The API exposes endpoints for uploading flows, starting and querying runs, and
 for the scheduler's requests; and, for workers, for fetching a queue's task
-definitions, fetching a task to work, and informing task start.
+definitions, receiving a task, and claiming it.
 
-A claim is a lease: a worker heartbeats while it executes, and a task whose
-lease expires is handed to another worker. The API therefore also exposes an
-endpoint to extend the lease. See
-[postgres-implementation.md](postgres-implementation.md) for why, and for what
-this maps onto in SQS.
+A worker takes a task in two steps:
 
-Fetching of a tasks will be in a separate endpoint from informing task start.
-So the task fetching can be done with SQS in the future, while the inform start stays in Postgres. No references to Postgres or SQS will be in neorc-core.
+- **Receive.** The worker asks for the next task on its queue. Receiving is a
+  signal, not the final word: a queue such as SQS can deliver the same task
+  again, or to two workers, so a received task may already be running in
+  another worker. Receiving takes a lease, which keeps other workers from
+  receiving the task as a best effort.
+- **Claim.** Before running the task, the worker asks the manager for it. The
+  manager checks, in one transaction, that the task is free to start, and
+  changes its status. The claim is the final word, in every implementation.
+
+A worker heartbeats while it executes, and a task whose lease expires can be
+received by another worker. The API therefore also exposes an endpoint to
+extend the lease. See [postgres-implementation.md](postgres-implementation.md)
+for why, and for what this maps onto in SQS.
+
+Receiving and claiming are separate endpoints, so receiving can be done with
+SQS in the future while claiming stays with the manager in Postgres. No
+references to Postgres or SQS will be in neorc-core.
+
+Two checks the claim is meant for are not made yet: a task already running can
+be claimed again, since a worker may retry the call, and nothing checks that
+the worker claiming, heartbeating or finishing a task is the one that received
+it.
 
 ## Task payloads
 
@@ -100,8 +116,8 @@ results, plus fixed values from the flow definition. The manager stores the
 task that way, and fills the references in with the upstream results to build
 the complete payload a worker receives:
 
-- With the Postgres queue, the manager fills them in when a worker fetches the
-  task.
+- With the Postgres queue, the manager fills them in when a worker receives
+  the task.
 - With a queue such as SQS, the manager fills them in when it stores the task,
   and sends the complete payload to the queue in the same step. The worker
   receives everything from the queue.
@@ -162,10 +178,10 @@ Their "task finished" events still reach the scheduler, which finds the run no
 longer active and does nothing.
 
 A task published before its run was cancelled can still reach a worker: a
-message already sent to a queue such as SQS cannot be taken back. Reporting a
-task's start always goes to the manager, whatever the queue backend, so that is
-where it is caught: the manager rejects the start report of a task whose run is
-no longer active, and the worker drops the task without running it.
+message already sent to a queue such as SQS cannot be taken back. Claiming a
+task always goes to the manager, whatever the queue backend, so that is where
+it is caught: the manager refuses the claim of a task whose run is no longer
+active, and the worker drops the task without running it.
 
 
 ## Out of scope

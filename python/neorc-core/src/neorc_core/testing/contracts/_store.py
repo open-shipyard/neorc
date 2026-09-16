@@ -403,7 +403,7 @@ class StoreContract:
 
         run = await store.start_run("a", Version(1, 0, 0), inputs)
         task_id = await self.publish(store, run)
-        await store.claim_task("default", lease_seconds=30)
+        await store.receive_task("default", lease_seconds=30)
         await store.finish_task(task_id, result=list(inputs.values()))
 
         read = (await store.get_run(run.id)).inputs
@@ -465,12 +465,12 @@ class StoreContract:
         await self.upload(store)
         run = await self.start(store)
         task_id = await self.publish(store, run)
-        await store.claim_task("default", lease_seconds=30)
+        await store.receive_task("default", lease_seconds=30)
 
         again = await self.publish(store, run)
 
         assert again == task_id
-        assert (await store.get_task(task_id)).status is TaskStatus.CLAIMED
+        assert (await store.get_task(task_id)).status is TaskStatus.RECEIVED
 
     async def test_no_task_is_published_into_an_inactive_run(
         self, store: Store
@@ -482,48 +482,50 @@ class StoreContract:
         with pytest.raises(RunStateError):
             await self.publish(store, run)
 
-    async def test_claims_are_per_queue_oldest_first(self, store: Store) -> None:
+    async def test_tasks_are_received_per_queue_oldest_first(
+        self, store: Store
+    ) -> None:
         await self.upload(store)
         run = await self.start(store)
         first = await self.publish(store, run, Address("one"))
         await self.publish(store, run, Address("two"), queue="scoring")
         second = await self.publish(store, run, Address("three"))
 
-        claimed = await store.claim_task("default", lease_seconds=30)
-        after = await store.claim_task("default", lease_seconds=30)
-        empty = await store.claim_task("default", lease_seconds=30)
+        received = await store.receive_task("default", lease_seconds=30)
+        after = await store.receive_task("default", lease_seconds=30)
+        empty = await store.receive_task("default", lease_seconds=30)
 
-        assert claimed is not None and claimed.id == first
-        assert claimed.status is TaskStatus.CLAIMED
-        assert claimed.attempts == 1
-        assert claimed.lease_expires_at is not None
-        assert claimed.lease_expires_at > datetime.now(UTC)
+        assert received is not None and received.id == first
+        assert received.status is TaskStatus.RECEIVED
+        assert received.attempts == 1
+        assert received.lease_expires_at is not None
+        assert received.lease_expires_at > datetime.now(UTC)
         assert after is not None and after.id == second
         assert empty is None
-        assert await store.claim_task("nobody", lease_seconds=30) is None
+        assert await store.receive_task("nobody", lease_seconds=30) is None
 
-    async def test_concurrent_claims_never_share_a_task(self, store: Store) -> None:
+    async def test_concurrent_receives_never_share_a_task(self, store: Store) -> None:
         await self.upload(store)
         run = await self.start(store)
         for index in range(5):
             await self.publish(store, run, Address(f"t{index}"))
 
-        claimed = await asyncio.gather(
-            *(store.claim_task("default", lease_seconds=30) for _ in range(15))
+        received = await asyncio.gather(
+            *(store.receive_task("default", lease_seconds=30) for _ in range(15))
         )
 
-        ids = [task.id for task in claimed if task is not None]
+        ids = [task.id for task in received if task is not None]
         assert len(ids) == len(set(ids)) == 5
 
     async def test_a_lapsed_lease_hands_the_task_on(self, store: Store) -> None:
         await self.upload(store)
         run = await self.start(store)
         task_id = await self.publish(store, run)
-        await store.claim_task("default", lease_seconds=0.05)
-        await store.start_task(task_id)
+        await store.receive_task("default", lease_seconds=0.05)
+        await store.claim_task(task_id)
 
         await asyncio.sleep(0.06)
-        again = await store.claim_task("default", lease_seconds=30)
+        again = await store.receive_task("default", lease_seconds=30)
 
         assert again is not None and again.id == task_id
         assert again.attempts == 2
@@ -532,13 +534,13 @@ class StoreContract:
         await self.upload(store)
         run = await self.start(store)
         task_id = await self.publish(store, run)
-        await store.claim_task("default", lease_seconds=0.05)
+        await store.receive_task("default", lease_seconds=0.05)
 
         expires_at = await store.extend_task_lease(task_id, lease_seconds=30)
         await asyncio.sleep(0.06)
 
         assert expires_at > datetime.now(UTC)
-        assert await store.claim_task("default", lease_seconds=30) is None
+        assert await store.receive_task("default", lease_seconds=30) is None
 
     async def test_a_task_finishes_with_its_result_and_an_event(
         self, store: Store
@@ -546,12 +548,12 @@ class StoreContract:
         await self.upload(store)
         run = await self.start(store)
         task_id = await self.publish(store, run)
-        await store.claim_task("default", lease_seconds=30)
-        started = await store.start_task(task_id)
+        await store.receive_task("default", lease_seconds=30)
+        claimed = await store.claim_task(task_id)
 
         finished = await store.finish_task(task_id, result={"words": ["red"]})
 
-        assert started.status is TaskStatus.RUNNING
+        assert claimed.status is TaskStatus.RUNNING
         assert finished.status is TaskStatus.SUCCEEDED
         assert (await store.get_task(task_id)).result == {"words": ["red"]}
         assert finished.lease_expires_at is None
@@ -564,7 +566,7 @@ class StoreContract:
         await self.upload(store)
         run = await self.start(store)
         task_id = await self.publish(store, run)
-        await store.claim_task("default", lease_seconds=30)
+        await store.receive_task("default", lease_seconds=30)
 
         failed = await store.finish_task(task_id, error="ValueError: nope")
 
@@ -575,7 +577,7 @@ class StoreContract:
         await self.upload(store)
         run = await self.start(store)
         task_id = await self.publish(store, run)
-        await store.claim_task("default", lease_seconds=30)
+        await store.receive_task("default", lease_seconds=30)
 
         failed = await store.finish_task(task_id, error="Error: \x00 in \ud800")
 
@@ -588,29 +590,29 @@ class StoreContract:
         task_id = await self.publish(store, run)
 
         with pytest.raises(TaskStateError):
-            await store.start_task(task_id)
-        await store.claim_task("default", lease_seconds=30)
+            await store.claim_task(task_id)
+        await store.receive_task("default", lease_seconds=30)
         await store.finish_task(task_id, result=1)
         with pytest.raises(TaskStateError):
             await store.finish_task(task_id, error="too late")
         with pytest.raises(TaskStateError):
             await store.extend_task_lease(task_id)
 
-    async def test_a_task_of_an_inactive_run_is_refused_its_start(
+    async def test_a_task_of_an_inactive_run_is_refused_its_claim(
         self, store: Store
     ) -> None:
         await self.upload(store)
         run = await self.start(store)
         task_id = await self.publish(store, run)
-        await store.claim_task("default", lease_seconds=0.05)
+        await store.receive_task("default", lease_seconds=0.05)
         await store.cancel_run_tree(run.id, "by hand")
 
         with pytest.raises(RunStateError):
-            await store.start_task(task_id)
+            await store.claim_task(task_id)
 
         assert (await store.get_task(task_id)).status is TaskStatus.FAILED
         await asyncio.sleep(0.06)
-        assert await store.claim_task("default", lease_seconds=30) is None
+        assert await store.receive_task("default", lease_seconds=30) is None
 
     async def test_a_task_in_flight_may_finish_after_its_run_was_cancelled(
         self, store: Store
@@ -618,8 +620,8 @@ class StoreContract:
         await self.upload(store)
         run = await self.start(store)
         task_id = await self.publish(store, run)
-        await store.claim_task("default", lease_seconds=30)
-        await store.start_task(task_id)
+        await store.receive_task("default", lease_seconds=30)
+        await store.claim_task(task_id)
         await store.cancel_run_tree(run.id, "by hand")
 
         finished = await store.finish_task(task_id, result=1)
@@ -632,7 +634,7 @@ class StoreContract:
         with pytest.raises(TaskNotFoundError):
             await store.get_task(missing)
         with pytest.raises(TaskNotFoundError):
-            await store.start_task(missing)
+            await store.claim_task(missing)
         with pytest.raises(TaskNotFoundError):
             await store.finish_task(missing, result=1)
 
@@ -703,12 +705,12 @@ class StoreContract:
             await self.publish(store, run, Address(name)) for name in ("c", "a", "b")
         ]
         await self.publish(store, other, Address("elsewhere"))
-        await store.claim_task("default", lease_seconds=30)
+        await store.receive_task("default", lease_seconds=30)
 
         tasks = await store.run_tasks(run.id)
 
         assert [task.id for task in tasks] == published
-        assert tasks[0].status is TaskStatus.CLAIMED
+        assert tasks[0].status is TaskStatus.RECEIVED
         assert await store.run_tasks(other.id) != []
         with pytest.raises(RunNotFoundError):
             await store.run_tasks(uuid.uuid4())
@@ -733,8 +735,8 @@ class StoreContract:
         await self.upload(store)
         run = await self.start(store)
         task_id = await self.publish(store, run)
-        claimed = await store.claim_task("default", lease_seconds=30)
-        started = await store.start_task(task_id)
+        received = await store.receive_task("default", lease_seconds=30)
+        claimed = await store.claim_task(task_id)
         finished = await store.finish_task(task_id, result=1)
         succeeded = await store.succeed_run(run.id, None)
         cancelled = await self.start(store)
@@ -748,13 +750,13 @@ class StoreContract:
         assert (await store.get_run(cancelled.id)).finished_at is not None
 
         published = await store.get_task(task_id)
-        assert claimed is not None
-        assert claimed.created_at is not None and claimed.started_at is None
-        assert run.created_at <= claimed.created_at
-        assert started.started_at is not None and started.finished_at is None
-        assert finished.started_at == started.started_at
+        assert received is not None
+        assert received.created_at is not None and received.started_at is None
+        assert run.created_at <= received.created_at
+        assert claimed.started_at is not None and claimed.finished_at is None
+        assert finished.started_at == claimed.started_at
         assert finished.finished_at is not None
-        assert claimed.created_at <= started.started_at <= finished.finished_at
+        assert received.created_at <= claimed.started_at <= finished.finished_at
         assert published.finished_at == finished.finished_at
 
     async def test_a_task_refused_its_start_is_timed_as_finished(
@@ -763,11 +765,11 @@ class StoreContract:
         await self.upload(store)
         run = await self.start(store)
         task_id = await self.publish(store, run)
-        await store.claim_task("default", lease_seconds=30)
+        await store.receive_task("default", lease_seconds=30)
         await store.cancel_run_tree(run.id, "by hand")
 
         with pytest.raises(RunStateError):
-            await store.start_task(task_id)
+            await store.claim_task(task_id)
 
         task = await store.get_task(task_id)
         assert task.started_at is None and task.finished_at is not None
@@ -782,7 +784,7 @@ class StoreContract:
         failed = await self.publish(store, root, Address("failed"))
         await self.publish(store, root, Address("waiting"))
         for _ in (done, failed):  # oldest first: the two about to finish
-            await store.claim_task("default", lease_seconds=30)
+            await store.receive_task("default", lease_seconds=30)
         await store.finish_task(done, result=["r"])
         await store.finish_task(failed, error="boom")
 

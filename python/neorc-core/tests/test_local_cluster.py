@@ -217,10 +217,8 @@ async def test_a_lost_workers_task_is_handed_on_when_its_lease_lapses(
         taken = None
         async with asyncio.timeout(TIMEOUT):
             while taken is None:
-                taken = await lost.pick_next_task(
-                    "default", timeout=1, lease_seconds=0.2
-                )
-        await lost.report_started(taken.task.id)
+                taken = await lost.receive_task("default", timeout=1, lease_seconds=0.2)
+        await lost.claim_task(taken.task.id)
         # ...and the worker holding it is never heard from again.
 
         await cluster.start_workers()

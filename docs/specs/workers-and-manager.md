@@ -8,10 +8,10 @@ Workers would only need to be redeployed when the code needed in their queue cha
 
 A worker on startup should:
 1. receive from the startup command: a code location, a queue name (will be "default" if not specified), the manager address
-2. contact the manager and pull the tasks for their queue.
+2. contact the manager and pull the task definitions for their queue.
 3. verify every task's handler can be imported and its named parameters match the task's inputs in the flow definition.
 4. confirm the manager it is healthy
-5. start pulling tasks.
+5. start receiving tasks.
 
 A worker validates its queue's task definitions only at startup. A mechanism for
 the manager to tell workers to perform actions, such as revalidating flows
@@ -40,7 +40,7 @@ Uploading a flow whose name and version already exist:
 
 Uploading a version lower than the flow's highest stored version is rejected as a bad request. Versions only move forward, so the latest version is always the highest one.
 
-Workers can be of multiple languages, not only Python. In their implementations they only need to know how to fetch tasks from the manager and route that to the executable code, transmitting back the results by http.
+Workers can be of multiple languages, not only Python. In their implementations they only need to know how to receive and claim tasks from the manager and route them to the executable code, transmitting back the results by http.
 
 ## Handlers
 

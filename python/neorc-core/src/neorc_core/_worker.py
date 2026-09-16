@@ -131,7 +131,7 @@ class Worker:
     async def run_once(self) -> TaskDelivery | None:
         """Take and run at most one task; return it, or ``None`` if idle."""
         polling = asyncio.ensure_future(
-            self._client.pick_next_task(
+            self._client.receive_task(
                 self._queue,
                 timeout=self._poll_timeout,
                 lease_seconds=self._lease_seconds,
@@ -152,13 +152,13 @@ class Worker:
         return delivery
 
     async def execute(self, delivery: TaskDelivery) -> None:
-        """Report the start, call the handler, report its result or failure.
+        """Claim the task, call the handler, report its result or failure.
 
         A task whose run is no longer active is dropped without running it.
         """
         task = delivery.task
         try:
-            await self._client.report_started(task.id)
+            await self._client.claim_task(task.id)
         except RunStateError:
             _log.info("dropping task %s: its run is no longer active", task.id)
             return

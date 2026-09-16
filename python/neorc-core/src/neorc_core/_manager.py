@@ -61,7 +61,7 @@ _START_ATTEMPTS = 3
 """Starts to try while uploads keep replacing a flow's latest version."""
 
 ABANDON_POLL_SECONDS = 0.25
-"""How often a waiting ``pick_next_task`` asks whether its caller has gone."""
+"""How often a waiting ``receive_task`` asks whether its caller has gone."""
 
 
 class Manager:
@@ -290,7 +290,7 @@ class Manager:
             if task.queue == queue
         ]
 
-    async def pick_next_task(
+    async def receive_task(
         self,
         queue: str,
         *,
@@ -305,8 +305,8 @@ class Manager:
 
         ``abandoned`` says whether the caller has gone away meanwhile: a server
         does not end a handler when its client leaves. It is asked every
-        ``ABANDON_POLL_SECONDS`` of the wait and before every claim, and the
-        wait ends with ``None`` once it says so, so a task is claimed only for
+        ``ABANDON_POLL_SECONDS`` of the wait and before every receive, and the
+        wait ends with ``None`` once it says so, so a task is received only for
         a worker known to be there a moment before. A worker lost between that
         moment and its reply keeps the lease until it lapses.
         """
@@ -317,7 +317,9 @@ class Manager:
             while True:
                 if abandoned is not None and await abandoned():
                     return None
-                task = await self._store.claim_task(queue, lease_seconds=lease_seconds)
+                task = await self._store.receive_task(
+                    queue, lease_seconds=lease_seconds
+                )
                 if task is not None:
                     return await self._delivery(task)
                 while True:
@@ -329,17 +331,17 @@ class Manager:
                         break
                     slice_ = min(remaining, ABANDON_POLL_SECONDS)
                     if await subscription.wait(timeout=slice_):
-                        break  # woken: claim again
+                        break  # woken: receive again
                     if await abandoned():
                         return None
 
-    async def report_started(self, task_id: TaskId) -> None:
-        """Record that a worker began a task.
+    async def claim_task(self, task_id: TaskId) -> None:
+        """Record that a worker claimed a task and is starting it.
 
         Raises ``RunStateError`` if the task's run is no longer active: the
         worker drops the task, and it is never handed out again.
         """
-        await self._store.start_task(task_id)
+        await self._store.claim_task(task_id)
 
     async def extend_lease(
         self, task_id: TaskId, *, lease_seconds: float = DEFAULT_LEASE_SECONDS

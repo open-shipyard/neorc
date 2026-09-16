@@ -173,7 +173,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     worker = commands.add_parser("worker", help="run a worker")
     worker_commands = worker.add_subparsers(dest="subcommand", required=True)
-    worker_start = worker_commands.add_parser("start", help="claim and run tasks")
+    worker_start = worker_commands.add_parser(
+        "start", help="receive, claim and run tasks"
+    )
     _manager_address_option(worker_start)
     worker_start.add_argument(
         "--code-location",

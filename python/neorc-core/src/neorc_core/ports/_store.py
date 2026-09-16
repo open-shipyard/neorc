@@ -172,7 +172,7 @@ class Store(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def claim_task(
+    async def receive_task(
         self, queue: str, *, lease_seconds: float = DEFAULT_LEASE_SECONDS
     ) -> Task | None:
         """Lease the oldest ready task on ``queue``, or return ``None``.
@@ -184,8 +184,8 @@ class Store(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def start_task(self, task_id: TaskId) -> Task:
-        """Record that a worker began executing a claimed task.
+    async def claim_task(self, task_id: TaskId) -> Task:
+        """Record that a worker claimed a received task and is executing it.
 
         If the task's run is no longer active, the task fails instead, so it is
         never handed out again, and this raises ``RunStateError``: the worker

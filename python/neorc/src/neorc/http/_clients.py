@@ -217,7 +217,7 @@ def _queue_segment(queue: str) -> str:
 class HttpQueueClient(_HttpClient, QueueClient):
     """A worker's client for a manager over HTTP.
 
-    ``pick_next_task`` long-polls: the request stays open until a task is ready
+    ``receive_task`` long-polls: the request stays open until a task is ready
     or the manager gives up, whichever comes first. The client-side timeout
     outlasts the manager's deadline by a little, so the manager answers first.
     """
@@ -228,7 +228,7 @@ class HttpQueueClient(_HttpClient, QueueClient):
             response, lambda body: [wire.task_step_from(s) for s in body["tasks"]]
         )
 
-    async def pick_next_task(
+    async def receive_task(
         self,
         queue: str,
         *,
@@ -237,7 +237,7 @@ class HttpQueueClient(_HttpClient, QueueClient):
     ) -> TaskDelivery | None:
         response = await self._request(
             "POST",
-            f"/queues/{_queue_segment(queue)}/tasks/next",
+            f"/queues/{_queue_segment(queue)}/tasks/receive",
             params={"timeout": timeout, "lease_seconds": lease_seconds},
             read_timeout=timeout,
         )
@@ -257,8 +257,8 @@ class HttpQueueClient(_HttpClient, QueueClient):
             response, lambda body: datetime.fromisoformat(body["lease_expires_at"])
         )
 
-    async def report_started(self, task_id: TaskId) -> None:
-        await self._request("POST", f"/tasks/{task_id}/started")
+    async def claim_task(self, task_id: TaskId) -> None:
+        await self._request("POST", f"/tasks/{task_id}/claim")
 
     async def report_finished(
         self, task_id: TaskId, *, result: JsonValue = None, error: str | None = None

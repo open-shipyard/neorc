@@ -19,8 +19,8 @@ deployment; install this one to implement your own adapters.
   and `TaskNotifier` ports
 - `Scheduler` — the planner's I/O: waits for events and moves runs forward
   through the `ManagerClient` port
-- `Worker` — checks its handlers against its queue's tasks, then claims,
-  executes, heartbeats and reports through the `QueueClient` port
+- `Worker` — checks its handlers against its queue's tasks, then receives,
+  claims, executes, heartbeats and reports through the `QueueClient` port
 - `neorc_core.local` — in-memory adapters, and `LocalCluster` and `run_local`:
   the whole system in one process
 - `neorc_core.testing.contracts` — test suites every adapter of a port must

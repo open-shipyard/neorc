@@ -61,7 +61,7 @@ class DirectQueueClient(QueueClient):
             task_step_from(wire) for wire in transmit([task_step_to(s) for s in steps])
         ]
 
-    async def pick_next_task(
+    async def receive_task(
         self,
         queue: str,
         *,
@@ -71,7 +71,7 @@ class DirectQueueClient(QueueClient):
         request = transmit(
             {"queue": queue, "timeout": timeout, "lease_seconds": lease_seconds}
         )
-        delivery = await self._manager.pick_next_task(
+        delivery = await self._manager.receive_task(
             request["queue"],
             timeout=request["timeout"],
             lease_seconds=request["lease_seconds"],
@@ -89,9 +89,9 @@ class DirectQueueClient(QueueClient):
         )
         return datetime.fromisoformat(transmit(expires_at.isoformat()))
 
-    async def report_started(self, task_id: TaskId) -> None:
+    async def claim_task(self, task_id: TaskId) -> None:
         request = transmit({"task_id": str(task_id)})
-        await self._manager.report_started(uuid.UUID(request["task_id"]))
+        await self._manager.claim_task(uuid.UUID(request["task_id"]))
 
     async def report_finished(
         self, task_id: TaskId, *, result: JsonValue = None, error: str | None = None
