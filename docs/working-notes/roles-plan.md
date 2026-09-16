@@ -98,6 +98,7 @@ class Permission(StrEnum):
     FLOWS_UPLOAD = "flows:upload"
     ...
 
+
 class Role(StrEnum):
     WORKER = "worker"
     SCHEDULER = "scheduler"
@@ -105,8 +106,9 @@ class Role(StrEnum):
     USER = "user"
     EXTERNAL_TRIGGER = "external-trigger"
 
+
 PERMISSIONS: Mapping[Role, frozenset[Permission]]
-QUEUE_PERMISSIONS: frozenset[Permission]   # the ones bound to a queue
+QUEUE_PERMISSIONS: frozenset[Permission]  # the ones bound to a queue
 ```
 
 ### Credentials
@@ -184,7 +186,7 @@ route of its own.
 | Step | Branch                                  | Status |
 | ---- | --------------------------------------- | ------ |
 | 0    | `feature/roles-0-specs`                 | specs and this plan |
-| 1    | `feature/roles-1-random-task-ids`       | to do  |
+| 1    | `feature/roles-1-random-task-ids`       | done   |
 | 2    | `feature/roles-2-core`                  | to do  |
 | 3    | `feature/roles-3-postgres-credentials`  | to do  |
 | 4    | `feature/roles-4-routes`                | to do  |

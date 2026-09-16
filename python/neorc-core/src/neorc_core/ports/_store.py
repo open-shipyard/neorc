@@ -165,9 +165,10 @@ class Store(ABC):
     ) -> Task:
         """Publish the pending task at ``address`` in an active run.
 
-        Its id is ``task_id_for(run_id, address)``. Publishing an address again
-        returns the task already there, unchanged. Raises ``RunStateError`` if
-        the run is not active.
+        Its id is a random UUID, which a worker cannot guess: a worker holds the
+        id of a task only by receiving it. Publishing an address again returns
+        the task already there, unchanged, with its first id. Raises
+        ``RunStateError`` if the run is not active.
         """
         raise NotImplementedError
 

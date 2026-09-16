@@ -31,7 +31,6 @@ from neorc_core._runs import (
     run_state_of,
     storable_text,
     sub_run_id_for,
-    task_id_for,
 )
 from neorc_core._task import LEASED_STATUSES, TaskId, TaskStatus, ensure_transition
 from neorc_core._values import JsonValue
@@ -51,6 +50,7 @@ class MemoryStore(Store):
         self._flows: dict[str, dict[Version, StoredFlow]] = {}
         self._runs: dict[RunId, Run] = {}
         self._tasks: dict[TaskId, Task] = {}
+        self._task_ids: dict[tuple[RunId, Address], TaskId] = {}
         self._events: list[Event] = []
 
     async def store_flows(self, uploads: Sequence[StoredFlow]) -> list[bool]:
@@ -219,10 +219,10 @@ class MemoryStore(Store):
     ) -> Task:
         async with self._lock:
             ensure_active(self._run(run_id))
-            task_id = task_id_for(run_id, address)
-            existing = self._tasks.get(task_id)
-            if existing is not None:
-                return existing
+            existing_id = self._task_ids.get((run_id, address))
+            if existing_id is not None:
+                return self._tasks[existing_id]
+            task_id = uuid.uuid4()
             task = Task(
                 id=task_id,
                 run_id=run_id,
@@ -234,6 +234,7 @@ class MemoryStore(Store):
                 created_at=datetime.now(UTC),
             )
             self._tasks[task_id] = task
+            self._task_ids[run_id, address] = task_id
             return task
 
     async def receive_task(

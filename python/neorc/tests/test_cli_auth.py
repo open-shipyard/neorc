@@ -19,7 +19,6 @@ import pytest
 
 from neorc import _cli
 from neorc_core import AuthenticationError, Task, TaskDelivery
-from neorc_core._runs import task_id_for
 from neorc_core.flows import Address, TaskStep, parse_flow
 from neorc_core.ports._clients import DEFAULT_LEASE_SECONDS
 
@@ -404,7 +403,7 @@ def test_a_worker_whose_heartbeat_is_refused_exits_with_its_handler_still_busy(
                 return None
             type(self).handed = True
             task = Task(
-                id=task_id_for(run_id, Address("work")),
+                id=uuid.uuid4(),
                 run_id=run_id,
                 address=Address("work"),
                 queue="default",

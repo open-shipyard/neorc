@@ -11,6 +11,7 @@ invalid.
 from __future__ import annotations
 
 import time
+import uuid
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import datetime
 from typing import TypeVar
@@ -31,7 +32,6 @@ from neorc_core._runs import (
     Task,
     TaskDelivery,
     ensure_active,
-    task_id_for,
 )
 from neorc_core._task import TaskId
 from neorc_core._values import JsonValue
@@ -62,6 +62,9 @@ _START_ATTEMPTS = 3
 
 ABANDON_POLL_SECONDS = 0.25
 """How often a waiting ``receive_task`` asks whether its caller has gone."""
+
+_UNSTORED_TASK_ID = uuid.UUID(int=0)
+"""Stands in for the id of a task not stored yet: every id encodes as long."""
 
 
 class Manager:
@@ -224,7 +227,7 @@ class Manager:
         ensure_active(run)
         step = _step_at(definition, address, TaskStep)
         inputs = _inputs(run, definition, state, step, address)
-        _values.ensure_fits(_encoded_delivery(task_id_for(run_id, address), inputs))
+        _values.ensure_fits(_encoded_delivery(inputs))
         task = await self._store.publish_task(
             run_id,
             address,
@@ -408,7 +411,9 @@ class Manager:
 
     async def _delivery(self, task: Task) -> TaskDelivery:
         run, definition, state = await self._context(task.run_id)
-        inputs = _filled_in(run, definition, state, task.address, task.params)
+        inputs = _filled_in(
+            run, definition, state, task.address, task.params, task_id=task.id
+        )
         return TaskDelivery(task, {**task.fixed_params, **inputs})
 
 
@@ -497,8 +502,14 @@ def _inputs(
     step: TaskStep | SubFlowStep,
     address: Address,
 ) -> dict[str, JsonValue]:
-    """A step's fixed params and its params filled in; ``RunStateError`` if not yet."""
-    filled = _filled_in(run, definition, state, address, step.params)
+    """A step's fixed params and its params filled in; ``RunStateError`` if not yet.
+
+    Before a task is stored it has no id: ``neorc.task_id`` is filled in with a
+    stand-in of the same length, which is all the size check needs.
+    """
+    filled = _filled_in(
+        run, definition, state, address, step.params, task_id=_UNSTORED_TASK_ID
+    )
     return {**step.fixed_params, **filled}
 
 
@@ -508,6 +519,8 @@ def _filled_in(
     state: RunState,
     address: Address,
     params: Mapping[str, Reference],
+    *,
+    task_id: TaskId,
 ) -> dict[str, JsonValue]:
     """Params with every reference resolved, except ``neorc.attempts``."""
     values: dict[str, JsonValue] = {}
@@ -516,7 +529,7 @@ def _filled_in(
             if reference.name == "attempts":
                 continue  # the worker's to fill in
             if reference.name == "task_id":
-                values[name] = str(task_id_for(run.id, address))
+                values[name] = str(task_id)
                 continue
             if reference.name == "flow_run_id":
                 values[name] = str(run.id)
@@ -528,8 +541,8 @@ def _filled_in(
     return values
 
 
-def _encoded_delivery(task_id: TaskId, inputs: Mapping[str, JsonValue]) -> str:
+def _encoded_delivery(inputs: Mapping[str, JsonValue]) -> str:
     """Roughly what a worker receives, for the size check: id, attempts, inputs."""
     return _values.dumps_json(
-        {"task_id": str(task_id), "attempts": 1, "inputs": dict(inputs)}
+        {"task_id": str(_UNSTORED_TASK_ID), "attempts": 1, "inputs": dict(inputs)}
     )

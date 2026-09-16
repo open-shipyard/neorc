@@ -27,7 +27,6 @@ from neorc_core._runs import (
     RunStatus,
     StoredFlow,
     sub_run_id_for,
-    task_id_for,
 )
 from neorc_core._task import TaskStatus
 from neorc_core._values import JsonValue
@@ -451,13 +450,28 @@ class StoreContract:
         task_id = await self.publish(store, run)
         task = await store.get_task(task_id)
 
-        assert task_id == task_id_for(run.id, WORK)
         assert task.status is TaskStatus.PENDING
         assert task.run_id == run.id
         assert task.address == WORK
         assert task.params == {"x": Reference.parse("inputs.x")}
         assert task.fixed_params == {"n": 3}
         assert task.attempts == 0
+
+    async def test_task_ids_are_random_not_derived_from_the_address(
+        self, store: Store
+    ) -> None:
+        await self.upload(store)
+        run = await self.start(store)
+        other_run = await self.start(store)
+
+        ids = [
+            await self.publish(store, run),
+            await self.publish(store, run, ELSEWHERE),
+            await self.publish(store, other_run),
+        ]
+
+        assert len(set(ids)) == 3
+        assert all(task_id.version == 4 for task_id in ids)
 
     async def test_publishing_an_address_again_changes_nothing(
         self, store: Store

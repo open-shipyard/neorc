@@ -85,7 +85,6 @@ from neorc_core._runs import (
     run_state_of,
     storable_text,
     sub_run_id_for,
-    task_id_for,
 )
 from neorc_core._values import JsonValue, dumps_json
 from neorc_core.flows import Address, Reference, RunState, Version
@@ -212,6 +211,11 @@ _SELECT_TASK = f"SELECT {TASK_COLUMNS} FROM {FLOW_TASKS_TABLE} WHERE id = %(id)s
 
 _LOCK_TASK = f"{_SELECT_TASK} FOR UPDATE"
 
+_SELECT_TASK_AT = f"""
+SELECT {TASK_COLUMNS} FROM {FLOW_TASKS_TABLE}
+ WHERE run_id = %(run_id)s AND address = %(address)s
+"""
+
 _INSERT_TASK = f"""
 INSERT INTO {FLOW_TASKS_TABLE} (id, run_id, address, queue, handler, params,
                                 fixed_params, status, attempts, lease_expires_at,
@@ -219,7 +223,7 @@ INSERT INTO {FLOW_TASKS_TABLE} (id, run_id, address, queue, handler, params,
 VALUES (%(id)s, %(run_id)s, %(address)s, %(queue)s, %(handler)s, %(params)s,
         %(fixed_params)s, %(status)s, %(attempts)s, %(lease_expires_at)s,
         %(result)s, %(error)s, now())
-ON CONFLICT (id) DO NOTHING
+ON CONFLICT (run_id, address) DO NOTHING
 RETURNING {TASK_COLUMNS}
 """
 
@@ -483,7 +487,7 @@ class PostgresStore(Pooled, Store):
             # Under the root lock, the run's status is settled.
             ensure_active(await _run(conn, run_id))
             task = Task(
-                id=task_id_for(run_id, address),
+                id=uuid.uuid4(),
                 run_id=run_id,
                 address=address,
                 queue=queue,
@@ -491,10 +495,14 @@ class PostgresStore(Pooled, Store):
                 params=dict(params),
                 fixed_params=dict(fixed_params),
             )
-            cursor = await conn.execute(_INSERT_TASK, task_to_row(task))
+            stored = task_to_row(task)
+            cursor = await conn.execute(_INSERT_TASK, stored)
             row = await cursor.fetchone()
-            if row is None:  # published before: unchanged
-                return await _task(conn, task.id)
+            if row is None:  # published before: unchanged, with its first id
+                cursor = await conn.execute(_SELECT_TASK_AT, stored)
+                row = await cursor.fetchone()
+                if row is None:  # unreachable: the run's root is locked
+                    raise TaskNotFoundError(f"{run_id} {address}")
             return task_from_row(row)
 
     async def receive_task(
