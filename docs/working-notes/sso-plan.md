@@ -278,7 +278,7 @@ Core only, and no new dependency: `secrets` and `hashlib`.
   Metadata. The HTTP clients send the type on every `POST`, with or without
   a body, and the UI's `postJson` already does. Tested with authentication
   off: a form-like `POST` to a route without a body, such as `cancel` or
-  `tasks/next`, with no `Sec-Fetch-Site`.
+  `tasks/receive`, with no `Sec-Fetch-Site`.
 - DNS rebinding is not defended against with `--no-auth`: a page whose name
   is rebound to the manager's address is same-origin with it, and the
   manager does not check `Host`. The startup warning says so: a manager with

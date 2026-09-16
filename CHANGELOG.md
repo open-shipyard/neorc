@@ -51,8 +51,8 @@ one version, cut from a single tag on `main`.
 - `neorc run <dir> --flow <name> --inputs <json>`: run a flow to its end in
   one process, with nothing to deploy. `examples/hello` and `examples/wordplay`
   run with it, and their outputs are asserted in the tests.
-- Claims are leases: workers heartbeat to hold a task, and a task whose lease
-  lapses returns to the queue. Chosen so the queue can move to SQS unchanged.
+- Receiving a task takes a lease: workers claim a task before running it and
+  heartbeat to hold it, and a task whose lease lapses returns to the queue. Chosen so the queue can move to SQS unchanged.
 - `neorc.postgres`: a LISTEN/NOTIFY notifier whose waiters hold no connection.
 - `neorc.manager`: the FastAPI application, and a service that assembles it from
   `NEORC_DATABASE_URL`.
@@ -71,7 +71,7 @@ one version, cut from a single tag on `main`.
   uploads under an advisory lock, runs and sub-flow runs, succeeding, failing
   and cancelling run trees under their root's row lock, and events appended
   last under a second advisory lock so their sequences commit in order; tasks
-  published and started under the same root lock, claimed oldest first with
+  published and claimed under the same root lock, received oldest first with
   `FOR UPDATE SKIP LOCKED`, and a run's state read in one snapshot. It passes
   the store contract in full. A version part is at most 2³¹ − 1, what the
   store's `integer` columns hold, in every store.
@@ -86,8 +86,8 @@ one version, cut from a single tag on `main`.
   scheduler, `GET /events` long-polled up to the manager's deadline,
   `POST /runs/{id}/tasks` and `/sub-runs` by address, `/succeed` with the
   output reference and `/fail`. For workers, `GET /queues/{queue}/tasks` for
-  the task definitions, `POST /queues/{queue}/tasks/next` long-polled, and
-  `POST /tasks/{id}/started`, `/heartbeat` and `/finished`. In core, a
+  the task definitions, `POST /queues/{queue}/tasks/receive` long-polled, and
+  `POST /tasks/{id}/claim`, `/heartbeat` and `/finished`. In core, a
   lease is at most a day and a run
   is succeeded only with a reference to one of its flow's tasks or
   sub-flows, so every client is refused the same requests.
@@ -171,8 +171,8 @@ one version, cut from a single tag on `main`.
   what the run did there: tasks with their status and details, loops with
   their iterations, fan-outs with their branches, and sub-flows linking to
   their runs; the run's parent and sub-runs; and, while the run is active,
-  a refresh every two seconds, since a task being published, claimed or
-  started records no event. Tested on a recorded
+  a refresh every two seconds, since a task being published, received or
+  claimed records no event. Tested on a recorded
   `word_picker_rounds` run, written by `scripts/record_ui_fixture.py`.
 - `neorc-ui`: a run is started from its flow's page, with a field per
   declared input typed as declared, a datetime sent with the browser's

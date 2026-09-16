@@ -248,7 +248,7 @@ pipeline.
   a date.
 - The run tree: parent and sub-runs, with the cancellation or failure reason.
 - Live: refetch on events for the run's tree, and every 2 s while the run
-  is active: a task being published, claimed or started, and a sub-run
+  is active: a task being published, received or claimed, and a sub-run
   starting, record no event, so a page polling only once a task shows as
   busy would rarely start.
 - Component tests on a recorded `word_picker_rounds` run, written by

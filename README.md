@@ -15,15 +15,16 @@ This repository is a monorepo. The packages it publishes:
 A flow file names its tasks, the queue each runs on, the function that runs it,
 and where its inputs come from: the flow's inputs, or other tasks' results. A
 **manager** service holds the flows and their runs. A **scheduler** moves runs
-forward as tasks finish. **Workers** on other hosts long-poll the manager for
-the next task on their queue, run its handler, and report back.
+forward as tasks finish. **Workers** on other hosts receive the next task on
+their queue by long-polling the manager, claim it, run its handler, and report
+back.
 
     scheduler > http > manager > database
     worker    > http > manager > database
 
-Claiming a task takes a *lease*: the worker heartbeats while it runs, and a task
-whose lease lapses goes back to the queue, so nothing is lost when a worker
-dies. Delivery is at-least-once, so handlers should be idempotent.
+Receiving a task takes a *lease*, and the worker claims the task before running
+it: the worker heartbeats while it runs, and a task whose lease lapses goes back
+to the queue, so nothing is lost when a worker dies. Delivery is at-least-once, so handlers should be idempotent.
 
 ## Quick start
 
@@ -157,7 +158,7 @@ origin; behind a proxy, `public_url` is the address people type.
 - [docs/specs/flows.md](docs/specs/flows.md) — flow files: tasks, loops,
   fan-outs, sub-flows and references
 - [docs/specs/postgres-implementation.md](docs/specs/postgres-implementation.md)
-  — how the reference persistence layer claims, leases and recovers
+  — how the reference persistence layer receives, leases and recovers
 - [docs/working-notes/sso-plan.md](docs/working-notes/sso-plan.md) — API
   tokens and signing in: what is checked, where, and why
 - [docs/working-notes/web-ui-plan.md](docs/working-notes/web-ui-plan.md) — the

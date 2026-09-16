@@ -262,7 +262,7 @@ async def test_a_run_succeeds_with_the_value_of_its_output(
         params={},
         fixed_params={},
     )
-    task = await store.claim_task("default")
+    task = await store.receive_task("default")
     assert task is not None
     await store.finish_task(task.id, result={"words": ["red"]})
 

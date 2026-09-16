@@ -69,7 +69,7 @@ INDEXES = (
     f"{RUNS_TABLE}_position_idx",
     f"{RUNS_TABLE}_flow_position_idx",
     f"{FLOW_TASKS_TABLE}_run_idx",
-    f"{FLOW_TASKS_TABLE}_claim_idx",
+    f"{FLOW_TASKS_TABLE}_receive_idx",
     f"{SESSIONS_TABLE}_expires_idx",
     f"{PENDING_LOGINS_TABLE}_expires_idx",
 )
@@ -159,7 +159,7 @@ CREATE TABLE IF NOT EXISTS {FLOW_TASKS_TABLE} (
     params           text NOT NULL,
     fixed_params     text NOT NULL,
     status           text NOT NULL
-                     CHECK (status IN ('pending', 'claimed', 'running',
+                     CHECK (status IN ('pending', 'received', 'running',
                                        'succeeded', 'failed')),
     attempts         integer NOT NULL DEFAULT 0,
     lease_expires_at timestamptz,
@@ -186,11 +186,11 @@ END $$;
 
 CREATE INDEX IF NOT EXISTS {FLOW_TASKS_TABLE}_run_idx ON {FLOW_TASKS_TABLE} (run_id);
 
--- The claim query's index: the oldest unfinished task of a queue. Partial, so
+-- The receive query's index: the oldest unfinished task of a queue. Partial, so
 -- finished tasks cost nothing to skip over.
-CREATE INDEX IF NOT EXISTS {FLOW_TASKS_TABLE}_claim_idx
+CREATE INDEX IF NOT EXISTS {FLOW_TASKS_TABLE}_receive_idx
     ON {FLOW_TASKS_TABLE} (queue, position)
-    WHERE status IN ('pending', 'claimed', 'running');
+    WHERE status IN ('pending', 'received', 'running');
 
 -- Sequences are allocated by the store, under its event lock, as max + 1: an
 -- identity column would let a later transaction commit a lower sequence first.

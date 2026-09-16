@@ -666,10 +666,10 @@
         "type": "object"
       },
       "TaskStatus": {
-        "description": "Where a task is in its lifecycle.\n\nA task is published ``PENDING``, becomes ``CLAIMED`` when a worker leases\nit, ``RUNNING`` once that worker reports it started, and ends ``SUCCEEDED``\nor ``FAILED``. A lease that lapses takes a ``CLAIMED`` or ``RUNNING`` task\nback to claimable without passing through a terminal status.",
+        "description": "Where a task is in its lifecycle.\n\nA task is published ``PENDING``, becomes ``RECEIVED`` when a worker\nreceives it and takes its lease, ``RUNNING`` once that worker claims it,\nand ends ``SUCCEEDED`` or ``FAILED``. A lease that lapses makes a\n``RECEIVED`` or ``RUNNING`` task receivable again without passing through a\nterminal status.",
         "enum": [
           "pending",
-          "claimed",
+          "received",
           "running",
           "succeeded",
           "failed"
@@ -1757,10 +1757,10 @@
         "summary": "Task Definitions"
       }
     },
-    "/queues/{queue}/tasks/next": {
+    "/queues/{queue}/tasks/receive": {
       "post": {
         "description": "Long-poll for a task on a queue. 204 when the wait ends empty.",
-        "operationId": "pick_next_task_queues__queue__tasks_next_post",
+        "operationId": "receive_task_queues__queue__tasks_receive_post",
         "parameters": [
           {
             "in": "path",
@@ -1890,7 +1890,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Pick Next Task"
+        "summary": "Receive Task"
       }
     },
     "/runs": {
@@ -3102,6 +3102,105 @@
         "summary": "Get Task"
       }
     },
+    "/tasks/{task_id}/claim": {
+      "post": {
+        "description": "A worker claims a task it received; 409 if its run is no longer active.",
+        "operationId": "claim_task_tasks__task_id__claim_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Task Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The exception the manager raised"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Claim Task"
+      }
+    },
     "/tasks/{task_id}/finished": {
       "post": {
         "description": "A worker's result in its JSON form, or its failure.",
@@ -3305,105 +3404,6 @@
           }
         ],
         "summary": "Extend Lease"
-      }
-    },
-    "/tasks/{task_id}/started": {
-      "post": {
-        "description": "A worker began a task it holds; 409 if its run is no longer active.",
-        "operationId": "report_started_tasks__task_id__started_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "task_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Task Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Successful Response"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "The exception the manager raised"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "The exception the manager raised"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "The exception the manager raised"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "The exception the manager raised"
-          },
-          "413": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "The exception the manager raised"
-          },
-          "415": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "The exception the manager raised"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "The exception the manager raised"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Report Started"
       }
     }
   }

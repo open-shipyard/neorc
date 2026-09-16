@@ -13,8 +13,8 @@ class Subscription(ABC):
     """A caller's standing interest in being told that work arrived.
 
     Announcements that land between two ``wait`` calls are remembered, so a
-    caller that claims, finds nothing and then waits never sleeps through a task
-    published in that gap.
+    caller that tries to receive a task, finds nothing and then waits never
+    sleeps through a task published in that gap.
     """
 
     @abstractmethod
@@ -30,7 +30,7 @@ class TaskNotifier(ABC):
     """Announces that a task may be ready, so waiters stop waiting.
 
     A wakeup is a hint, not a promise: a woken waiter that finds nothing to
-    claim waits again. Implementations must not hold a resource per waiter.
+    receive waits again. Implementations must not hold a resource per waiter.
     """
 
     @abstractmethod

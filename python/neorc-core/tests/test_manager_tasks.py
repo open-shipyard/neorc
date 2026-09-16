@@ -78,9 +78,9 @@ async def started(flows: Manager, word: str = "red") -> uuid.UUID:
 
 
 async def finish(flows: Manager, queue: str, result: JsonValue) -> uuid.UUID:
-    delivery = await flows.pick_next_task(queue, timeout=0)
+    delivery = await flows.receive_task(queue, timeout=0)
     assert delivery is not None
-    await flows.report_started(delivery.task.id)
+    await flows.claim_task(delivery.task.id)
     await flows.report_finished(delivery.task.id, result=result)
     return delivery.task.id
 
@@ -109,7 +109,7 @@ async def test_a_delivery_fills_in_references_and_metadata(
     run_id = await started(flows)
     await flows.publish_task(run_id, FIRST)
 
-    delivery = await flows.pick_next_task("default", timeout=0)
+    delivery = await flows.receive_task("default", timeout=0)
 
     assert delivery is not None
     assert delivery.inputs == {
@@ -128,7 +128,7 @@ async def test_a_delivery_in_a_fan_out_carries_its_branch(
     second = Address("second", (("each", 2),))
 
     await flows.publish_task(run_id, second)
-    delivery = await flows.pick_next_task("other", timeout=0)
+    delivery = await flows.receive_task("other", timeout=0)
 
     assert delivery is not None
     # neorc.attempts is the worker's to fill in.
@@ -140,12 +140,12 @@ async def test_publishing_the_same_address_again_changes_nothing(
 ) -> None:
     run_id = await started(flows)
     first = await flows.publish_task(run_id, FIRST)
-    await flows.pick_next_task("default", timeout=0)
+    await flows.receive_task("default", timeout=0)
 
     again = await flows.publish_task(run_id, FIRST)
 
     assert again.id == first.id
-    assert again.status is TaskStatus.CLAIMED
+    assert again.status is TaskStatus.RECEIVED
 
 
 async def test_a_task_whose_inputs_are_not_there_yet_is_rejected(
@@ -197,7 +197,7 @@ async def test_a_payload_over_the_limit_is_rejected_at_publish(
     with pytest.raises(PayloadTooLargeError):
         await flows.publish_task(run_id, FIRST)
 
-    assert await flows.pick_next_task("default", timeout=0) is None
+    assert await flows.receive_task("default", timeout=0) is None
 
 
 async def test_a_fan_out_over_something_not_a_list_cannot_publish(
@@ -222,7 +222,7 @@ async def test_a_waiting_worker_is_woken_by_a_publish(flows: Manager) -> None:
     begun = loop.time()
     async with asyncio.TaskGroup() as group:
         group.create_task(publish_shortly())
-        delivery = await flows.pick_next_task("default", timeout=5)
+        delivery = await flows.receive_task("default", timeout=5)
 
     assert delivery is not None
     assert loop.time() - begun < 2
@@ -232,20 +232,20 @@ async def test_a_worker_on_another_queue_keeps_waiting(flows: Manager) -> None:
     run_id = await started(flows)
     await flows.publish_task(run_id, FIRST)
 
-    assert await flows.pick_next_task("other", timeout=0.1) is None
+    assert await flows.receive_task("other", timeout=0.1) is None
 
 
-async def test_a_task_of_an_inactive_run_is_refused_its_start(
+async def test_a_task_of_an_inactive_run_is_refused_its_claim(
     flows: Manager,
 ) -> None:
     run_id = await started(flows)
     await flows.publish_task(run_id, FIRST)
-    delivery = await flows.pick_next_task("default", timeout=0)
+    delivery = await flows.receive_task("default", timeout=0)
     assert delivery is not None
     await flows.cancel_run(run_id)
 
     with pytest.raises(RunStateError):
-        await flows.report_started(delivery.task.id)
+        await flows.claim_task(delivery.task.id)
 
 
 async def test_a_result_is_recorded_and_referenced_downstream(
@@ -402,8 +402,8 @@ async def test_a_waiting_worker_that_went_away_is_leased_nothing(
     looks = 0
 
     async def gone_after_one_look() -> bool:
-        # Present for the first claim, which finds nothing; gone by the time
-        # the publish wakes the wait, so nothing is claimed for it.
+        # Present for the first receive, which finds nothing; gone by the time
+        # the publish wakes the wait, so nothing is received for it.
         nonlocal looks
         looks += 1
         return looks > 1
@@ -414,14 +414,14 @@ async def test_a_waiting_worker_that_went_away_is_leased_nothing(
 
     async with asyncio.TaskGroup() as group:
         group.create_task(publish_shortly())
-        delivery = await flows.pick_next_task(
+        delivery = await flows.receive_task(
             "default", timeout=5, abandoned=gone_after_one_look
         )
 
     assert delivery is None
     assert looks == 2
     # The task is still there for the next worker, and a present one gets it.
-    present = await flows.pick_next_task("default", timeout=0, abandoned=_here)
+    present = await flows.receive_task("default", timeout=0, abandoned=_here)
     assert present is not None and present.task.attempts == 1
 
 

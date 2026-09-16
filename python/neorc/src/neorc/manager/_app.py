@@ -4,8 +4,8 @@
 """The manager's HTTP surface, on ``Manager``.
 
 Each route is a thin translation between JSON and one manager call. The routes
-that fetch a task and that report it started are separate on purpose: fetching
-may move to another backend later, while reporting stays with the store.
+that receive a task and that claim it are separate on purpose: receiving may
+move to another queue backend later, while claiming stays with the store.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ from neorc_core import (
 )
 
 DEFAULT_LONG_POLL_TIMEOUT = 25.0
-"""How long a fetch waits before answering "nothing yet".
+"""How long a receive waits before answering "nothing yet".
 
 Must stay under the idle timeout of any proxy in front of the service; a worker
 that hits it simply asks again.

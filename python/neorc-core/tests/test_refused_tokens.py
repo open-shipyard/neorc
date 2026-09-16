@@ -52,7 +52,7 @@ class RefusingManagerClient(DirectManagerClient):
 
 
 class RefusingPoll(DirectQueueClient):
-    async def pick_next_task(
+    async def receive_task(
         self,
         queue: str,
         *,

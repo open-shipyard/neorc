@@ -184,39 +184,39 @@ async def run(pg_store: PostgresStore) -> Run:
     return await pg_store.start_run("a", Version(1, 0, 0), {})
 
 
-async def test_a_claim_skips_the_task_another_claim_holds(
+async def test_a_receive_skips_the_task_another_receive_holds(
     pg_store: PostgresStore, run: Run
 ) -> None:
     store = pg_store
     first = await _published(store, run, "one")
     second = await _published(store, run, "two")
 
-    async with held(store) as claiming:
-        await claiming.execute(
+    async with held(store) as receiving:
+        await receiving.execute(
             f"SELECT id FROM {FLOW_TASKS_TABLE} WHERE id = %s FOR UPDATE", (first.id,)
         )
-        meanwhile = await store.claim_task("default", lease_seconds=30)
+        meanwhile = await store.receive_task("default", lease_seconds=30)
 
-    afterwards = await store.claim_task("default", lease_seconds=30)
+    afterwards = await store.receive_task("default", lease_seconds=30)
     assert meanwhile is not None and meanwhile.id == second.id
     assert afterwards is not None and afterwards.id == first.id
 
 
-async def test_a_task_start_waits_for_a_cancellation_and_is_refused(
+async def test_a_task_claim_waits_for_a_cancellation_and_is_refused(
     pg_store: PostgresStore, run: Run
 ) -> None:
     store = pg_store
     task = await _published(store, run, "work")
-    await store.claim_task("default", lease_seconds=30)
+    await store.receive_task("default", lease_seconds=30)
 
     async with held(store) as cancelling:
         await _cancel_by_hand(cancelling, run)
-        starting = await blocked(store.start_task(task.id))
+        claiming = await blocked(store.claim_task(task.id))
 
     with pytest.raises(RunStateError):
-        await starting
+        await claiming
     assert (await store.get_task(task.id)).status is TaskStatus.FAILED
-    assert await store.claim_task("default", lease_seconds=30) is None
+    assert await store.receive_task("default", lease_seconds=30) is None
 
 
 async def test_a_sub_run_start_waits_for_a_cancellation_and_is_refused(
@@ -318,8 +318,8 @@ async def test_a_task_finishes_while_its_tree_is_being_cancelled(
 ) -> None:
     store = pg_store
     task = await _published(store, run, "work")
-    await store.claim_task("default", lease_seconds=30)
-    await store.start_task(task.id)
+    await store.receive_task("default", lease_seconds=30)
+    await store.claim_task(task.id)
 
     async with held(store) as cancelling:
         await _cancel_by_hand(cancelling, run)

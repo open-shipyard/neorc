@@ -5,7 +5,7 @@
 
 What matters here: a waiter costs no connection, an announcement from another
 manager process still wakes it, and nothing published in the gap between a
-claim and a wait is slept through.
+receive and a wait is slept through.
 """
 
 from __future__ import annotations
@@ -59,7 +59,7 @@ async def test_a_waiter_gives_up_at_its_timeout(
 async def test_an_announcement_between_waits_is_not_lost(
     pg_notifier: PostgresTaskNotifier,
 ) -> None:
-    """The lost-wakeup case: it arrives while the caller is off claiming."""
+    """The lost-wakeup case: it arrives while the caller is off receiving."""
     async with pg_notifier.subscribe() as subscription:
         await pg_notifier.notify()
         await asyncio.sleep(0.1)  # the announcement lands with nobody waiting
@@ -96,7 +96,7 @@ async def test_many_waiters_cost_no_connections(
         await manager.upload_flows([FLOW])
         run = await manager.start_run("f", {})
         waiting = [
-            asyncio.create_task(manager.pick_next_task("default", timeout=2))
+            asyncio.create_task(manager.receive_task("default", timeout=2))
             for _ in range(50)
         ]
         await asyncio.sleep(0.2)  # let them all reach the wait
@@ -105,11 +105,11 @@ async def test_many_waiters_cost_no_connections(
             await manager.publish_task(run.id, Address(name))
 
         done, pending = await asyncio.wait(waiting, timeout=10)
-        picked = [task.result() for task in done if task.result() is not None]
+        received = [task.result() for task in done if task.result() is not None]
         for task in pending:
             task.cancel()
 
-    assert len(picked) == 3
+    assert len(received) == 3
 
 
 async def test_a_waiting_worker_is_woken_by_a_publish(
@@ -127,9 +127,9 @@ async def test_a_waiting_worker_is_woken_by_a_publish(
     started = loop.time()
     async with asyncio.TaskGroup() as group:
         group.create_task(publish_shortly())
-        picked = await manager.pick_next_task("default", timeout=10)
+        received = await manager.receive_task("default", timeout=10)
 
-    assert picked is not None
+    assert received is not None
     # Woken by the announcement, not by falling out of the poll timeout.
     assert loop.time() - started < 2
 
