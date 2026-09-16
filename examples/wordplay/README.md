@@ -28,28 +28,34 @@ are the same as in [hello](../hello/README.md#deployed).
 
        uv run python examples/hello/postgres.py
 
-2. The manager, and an API token, as in
+2. The manager, and an API token for each process, as in
    [hello](../hello/README.md#deployed): `export NEORC_API_TOKEN=<secret>`
-   in every terminal below; or start the manager with `--no-auth` to use the
-   UI without configuring an identity provider to sign in with:
+   in each terminal below, with the token the step names; or start the
+   manager with `--no-auth` to use the UI without configuring an identity
+   provider to sign in with, and no token anywhere:
 
        export NEORC_DATABASE_URL=...   # from step 1
        uv run neorc manager start --host 127.0.0.1 --create-schema --no-ui
 
        export NEORC_DATABASE_URL=...   # in another terminal
-       uv run neorc tokens create local --role user
+       uv run neorc tokens create ci --role ci
+       uv run neorc tokens create scheduler --role scheduler
+       uv run neorc tokens create worker --role worker --queue default
+       uv run neorc tokens create scoring-worker --role worker --queue scoring
+       uv run neorc tokens create me --role user
 
-3. Upload the flows:
+3. Upload the flows, with the `ci` token:
 
        uv run neorc flows upload --manager-address 127.0.0.1:8420 \
            examples/wordplay/flows
 
-4. The scheduler:
+4. The scheduler, with the `scheduler` token:
 
        uv run neorc scheduler start --manager-address 127.0.0.1:8420
 
-5. Two workers, one per queue: `score_words` runs on `scoring`, the rest on
-   `default`. Both serve the code in this directory:
+5. Two workers, one per queue, each with the token bound to it: `score_words`
+   runs on `scoring`, the rest on `default`. Both serve the code in this
+   directory:
 
        uv run neorc worker start --manager-address 127.0.0.1:8420 \
            --code-location examples/wordplay
@@ -57,7 +63,7 @@ are the same as in [hello](../hello/README.md#deployed).
        uv run neorc worker start --manager-address 127.0.0.1:8420 \
            --code-location examples/wordplay --queue scoring
 
-6. Start a run:
+6. Start a run, with the `me` token:
 
        curl -X POST 127.0.0.1:8420/flows/word_picker/runs \
            -H "authorization: Bearer $NEORC_API_TOKEN" \

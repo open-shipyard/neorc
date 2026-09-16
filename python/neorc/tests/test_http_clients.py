@@ -13,8 +13,10 @@ and the manager's long-poll deadline.
 from __future__ import annotations
 
 import asyncio
+import re
 import uuid
 from collections.abc import AsyncIterator
+from typing import Any
 
 import httpx
 import pytest
@@ -28,8 +30,10 @@ from neorc_core import (
     Manager,
     ManagerClient,
     ManagerUnavailableError,
+    PermissionDeniedError,
     QueueClient,
     Role,
+    TaskNotFoundError,
 )
 from neorc_core.local import MemoryCredentialStore
 from neorc_core.testing.contracts import (
@@ -151,21 +155,82 @@ async def test_the_manager_caps_a_long_poll_at_its_own_deadline(
 # With a token.
 
 
+SENT = "neorc_sent-by-the-client"
+"""The token both clients are given; ``RoleTokens`` checks every request has it."""
+
+_WORKER_PATHS = re.compile(r"/(?:queues/(?P<queue>[^/]+)|tasks/(?P<task>[^/]+))/")
+
+
+class RoleTokens(httpx.AsyncBaseTransport):
+    """Sends each request on with a token of the role that may make it.
+
+    A deployment gives each process a token of its own role; the contracts
+    drive every request through two clients, so here the role is picked per
+    request, as the manager's routes say: a worker's bound to the queue in the
+    path, or the queue of the task named. Every request must arrive carrying
+    the one token the clients were given.
+    """
+
+    def __init__(self, app: Any, manager: Manager, access: Access) -> None:
+        self._inner = httpx.ASGITransport(app=app)
+        self._manager = manager
+        self._access = access
+        self._tokens: dict[tuple[Role, str | None], str] = {}
+
+    async def _token(self, role: Role, queue: str | None = None) -> str:
+        if (role, queue) not in self._tokens:
+            name = f"{role.value}-{queue or 'any'}"
+            secret, _ = await self._access.create_token(name, role, queue=queue)
+            self._tokens[role, queue] = secret
+        return self._tokens[role, queue]
+
+    async def _role_token(self, request: httpx.Request) -> str:
+        path, method = request.url.path, request.method
+        worker = _WORKER_PATHS.match(path + "/")
+        if worker and worker["queue"]:
+            return await self._token(Role.WORKER, worker["queue"])
+        if worker and worker["task"] and method == "POST":
+            try:
+                task = await self._manager.get_task(uuid.UUID(worker["task"]))
+                queue = task.queue
+            except (ValueError, TaskNotFoundError):
+                queue = "default"
+            return await self._token(Role.WORKER, queue)
+        if path == "/flows" and method == "POST":
+            return await self._token(Role.CI)
+        if (
+            path.startswith("/runs/")
+            and method == "POST"
+            and not path.endswith("/cancel")
+        ):
+            return await self._token(Role.SCHEDULER)
+        return await self._token(Role.USER)
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        assert request.headers.get("authorization") == f"Bearer {SENT}"
+        request.headers["authorization"] = f"Bearer {await self._role_token(request)}"
+        return await self._inner.handle_async_request(request)
+
+
 @pytest.fixture
-async def secured(manager: Manager) -> AsyncIterator[tuple[httpx.ASGITransport, str]]:
-    """A manager that needs a token, and one it accepts."""
+async def secured(
+    manager: Manager,
+) -> AsyncIterator[tuple[httpx.AsyncBaseTransport, str]]:
+    """A manager that needs a token of the right role for every request."""
     access = Access(MemoryCredentialStore())
-    secret, _ = await access.create_token("clients", Role.USER)
     app = create_app(manager, access=access, long_poll_timeout=2)
-    yield httpx.ASGITransport(app=app), secret
+    yield RoleTokens(app, manager, access), SENT
 
 
 class TestHttpClientsWithATokenRequired(ManagerClientContract, QueueClientContract):
-    """Every request of both clients carries the token, and every write is JSON."""
+    """Every request of both clients carries the token, and every write is JSON.
+
+    With a token of the role each request needs, as ``RoleTokens`` swaps in.
+    """
 
     @pytest.fixture
     async def manager_client(
-        self, secured: tuple[httpx.ASGITransport, str]
+        self, secured: tuple[httpx.AsyncBaseTransport, str]
     ) -> AsyncIterator[ManagerClient]:
         transport, secret = secured
         async with HttpManagerClient(
@@ -175,7 +240,7 @@ class TestHttpClientsWithATokenRequired(ManagerClientContract, QueueClientContra
 
     @pytest.fixture
     async def queue_client(
-        self, secured: tuple[httpx.ASGITransport, str]
+        self, secured: tuple[httpx.AsyncBaseTransport, str]
     ) -> AsyncIterator[QueueClient]:
         transport, secret = secured
         async with HttpQueueClient(
@@ -184,10 +249,9 @@ class TestHttpClientsWithATokenRequired(ManagerClientContract, QueueClientContra
             yield client
 
 
-async def test_a_refused_token_raises_authentication_error(
-    secured: tuple[httpx.ASGITransport, str],
-) -> None:
-    transport, _ = secured
+async def test_a_refused_token_raises_authentication_error(manager: Manager) -> None:
+    access = Access(MemoryCredentialStore())
+    transport = httpx.ASGITransport(app=create_app(manager, access=access))
     async with (
         HttpManagerClient(
             "https://manager.test", token="neorc_wrong", transport=transport
@@ -198,6 +262,27 @@ async def test_a_refused_token_raises_authentication_error(
             await manager_client.wait_for_events(0, timeout=0)
         with pytest.raises(AuthenticationError, match="needs an API token"):
             await queue_client.receive_task("default", timeout=0)
+
+
+async def test_a_request_the_role_may_not_make_raises_permission_denied(
+    manager: Manager,
+) -> None:
+    access = Access(MemoryCredentialStore())
+    transport = httpx.ASGITransport(app=create_app(manager, access=access))
+    ci, _ = await access.create_token("ci", Role.CI)
+    worker, _ = await access.create_token("w", Role.WORKER, queue="default")
+    async with (
+        HttpManagerClient(
+            "https://manager.test", token=ci, transport=transport
+        ) as manager_client,
+        HttpQueueClient(
+            "https://manager.test", token=worker, transport=transport
+        ) as queue_client,
+    ):
+        with pytest.raises(PermissionDeniedError, match="a ci token may not"):
+            await manager_client.wait_for_events(0, timeout=0)
+        with pytest.raises(PermissionDeniedError, match="bound to queue 'default'"):
+            await queue_client.receive_task("gpu", timeout=0)
 
 
 @pytest.mark.parametrize(

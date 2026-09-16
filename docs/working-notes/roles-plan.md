@@ -190,7 +190,7 @@ route of its own.
 | 1    | `feature/roles-1-random-task-ids`       | done   |
 | 2    | `feature/roles-2-token-roles`           | done   |
 | 3    | `feature/roles-3-permissions`           | done   |
-| 4    | `feature/roles-4-routes`                | to do  |
+| 4    | `feature/roles-4-routes`                | done   |
 | 5    | `feature/roles-5-end-to-end-docs`       | to do  |
 
 Re-split while carrying out step 2: giving `CredentialStore.add_token` a role

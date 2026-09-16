@@ -220,15 +220,43 @@ async def test_an_ended_session_is_refused_even_if_the_browser_kept_it(
 # The writes of a session.
 
 
-async def test_a_session_writes_only_from_a_page_on_the_public_url(
-    deployment: Deployment,
-) -> None:
+async def uploaded_by_ci(deployment: Deployment) -> None:
+    """Flow ``f`` uploaded with a CI token: a person's session may not upload."""
+    secret, _ = await deployment.access.create_token("ci-upload", Role.CI)
+    async with httpx.AsyncClient(
+        transport=deployment.transport, base_url=deployment.public_url
+    ) as machine:
+        uploaded = await machine.post(
+            "/flows",
+            json={"flows": [FLOW]},
+            headers={"authorization": f"Bearer {secret}", **JSON},
+        )
+    assert uploaded.status_code == 200
+
+
+async def test_a_session_has_the_user_role(deployment: Deployment) -> None:
     await signed_in(deployment)
     same_origin = {"origin": "http://127.0.0.1:8420", **JSON}
 
-    uploaded = await deployment.manager.post(
+    upload = await deployment.manager.post(
         "/flows", json={"flows": [FLOW]}, headers=same_origin
     )
+    listed = await deployment.manager.get("/flows")
+
+    assert (upload.status_code, upload.json()["error"]) == (
+        403,
+        "PermissionDeniedError",
+    )
+    assert "a user session may not flows:upload" in upload.json()["detail"]
+    assert listed.status_code == 200
+
+
+async def test_a_session_writes_only_from_a_page_on_the_public_url(
+    deployment: Deployment,
+) -> None:
+    await uploaded_by_ci(deployment)
+    await signed_in(deployment)
+
     started = await deployment.manager.post(
         "/flows/f/runs", json={"inputs": {}}, headers={"sec-fetch-site": "same-origin"}
     )
@@ -246,7 +274,6 @@ async def test_a_session_writes_only_from_a_page_on_the_public_url(
         "/auth/logout", headers={"origin": "https://evil.example.com", **JSON}
     )
 
-    assert uploaded.status_code == 200
     assert started.status_code == 201
     for refused in (other_origin, no_origin, null_origin, logout_elsewhere):
         assert refused.status_code == 403
@@ -258,17 +285,18 @@ async def test_a_session_works_behind_a_proxy_that_rewrites_the_host(
     deployment: Deployment,
 ) -> None:
     """The manager compares Origin with the public URL, never with Host."""
+    await uploaded_by_ci(deployment)
     await signed_in(deployment)
     proxied = {"host": "manager.internal:8000"}
 
     read = await deployment.manager.get("/flows", headers=proxied)
     write = await deployment.manager.post(
-        "/flows",
-        json={"flows": [FLOW]},
+        "/flows/f/runs",
+        json={"inputs": {}},
         headers={**proxied, "origin": deployment.public_url},
     )
 
-    assert (read.status_code, write.status_code) == (200, 200)
+    assert (read.status_code, write.status_code) == (200, 201)
 
 
 async def test_a_token_s_writes_need_no_origin(deployment: Deployment) -> None:

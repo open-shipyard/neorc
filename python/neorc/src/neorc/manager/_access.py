@@ -22,23 +22,32 @@ body, or FastAPI reads its path and query:
   a token's request is not checked so. The principal is the dependency's
   value.
 
+Then each route asks, through ``permit``, whether the principal's role may do
+the one permission the route needs, on the queue in its path if it names one.
+Core decides; a route whose task is on another queue than a worker's is
+refused by the manager itself, as not found.
+
 Routes outside the router, ``/health`` and the UI, hold no data and are not
 guarded.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated
+from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING, Annotated, Any
 
 from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from neorc_core import (
+    QUEUE_PERMISSIONS,
     Access,
     AuthenticationError,
     CrossSiteRequestError,
+    Permission,
     Principal,
     UnsupportedMediaTypeError,
+    authorize,
 )
 
 if TYPE_CHECKING:  # the sign-in module uses this one's checks
@@ -86,6 +95,37 @@ async def guard(
 
 Guarded = Annotated[Principal | None, Depends(guard)]
 """The principal, injected; a module-level name, for FastAPI."""
+
+PERMISSION_ATTRIBUTE = "neorc_permission"
+"""Where a ``permit`` dependency says which permission it asks for."""
+
+
+def permit(permission: Permission) -> Any:
+    """A dependency on the guard's principal, refused unless it may do ``permission``.
+
+    FastAPI runs the router's guard once per request, so this adds only the
+    question. A queue permission is asked about the ``{queue}`` in the path,
+    when the route has one. The value is the principal, or ``None`` with
+    authentication off.
+    """
+
+    async def permitted(request: Request, principal: Guarded) -> Principal | None:
+        queue = (
+            request.path_params.get("queue")
+            if permission in QUEUE_PERMISSIONS
+            else None
+        )
+        authorize(principal, permission, queue=queue)
+        return principal
+
+    setattr(permitted, PERMISSION_ATTRIBUTE, permission)
+    dependency: Callable[..., Awaitable[Principal | None]] = permitted
+    return Depends(dependency)
+
+
+def worker_queue(principal: Principal | None) -> str | None:
+    """The queue a worker's request is confined to: its token's, if any."""
+    return None if principal is None else principal.queue
 
 
 def ensure_same_site_json(request: Request) -> None:
