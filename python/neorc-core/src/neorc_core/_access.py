@@ -25,15 +25,17 @@ import re
 import secrets
 import time
 import uuid
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from neorc_core._errors import (
     AuthenticationError,
     InvalidValueError,
+    PermissionDeniedError,
     SignInRefusedError,
 )
 from neorc_core.flows._definition import is_queue_name
@@ -61,6 +63,93 @@ class Role(StrEnum):
     """A person: signed in, or with a token for their scripts."""
     EXTERNAL_TRIGGER = "external-trigger"
     """Starts runs, and nothing else."""
+
+
+class Permission(StrEnum):
+    """One operation on one kind of resource; every guarded route needs one."""
+
+    FLOWS_UPLOAD = "flows:upload"
+    FLOWS_READ = "flows:read"
+    RUNS_START = "runs:start"
+    RUNS_READ = "runs:read"
+    """Runs, their tasks, sub-runs and state, and a task by id."""
+    RUNS_CANCEL = "runs:cancel"
+    RUNS_SCHEDULE = "runs:schedule"
+    """The scheduler's requests: publish tasks, start sub-runs, finish runs."""
+    EVENTS_READ = "events:read"
+    QUEUE_DEFINITIONS = "queue:definitions"
+    QUEUE_RECEIVE = "queue:receive"
+    TASKS_CLAIM = "tasks:claim"
+    TASKS_HEARTBEAT = "tasks:heartbeat"
+    TASKS_FINISH = "tasks:finish"
+
+
+QUEUE_PERMISSIONS: frozenset[Permission] = frozenset(
+    {
+        Permission.QUEUE_DEFINITIONS,
+        Permission.QUEUE_RECEIVE,
+        Permission.TASKS_CLAIM,
+        Permission.TASKS_HEARTBEAT,
+        Permission.TASKS_FINISH,
+    }
+)
+"""The permissions that apply to one queue: the one a worker token is bound to."""
+
+PERMISSIONS: Mapping[Role, frozenset[Permission]] = MappingProxyType(
+    {
+        Role.WORKER: QUEUE_PERMISSIONS,
+        Role.SCHEDULER: frozenset(
+            {
+                Permission.FLOWS_READ,
+                Permission.RUNS_READ,
+                Permission.RUNS_SCHEDULE,
+                Permission.EVENTS_READ,
+            }
+        ),
+        Role.CI: frozenset({Permission.FLOWS_UPLOAD}),
+        Role.USER: frozenset(
+            {
+                Permission.FLOWS_READ,
+                Permission.RUNS_START,
+                Permission.RUNS_READ,
+                Permission.RUNS_CANCEL,
+                Permission.EVENTS_READ,
+            }
+        ),
+        Role.EXTERNAL_TRIGGER: frozenset({Permission.RUNS_START}),
+    }
+)
+"""What each role may do; nothing else is allowed. Fixed: roles are not edited."""
+
+
+def authorize(
+    principal: Principal | None, permission: Permission, *, queue: str | None = None
+) -> None:
+    """Raise ``PermissionDeniedError`` unless ``principal`` may do ``permission``.
+
+    ``None`` is no principal at all, with authentication off: everything is
+    allowed. ``queue`` names the queue a request is about, when it names one; a
+    queue permission then holds only for the queue the principal is bound to.
+    A request about a task names no queue here: the manager compares the
+    task's own queue with the principal's, and answers as if a task on another
+    queue did not exist.
+    """
+    if principal is None:
+        return
+    if permission not in PERMISSIONS[principal.role]:
+        raise PermissionDeniedError(
+            f"a {principal.role.value} {principal.kind.value} may not "
+            f"{permission.value}"
+        )
+    if (
+        queue is not None
+        and permission in QUEUE_PERMISSIONS
+        and queue != principal.queue
+    ):
+        raise PermissionDeniedError(
+            f"a {principal.role.value} {principal.kind.value} bound to queue "
+            f"{principal.queue!r} may not {permission.value} on queue {queue!r}"
+        )
 
 
 def _role(value: str) -> Role:

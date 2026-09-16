@@ -18,7 +18,7 @@ from typing import Any, ClassVar
 import pytest
 
 from neorc import _cli
-from neorc_core import AuthenticationError, Task, TaskDelivery
+from neorc_core import AuthenticationError, PermissionDeniedError, Task, TaskDelivery
 from neorc_core.flows import Address, TaskStep, parse_flow
 from neorc_core.ports._clients import DEFAULT_LEASE_SECONDS
 
@@ -301,8 +301,19 @@ def test_a_token_is_not_sent_over_plain_http_by_any_command(
             _cli.main([*command, *address])
 
 
+NOT_PERMITTED = PermissionDeniedError("a worker token may not events:read")
+
+
+@pytest.mark.parametrize(
+    ("refusal", "reason"),
+    [(REFUSED, "revoked or expired"), (NOT_PERMITTED, "may not events:read")],
+    ids=["unknown", "no-permission"],
+)
 def test_a_refused_scheduler_exits_saying_so(
-    recording: type[_Recording], monkeypatch: pytest.MonkeyPatch
+    recording: type[_Recording],
+    monkeypatch: pytest.MonkeyPatch,
+    refusal: Exception,
+    reason: str,
 ) -> None:
     class Refused:
         def __init__(self, client: Any, **kwargs: Any) -> None:
@@ -312,16 +323,39 @@ def test_a_refused_scheduler_exits_saying_so(
             pass
 
         async def run(self) -> None:
-            raise REFUSED
+            raise refusal
 
     monkeypatch.setattr(_cli, "Scheduler", Refused)
 
-    with pytest.raises(SystemExit, match="refused a request with no API token"):
+    with pytest.raises(SystemExit, match="refused a request with no API token") as e:
         _cli.main(["scheduler", "start", "--manager-address", "m"])
+    assert reason in str(e.value)
 
 
+def test_an_upload_the_token_may_not_make_exits_saying_why(
+    recording: type[_Recording],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    async def not_permitted(self: _Recording, contents: Any) -> list[bool]:
+        raise PermissionDeniedError("a worker token may not flows:upload")
+
+    monkeypatch.setattr(_Recording, "upload_flows", not_permitted)
+    monkeypatch.setenv(_cli.API_TOKEN_ENV, "neorc_secret")
+    monkeypatch.setenv(_cli.ALLOW_INSECURE_HTTP_ENV, "1")
+    upload = ["flows", "upload", str(EXAMPLES / "hello" / "flows")]
+
+    assert _cli.main([*upload, "--manager-address", "m"]) == 1
+    refused = capsys.readouterr().err
+    assert f"the API token in ${_cli.API_TOKEN_ENV}" in refused
+    assert "a worker token may not flows:upload" in refused
+
+
+@pytest.mark.parametrize(
+    "refusal", [REFUSED, NOT_PERMITTED], ids=["unknown", "no-permission"]
+)
 def test_a_worker_refused_at_startup_exits_rather_than_retrying(
-    recording: type[_Recording], monkeypatch: pytest.MonkeyPatch
+    recording: type[_Recording], monkeypatch: pytest.MonkeyPatch, refusal: Exception
 ) -> None:
     class Refused:
         def __init__(self, client: Any, **kwargs: Any) -> None:
@@ -331,7 +365,7 @@ def test_a_worker_refused_at_startup_exits_rather_than_retrying(
             pass
 
         async def prepare(self) -> None:
-            raise REFUSED
+            raise refusal
 
     monkeypatch.setattr(_cli, "Worker", Refused)
     monkeypatch.setenv(_cli.API_TOKEN_ENV, "neorc_secret")

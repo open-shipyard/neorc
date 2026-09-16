@@ -56,8 +56,20 @@ class RunStateError(NeorcError):
     """A run cannot take the request: it is no longer active, or already finished."""
 
 
-class AuthenticationError(NeorcError):
+class AccessError(NeorcError):
+    """The manager will not take a request from whoever sent it.
+
+    A client that gets one stops rather than retry: asking again changes
+    nothing until the credential does.
+    """
+
+
+class AuthenticationError(AccessError):
     """A request carries no identity, or one that is not accepted."""
+
+
+class PermissionDeniedError(AccessError):
+    """Whoever sent a request is known, and their role may not do what it asks."""
 
 
 class SignInRefusedError(NeorcError):

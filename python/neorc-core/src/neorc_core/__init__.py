@@ -6,17 +6,22 @@
 from importlib.metadata import PackageNotFoundError, version
 
 from neorc_core._access import (
+    PERMISSIONS,
+    QUEUE_PERMISSIONS,
     Access,
     Allow,
     ApiToken,
     Identity,
     Matcher,
     PendingLogin,
+    Permission,
     Principal,
     PrincipalKind,
     Role,
+    authorize,
 )
 from neorc_core._errors import (
+    AccessError,
     AuthenticationError,
     CrossSiteRequestError,
     FlowDefinitionError,
@@ -26,6 +31,7 @@ from neorc_core._errors import (
     ManagerUnavailableError,
     NeorcError,
     PayloadTooLargeError,
+    PermissionDeniedError,
     ResolutionError,
     RunNotFoundError,
     RunStateError,
@@ -70,8 +76,11 @@ except PackageNotFoundError:  # a source checkout on sys.path, not installed
 
 __all__ = [
     "LEASED_STATUSES",
+    "PERMISSIONS",
+    "QUEUE_PERMISSIONS",
     "TERMINAL_STATUSES",
     "Access",
+    "AccessError",
     "Allow",
     "ApiToken",
     "AuthenticationError",
@@ -92,6 +101,8 @@ __all__ = [
     "NeorcError",
     "PayloadTooLargeError",
     "PendingLogin",
+    "Permission",
+    "PermissionDeniedError",
     "Principal",
     "PrincipalKind",
     "QueueClient",
@@ -117,5 +128,6 @@ __all__ = [
     "UnsupportedMediaTypeError",
     "Worker",
     "__version__",
+    "authorize",
     "ensure_transition",
 ]

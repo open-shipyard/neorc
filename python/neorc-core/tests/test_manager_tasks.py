@@ -17,6 +17,7 @@ from neorc_core import (
     ResolutionError,
     RunStateError,
     RunStatus,
+    TaskNotFoundError,
     TaskStatus,
 )
 from neorc_core._runs import sub_run_id_for
@@ -233,6 +234,36 @@ async def test_a_worker_on_another_queue_keeps_waiting(flows: Manager) -> None:
     await flows.publish_task(run_id, FIRST)
 
     assert await flows.receive_task("other", timeout=0.1) is None
+
+
+async def test_a_task_on_another_queue_is_not_found_by_a_worker_bound_to_one(
+    flows: Manager,
+) -> None:
+    run_id = await started(flows)
+    task = await flows.publish_task(run_id, FIRST)
+    await flows.receive_task("default", timeout=0)
+
+    with pytest.raises(TaskNotFoundError, match=str(task.id)):
+        await flows.claim_task(task.id, queue="other")
+    with pytest.raises(TaskNotFoundError, match=str(task.id)):
+        await flows.extend_lease(task.id, queue="other")
+    with pytest.raises(TaskNotFoundError, match=str(task.id)):
+        await flows.report_finished(task.id, result=["x"], queue="other")
+    assert (await flows.get_task(task.id)).status is TaskStatus.RECEIVED
+
+    await flows.claim_task(task.id, queue="default")
+    await flows.extend_lease(task.id, queue="default")
+    await flows.report_finished(task.id, result=["x"], queue="default")
+    assert (await flows.get_task(task.id)).status is TaskStatus.SUCCEEDED
+
+
+async def test_an_unknown_task_named_with_a_queue_is_not_found(
+    flows: Manager,
+) -> None:
+    missing = uuid.uuid4()
+
+    with pytest.raises(TaskNotFoundError, match=str(missing)):
+        await flows.claim_task(missing, queue="default")
 
 
 async def test_a_task_of_an_inactive_run_is_refused_its_claim(
