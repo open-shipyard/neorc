@@ -126,10 +126,12 @@ Receiving and claiming are separate endpoints, so receiving can be done with
 SQS in the future while claiming stays with the manager in Postgres. No
 references to Postgres or SQS will be in neorc-core.
 
-Two checks the claim is meant for are not made yet: a task already running can
-be claimed again, since a worker may retry the call, and nothing checks that
-the worker claiming, heartbeating or finishing a task is the one that received
-it.
+A task already running can be claimed again, since a worker may retry the
+call. A task's id is random, handed to a worker when it receives the task, and
+claiming, heartbeating and finishing are refused for a token bound to another
+queue (see [roles.md](roles.md)). The id belongs to the task, not to one
+delivery: nothing checks that the worker using it is the one that received the
+task last, which at-least-once delivery accepts.
 
 ## Task payloads
 
