@@ -44,13 +44,28 @@ it. Every request needs one; `neorc tokens create` prints its secret once:
     export NEORC_DATABASE_URL=postgresql://localhost/neorc
     neorc manager start --create-schema \
         --ssl-certfile manager.pem --ssl-keyfile manager-key.pem
+    neorc tokens create github-actions --role ci
     neorc tokens create scheduler --role scheduler
     neorc tokens create worker-1 --role worker --queue default
+    neorc tokens create bookings-webhook --role external-trigger
 
+Each token has a role, and may do only what its role allows
+([roles.md](docs/specs/roles.md)):
+
+| Role               | May                                                                    |
+| ------------------ | ---------------------------------------------------------------------- |
+| `ci`               | upload flows                                                           |
+| `scheduler`        | read flows, runs and events; publish tasks, start sub-runs, end runs   |
+| `worker`           | fetch, receive, claim, heartbeat and finish the tasks of its one queue |
+| `user`             | read flows, runs and events; start and cancel runs                     |
+| `external-trigger` | start runs                                                             |
+
+A person signed in to the UI is a `user`; a `user` token is for their scripts.
 A token is sent only over HTTPS, or to a loopback address: serve the manager
 with a certificate as above, or behind a proxy that terminates TLS. `neorc
 tokens list` and `neorc tokens revoke <name>` manage them. To try it on one
-machine nobody else reaches, `neorc manager start --no-auth` asks for none.
+machine nobody else reaches, `neorc manager start --no-auth` asks for none,
+and allows everything.
 
 Write the work, as plain functions that need not import neorc:
 
@@ -78,15 +93,14 @@ the manager, with the code the handlers import from, each with its token in
 `NEORC_API_TOKEN`:
 
     export NEORC_MANAGER_ADDRESS=https://manager.internal:8420
-    export NEORC_API_TOKEN=neorc_...
-    neorc flows upload flows
-    neorc scheduler start
-    neorc worker start --code-location .
+    NEORC_API_TOKEN=<github-actions> neorc flows upload flows
+    NEORC_API_TOKEN=<scheduler>      neorc scheduler start
+    NEORC_API_TOKEN=<worker-1>       neorc worker start --code-location .
 
-Start a run from anywhere:
+Start a run from anywhere, with a token that may:
 
     curl -X POST https://manager.internal:8420/flows/hello/runs \
-        -H "authorization: Bearer $NEORC_API_TOKEN" \
+        -H "authorization: Bearer <bookings-webhook>" \
         -H 'content-type: application/json' -d '{"inputs": {"name": "world"}}'
 
 Or from the web UI the manager serves at `https://manager.internal:8420/ui/`:

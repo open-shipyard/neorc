@@ -491,7 +491,8 @@ where the design promises a fixed failure, and three pieces of hardening:
 
 Decided here to make progress. Revisit if they are wrong.
 
-- Roles are deferred, not dropped. Until they land, an authenticated
+- Roles are deferred, not dropped; [roles-plan.md](roles-plan.md) adds them.
+  Until they land, an authenticated
   principal may do everything, a worker's token included: a leaked token is
   as bad as a leaked admin session, and the defence is revoking it. They are
   left for their own plan because they add a permission per route, roles on
