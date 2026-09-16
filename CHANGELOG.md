@@ -251,6 +251,15 @@ one version, cut from a single tag on `main`.
   its name, `neorc_flow_tasks`, since a database from before holds the old
   `neorc_tasks`, which create-if-absent would leave in place.
 
+### Security
+
+- `neorc-core`: a handler must be a function defined in a module under the
+  worker's code location, at the path its name gives from there and not part
+  of a package installed there, checked before the module is imported and again
+  whenever a task names a handler the worker has not met, so an uploaded flow
+  can no longer have a worker call `subprocess:run`, `os:system` or anything
+  else importable. `Worker` and `LocalCluster` now require `code_location`.
+
 ### Removed
 
 - The task API, which let a task be published on its own: `TaskStore`,

@@ -46,13 +46,29 @@ Workers can be of multiple languages, not only Python. In their implementations 
 
 Each task in a flow file names its handler as an import path, in the format of
 the runtime that serves the task's queue. For Python it is `module:function`,
-resolved from the worker's code location, then the usual import path:
+resolved from the worker's code location:
 
 ```yaml
 my_task:
   queue: python-default
   handler: myapp.tasks:my_task_handler
 ```
+
+Whoever uploads a flow chooses its handlers and their fixed params, so a
+handler is confined to the worker's own code: the module must be found at the
+path its name gives from the code location, `myapp/tasks.py` or
+`myapp/tasks/__init__.py` for `myapp.tasks`, which is checked before any of it
+is imported, and the function must be defined in such a module too.
+`subprocess:run`, a module elsewhere on the import path, a package installed
+in a virtual environment inside the code location or into it with
+`pip install --target`, and a function a module under the code location
+imports from elsewhere are all refused. Dependencies vendored by copying,
+with no metadata beside them, cannot be told from the worker's code: keep
+them out of the code location. The check is made whenever a
+handler is first met, at startup or when a task names one uploaded later, and
+a refused handler fails its task without being called. Importing any module
+under the code location runs its body, so the code location holds handler
+code, not scripts.
 
 A worker in another language defines its own format for the same field. The
 manager and the scheduler treat the handler as an opaque string; only the

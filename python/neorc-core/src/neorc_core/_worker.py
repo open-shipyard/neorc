@@ -4,7 +4,10 @@
 """The worker for flows: check its queue's handlers, then take and run tasks.
 
 Handlers are plain functions named by import path, called with a task's inputs
-as keyword arguments; they need not import neorc.
+as keyword arguments; they need not import neorc. Only a function defined
+under the worker's code location is a handler, whether it is checked by
+``prepare`` or first met in a task: flows may be uploaded after the worker
+started, and whoever uploads them names the handlers.
 
 A refused token ends the worker: ``run`` raises the ``AuthenticationError``
 rather than poll again. Refused while a handler runs, by a heartbeat, it ends
@@ -67,7 +70,7 @@ class Worker:
         client: QueueClient,
         *,
         queue: str = DEFAULT_QUEUE,
-        code_location: Path | None = None,
+        code_location: Path,
         poll_timeout: float = DEFAULT_POLL_TIMEOUT,
         lease_seconds: float = DEFAULT_LEASE_SECONDS,
     ) -> None:
@@ -229,6 +232,7 @@ class Worker:
         return result, None
 
     def _resolve(self, handler: str) -> Callable[..., Any]:
+        """The handler's function, kept once found under the code location."""
         function = self._handlers.get(handler)
         if function is None:
             function = resolve_handler(handler, self._code_location)
