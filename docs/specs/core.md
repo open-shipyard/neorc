@@ -27,21 +27,40 @@ backends and persistence layers arrive as further extras.
 
 It will be implemented as three services: a "manager", a "scheduler" and one or more "workers".
 
-After installing neorc users should be able to start
+After installing neorc users should be able to start the manager, and create a
+token for each process that will reach it. Tokens are created on the database,
+and each one has a role; a worker's token is bound to the queue it serves. See
+[roles.md](roles.md).
 
-neorc manager start --ssl-certfile manager.pem --ssl-keyfile manager-key.pem
-neorc tokens create --role ci ci-token
-neorc tokens create --role worker-default worker-token
-neorc tokens create --role scheduler scheduler-token
-neorc tokens create --role external_trigger trigger-token
+```
+export NEORC_DATABASE_URL=postgresql://localhost/neorc
+neorc manager start --create-schema --ssl-certfile manager.pem --ssl-keyfile manager-key.pem
 
+neorc tokens create --role ci github-actions
+neorc tokens create --role scheduler scheduler
+neorc tokens create --role worker --queue default worker-1
+neorc tokens create --role worker --queue python-gpu gpu-worker-1
+neorc tokens create --role external-trigger bookings-webhook
+```
 
-And, in different hosts, each with a token
+And, in different hosts, each with its token
 
+```
 export NEORC_MANAGER_ADDRESS="https://xx.xx.xx.xx:8420"
-NEORC_API_TOKEN="...ci-token..." neorc flows upload flows/
-NEORC_API_TOKEN="..." neorc scheduler start 
-NEORC_API_TOKEN="..." neorc worker start --code-location .
+NEORC_API_TOKEN="<github-actions>" neorc flows upload flows/
+NEORC_API_TOKEN="<scheduler>"      neorc scheduler start
+NEORC_API_TOKEN="<worker-1>"       neorc worker start --code-location .
+NEORC_API_TOKEN="<gpu-worker-1>"   neorc worker start --code-location . --queue python-gpu
+```
+
+An external system starts runs over HTTP with its token:
+
+```
+curl -X POST https://xx.xx.xx.xx:8420/flows/booking/runs \
+     -H "Authorization: Bearer <bookings-webhook>" \
+     -H "Content-Type: application/json" \
+     -d '{"inputs": {"booking_id": 42}}'
+```
 
 
 
