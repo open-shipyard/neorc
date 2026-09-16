@@ -13,12 +13,13 @@ import tempfile
 
 import pgserver
 
-with tempfile.TemporaryDirectory(prefix="neorc-pgdata-") as data_dir:
-    server = pgserver.get_server(data_dir, cleanup_mode="stop")
-    try:
-        print(f"export NEORC_DATABASE_URL='{server.get_uri()}'", flush=True)
-        signal.pause()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        server.cleanup()
+if __name__ == "__main__":  # imported, as a handler module may be, it does nothing
+    with tempfile.TemporaryDirectory(prefix="neorc-pgdata-") as data_dir:
+        server = pgserver.get_server(data_dir, cleanup_mode="stop")
+        try:
+            print(f"export NEORC_DATABASE_URL='{server.get_uri()}'", flush=True)
+            signal.pause()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            server.cleanup()

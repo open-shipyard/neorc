@@ -282,7 +282,115 @@ async def test_startup_reports_every_handler_that_does_not_fit(
         f"e: {module!r} has no function 'not_callable'",
         problems[3],
     ]
-    assert problems[3].startswith("g: cannot import 'no_such_module_anywhere'")
+    assert problems[3] == (
+        "g: no module 'no_such_module_anywhere' in the code location "
+        f"{tmp_path.resolve()}"
+    )
+
+
+@pytest.mark.parametrize(
+    ("handler", "fixed_params"),
+    [
+        ("subprocess:check_output", {"args": ["cat", "/etc/passwd"]}),
+        ("subprocess:run", {"args": ["touch", "{marker}"]}),
+        ("os:system", {"command": "touch {marker}"}),
+        ("posix:system", {"command": "touch {marker}"}),
+        ("builtins:exec", {"source": "open({marker!r}, 'w')"}),
+    ],
+)
+async def test_a_handler_outside_the_code_location_is_never_called(
+    flows: Manager, tmp_path: Path, handler: str, fixed_params: dict[str, JsonValue]
+) -> None:
+    """Checked when the task runs: the flow is uploaded after the worker started."""
+    marker = tmp_path / "ran"
+    running = worker(flows, tmp_path)
+    await running.prepare()
+    params: JsonValue = {
+        name: (
+            [str(v).format(marker=str(marker)) for v in value]
+            if isinstance(value, list)
+            else str(value).format(marker=str(marker))
+        )
+        for name, value in fixed_params.items()
+    }
+    run_id = await published(
+        flows, flow({"handler": handler, "fixed_params": params}), {}
+    )
+
+    await running.run_once()
+
+    task = await flows.get_task(task_id_for(run_id, Address("work")))
+    assert task.status is TaskStatus.FAILED
+    assert task.result is None
+    assert task.error is not None and "code location" in task.error
+    assert not marker.exists()
+
+    with pytest.raises(HandlerError):
+        await worker(flows, tmp_path).prepare()
+
+
+async def test_a_function_imported_from_elsewhere_is_not_a_handler(
+    flows: Manager, tmp_path: Path
+) -> None:
+    module = handlers(
+        tmp_path,
+        """
+        from subprocess import check_output as work
+        from os import system
+        """,
+    )
+    content: JsonValue = {
+        "name": "f",
+        "version": "1.0.0",
+        "steps": {
+            "a": {"handler": f"{module}:work", "fixed_params": {"args": ["id"]}},
+            "b": {"handler": f"{module}:system", "fixed_params": {"command": "id"}},
+        },
+    }
+    await flows.upload_flows([content])
+
+    with pytest.raises(HandlerError) as raised:
+        await worker(flows, tmp_path).prepare()
+
+    location = tmp_path.resolve()
+    assert raised.value.problems == [
+        f"a: {module}:work is not defined in the code location {location}: "
+        "a handler must be a function of the worker's own code",
+        f"b: {module}:system is not defined in the code location {location}: "
+        "a handler must be a function of the worker's own code",
+    ]
+
+
+async def test_handlers_may_live_in_packages_and_be_imported_between_modules(
+    flows: Manager, tmp_path: Path
+) -> None:
+    package = f"pkg_{uuid.uuid4().hex}"
+    root = tmp_path / package
+    (root / "inner").mkdir(parents=True)  # inner: a namespace package
+    (root / "__init__.py").write_text("")
+    (root / "inner" / "tasks.py").write_text("def work():\n    return 7\n")
+    (root / "api.py").write_text(f"from {package}.inner.tasks import work\n")
+    content: JsonValue = {
+        "name": "f",
+        "version": "1.0.0",
+        "steps": {
+            "a": {"handler": f"{package}.inner.tasks:work"},
+            "b": {"handler": f"{package}.api:work"},
+        },
+    }
+    running = worker(flows, tmp_path)
+    await flows.upload_flows([content])
+    await running.prepare()
+    run = await flows.start_run("f", {})
+    await flows.publish_task(run.id, Address("a"))
+    await flows.publish_task(run.id, Address("b"))
+
+    await running.run_once()
+    await running.run_once()
+
+    state = await flows.run_state(run.id)
+    assert state.steps[Address("a")].value == 7
+    assert state.steps[Address("b")].value == 7
 
 
 async def test_a_long_task_keeps_its_lease_by_heartbeating(

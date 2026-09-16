@@ -45,7 +45,7 @@ class LocalCluster:
     def __init__(
         self,
         *,
-        code_location: Path | None = None,
+        code_location: Path,
         lease_seconds: float = DEFAULT_LEASE_SECONDS,
         poll_timeout: float = DEFAULT_POLL_TIMEOUT,
     ) -> None:
