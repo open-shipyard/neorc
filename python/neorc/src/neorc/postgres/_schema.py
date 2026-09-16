@@ -19,20 +19,21 @@ The choices behind the tables are in docs/working-notes/decisions-from-past-plan
 - No foreign keys between the flow tables: an insert would take a ``KEY
   SHARE`` lock on the run it references, outside the store's lock order. The
   store's operations keep the references whole.
-- The ``CHECK`` constraints mirror ``TaskStatus``, ``RunStatus`` and
-  ``EventKind``; a test keeps them in step with the enums.
+- The ``CHECK`` constraints mirror ``TaskStatus``, ``RunStatus``,
+  ``EventKind``, ``PrincipalKind`` and ``Role``; a test keeps them in step
+  with the enums.
 - Runs and tasks are ordered by ``position``, not by their timestamps:
   ``now()`` can give two rows the same time. The timestamps are for display.
   A task's position is an identity column, allocated at insert; a run's is
   allocated by the store under its event lock, so it commits in order and
   paging by it never skips a run.
 
-Columns added since the first tables are also added to existing tables, when
-a check of ``information_schema`` finds them missing: no version is released
-to migrate from, and a database created by an earlier checkout should keep
-working. The check comes first because ``ALTER TABLE`` locks the table
-exclusively before it looks, and ``create_schema`` runs at every manager
-start.
+A few columns added early on are also added to existing tables, when a check
+of ``information_schema`` finds them missing; the check comes first because
+``ALTER TABLE`` locks the table exclusively before it looks. Later changes,
+such as the unique task address and the roles on credentials, are made to the
+statements alone: neorc is installed nowhere yet, so there is no database to
+keep.
 """
 
 from __future__ import annotations
@@ -207,24 +208,37 @@ CREATE TABLE IF NOT EXISTS {EVENTS_TABLE} (
 
 -- Credentials. Secrets are never stored, only their SHA-256 in hex, which
 -- rows are found by. Times come from now(), so expiry is decided by one clock.
+-- role mirrors Role; a worker token alone is bound to a queue.
 CREATE TABLE IF NOT EXISTS {TOKENS_TABLE} (
     id               uuid PRIMARY KEY,
     name             text NOT NULL UNIQUE,
     secret_hash      text NOT NULL UNIQUE,
+    role             text NOT NULL
+                     CHECK (role IN ('worker', 'scheduler', 'ci', 'user',
+                                     'external-trigger')),
+    queue            text,
     created_at       timestamptz NOT NULL DEFAULT now(),
-    expires_at       timestamptz
+    expires_at       timestamptz,
+    CONSTRAINT {TOKENS_TABLE}_queue_check
+        CHECK ((role = 'worker') = (queue IS NOT NULL))
 );
 
--- Who signed in, as their provider said; kind mirrors PrincipalKind.
+-- Who signed in, as their provider said; kind mirrors PrincipalKind, role Role.
 CREATE TABLE IF NOT EXISTS {SESSIONS_TABLE} (
     secret_hash      text PRIMARY KEY,
     kind             text NOT NULL CHECK (kind IN ('token', 'session')),
     subject          text NOT NULL,
     name             text NOT NULL,
+    role             text NOT NULL
+                     CHECK (role IN ('worker', 'scheduler', 'ci', 'user',
+                                     'external-trigger')),
+    queue            text,
     provider         text,
     email            text,
     created_at       timestamptz NOT NULL DEFAULT now(),
-    expires_at       timestamptz NOT NULL
+    expires_at       timestamptz NOT NULL,
+    CONSTRAINT {SESSIONS_TABLE}_queue_check
+        CHECK ((role = 'worker') = (queue IS NOT NULL))
 );
 
 CREATE TABLE IF NOT EXISTS {PENDING_LOGINS_TABLE} (

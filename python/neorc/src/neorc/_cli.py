@@ -5,7 +5,7 @@
 
     neorc run examples/hello --flow a
     neorc manager start
-    neorc tokens create worker-1
+    neorc tokens create worker-1 --role worker --queue default
     neorc flows upload examples/hello/flows --manager-address 127.0.0.1:8420
     neorc scheduler start --manager-address 127.0.0.1:8420
     neorc worker start --manager-address 127.0.0.1:8420 --code-location examples/hello
@@ -37,12 +37,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, TypeVar
 
 from neorc_core import (
+    ApiToken,
     AuthenticationError,
     FlowDefinitionError,
     HandlerError,
     InvalidValueError,
     ManagerUnavailableError,
     NeorcError,
+    Role,
     RunStatus,
     Scheduler,
     Worker,
@@ -56,6 +58,8 @@ API_TOKEN_ENV = "NEORC_API_TOKEN"
 ALLOW_INSECURE_HTTP_ENV = "NEORC_ALLOW_INSECURE_HTTP"
 DATABASE_URL_ENV = "NEORC_DATABASE_URL"
 AUTH_CONFIG_ENV = "NEORC_AUTH_CONFIG"
+
+ROLES = tuple(role.value for role in Role)
 
 DEFAULT_HOST = "0.0.0.0"  # a manager serves workers on other hosts
 DEFAULT_PORT = 8420
@@ -125,6 +129,15 @@ def build_parser() -> argparse.ArgumentParser:
         "create", help="create a token and print its secret, which is shown once"
     )
     tokens_create.add_argument("name", help="letters, digits, _, . and -")
+    tokens_create.add_argument(
+        "--role",
+        required=True,
+        choices=ROLES,
+        help="what the token is for; each role may do a fixed set of things",
+    )
+    tokens_create.add_argument(
+        "--queue", default=None, help="the queue a worker token is bound to"
+    )
     tokens_create.add_argument(
         "--expires-days",
         type=float,
@@ -454,14 +467,14 @@ def tokens_create_command(args: argparse.Namespace) -> int:
     async def create(access: Access) -> int:
         try:
             secret, token = await access.create_token(
-                args.name, expires_seconds=expires
+                args.name, Role(args.role), queue=args.queue, expires_seconds=expires
             )
         except InvalidValueError as exc:
             raise SystemExit(f"cannot create the token: {exc}") from None
         until = token.expires_at.isoformat() if token.expires_at else "never"
         print(
-            f"created token {token.name!r}, expiring {until}; this is the only "
-            "time its secret is shown:",
+            f"created {_described(token)} token {token.name!r}, expiring {until}; "
+            "this is the only time its secret is shown:",
             file=sys.stderr,
         )
         print(secret)
@@ -471,7 +484,7 @@ def tokens_create_command(args: argparse.Namespace) -> int:
 
 
 def tokens_list_command(args: argparse.Namespace) -> int:
-    """One line per token: name, created, expiry. Never a secret."""
+    """One line per token: name, role, created, expiry. Never a secret."""
     from datetime import UTC, datetime
 
     from neorc_core import Access
@@ -485,10 +498,20 @@ def tokens_list_command(args: argparse.Namespace) -> int:
                 expiry = f"expired {token.expires_at.isoformat()}"
             else:
                 expiry = f"expires {token.expires_at.isoformat()}"
-            print(f"{token.name}\tcreated {token.created_at.isoformat()}\t{expiry}")
+            print(
+                f"{token.name}\t{_described(token)}"
+                f"\tcreated {token.created_at.isoformat()}\t{expiry}"
+            )
         return 0
 
     return _on_credentials(args, listing)
+
+
+def _described(token: ApiToken) -> str:
+    """A token's role, with the queue a worker token is bound to."""
+    if token.queue is None:
+        return token.role.value
+    return f"{token.role.value} on queue {token.queue!r}"
 
 
 def tokens_revoke_command(args: argparse.Namespace) -> int:

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from neorc_core._access import ApiToken, PendingLogin, Principal
+from neorc_core._access import ApiToken, PendingLogin, Principal, Role
 
 
 class CredentialStore(ABC):
@@ -21,10 +21,17 @@ class CredentialStore(ABC):
 
     @abstractmethod
     async def add_token(
-        self, name: str, secret_hash: str, *, expires_seconds: float | None = None
+        self,
+        name: str,
+        secret_hash: str,
+        *,
+        role: Role,
+        queue: str | None = None,
+        expires_seconds: float | None = None,
     ) -> ApiToken:
         """Store a new token, expiring ``expires_seconds`` from now, or never.
 
+        ``role`` and ``queue`` are kept as given: ``Access`` has checked them.
         Raises ``InvalidValueError`` if a token called ``name`` exists, expired
         or not.
         """

@@ -69,7 +69,7 @@ async def deployed(
     """
     from neorc.auth import parse_auth_config
     from neorc.postgres import PostgresCredentialStore, create_schema
-    from neorc_core import Access
+    from neorc_core import Access, Role
 
     monkeypatch.setattr("neorc_ui.STATIC", _built_ui())
     manager_port, provider_port = free_port(), free_port()
@@ -91,7 +91,7 @@ async def deployed(
     )
     await create_schema(pg_schema)
     async with PostgresCredentialStore(pg_schema) as credentials:
-        token, _ = await Access(credentials).create_token("browser-test")
+        token, _ = await Access(credentials).create_token("browser-test", Role.USER)
     app = build_app(
         pg_schema,
         auth=True,

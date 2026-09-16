@@ -18,6 +18,7 @@ from neorc_core import (
     Matcher,
     Principal,
     PrincipalKind,
+    Role,
     SignInRefusedError,
 )
 from neorc_core._access import MAX_SECONDS, TOKEN_PREFIX, allowed, secret_hash
@@ -130,27 +131,58 @@ def test_an_entry_that_cannot_mean_anything_is_refused(
 # API tokens.
 
 
-async def test_a_token_authenticates_as_its_name(access: Access) -> None:
-    secret, token = await access.create_token("ci")
+async def test_a_token_authenticates_as_its_name_and_role(access: Access) -> None:
+    secret, token = await access.create_token("ci", Role.CI)
 
     principal = await access.authenticate_token(secret)
 
     assert secret.startswith(TOKEN_PREFIX) and len(secret) > 40
-    assert principal == Principal(PrincipalKind.TOKEN, str(token.id), "ci")
+    assert principal == Principal(PrincipalKind.TOKEN, str(token.id), "ci", Role.CI)
+
+
+async def test_a_worker_token_is_bound_to_its_queue(access: Access) -> None:
+    secret, token = await access.create_token(
+        "gpu-worker-1", Role.WORKER, queue="python-gpu"
+    )
+
+    principal = await access.authenticate_token(secret)
+
+    assert (token.role, token.queue) == (Role.WORKER, "python-gpu")
+    assert (principal.role, principal.queue) == (Role.WORKER, "python-gpu")
+
+
+@pytest.mark.parametrize(
+    ("role", "queue", "problem"),
+    [
+        (Role.WORKER, None, "bound to a queue: name one"),
+        (Role.WORKER, "", "not a queue name"),
+        (Role.WORKER, "python.gpu", "not a queue name"),
+        (Role.WORKER, "a/b", "not a queue name"),
+        (Role.CI, "default", "only a worker token"),
+        (Role.USER, "default", "only a worker token"),
+        ("admin", None, "'admin' is not a role: one of worker, scheduler"),
+    ],
+)
+async def test_a_token_with_a_role_it_cannot_have_is_refused(
+    access: Access, role: Role, queue: str | None, problem: str
+) -> None:
+    with pytest.raises(InvalidValueError, match=problem):
+        await access.create_token("t", role, queue=queue)
+    assert await access.tokens() == []
 
 
 async def test_a_token_secret_is_not_kept(
     access: Access, credentials: MemoryCredentialStore
 ) -> None:
-    secret, _ = await access.create_token("ci")
+    secret, _ = await access.create_token("ci", Role.CI)
 
     assert secret not in repr(vars(credentials))
     assert secret_hash(secret) in repr(vars(credentials))
 
 
 async def test_every_new_token_has_a_secret_of_its_own(access: Access) -> None:
-    first, _ = await access.create_token("one")
-    second, _ = await access.create_token("two")
+    first, _ = await access.create_token("one", Role.CI)
+    second, _ = await access.create_token("two", Role.CI)
 
     assert first != second
     assert (await access.authenticate_token(second)).name == "two"
@@ -163,7 +195,7 @@ async def test_every_new_token_has_a_secret_of_its_own(access: Access) -> None:
 async def test_a_secret_that_is_no_token_is_refused_without_repeating_it(
     access: Access, secret: str
 ) -> None:
-    await access.create_token("ci")
+    await access.create_token("ci", Role.CI)
 
     with pytest.raises(AuthenticationError) as refused:
         await access.authenticate_token(secret)
@@ -173,7 +205,7 @@ async def test_a_secret_that_is_no_token_is_refused_without_repeating_it(
 
 
 async def test_a_revoked_token_is_refused(access: Access) -> None:
-    secret, _ = await access.create_token("ci")
+    secret, _ = await access.create_token("ci", Role.CI)
 
     assert await access.revoke_token("ci") is True
     assert await access.revoke_token("ci") is False
@@ -183,7 +215,7 @@ async def test_a_revoked_token_is_refused(access: Access) -> None:
 
 
 async def test_an_expired_token_is_refused_and_still_listed(access: Access) -> None:
-    secret, token = await access.create_token("brief", expires_seconds=0.1)
+    secret, token = await access.create_token("brief", Role.CI, expires_seconds=0.1)
     assert token.expires_at is not None
 
     await asyncio.sleep(0.2)
@@ -209,15 +241,15 @@ async def test_a_token_that_cannot_be_made_is_refused(
     access: Access, name: str, expires: float | None, problem: str
 ) -> None:
     with pytest.raises(InvalidValueError, match=problem):
-        await access.create_token(name, expires_seconds=expires)
+        await access.create_token(name, Role.CI, expires_seconds=expires)
     assert await access.tokens() == []
 
 
 async def test_a_token_name_is_used_once(access: Access) -> None:
-    await access.create_token("ci.deploy-1")
+    await access.create_token("ci.deploy-1", Role.CI)
 
     with pytest.raises(InvalidValueError, match="exists"):
-        await access.create_token("ci.deploy-1")
+        await access.create_token("ci.deploy-1", Role.CI)
 
 
 # Signing in.
@@ -235,6 +267,7 @@ async def test_a_sign_in_opens_a_session(access: Access) -> None:
         kind=PrincipalKind.SESSION,
         subject=ADA.subject,
         name="Ada Lovelace",
+        role=Role.USER,
         provider="google",
         email="Ada@Example.com",
     )

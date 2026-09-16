@@ -10,7 +10,13 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from neorc_core._access import PendingLogin, Principal, PrincipalKind, secret_hash
+from neorc_core._access import (
+    PendingLogin,
+    Principal,
+    PrincipalKind,
+    Role,
+    secret_hash,
+)
 from neorc_core._errors import InvalidValueError
 from neorc_core.ports._credentials import CredentialStore
 
@@ -26,6 +32,7 @@ PERSON = Principal(
     kind=PrincipalKind.SESSION,
     subject="248289761001",
     name="Ada Lovelace",
+    role=Role.USER,
     provider="google",
     email="ada@example.com",
 )
@@ -48,7 +55,7 @@ class CredentialStoreContract:
         self, credentials: CredentialStore
     ) -> None:
         before = datetime.now(UTC) - timedelta(seconds=5)
-        added = await credentials.add_token("worker-1", secret_hash("s1"))
+        added = await credentials.add_token("worker-1", secret_hash("s1"), role=Role.CI)
 
         found = await credentials.token_by_hash(secret_hash("s1"))
 
@@ -57,32 +64,47 @@ class CredentialStoreContract:
         assert before < added.created_at < before + timedelta(seconds=60)
         assert await credentials.token_by_hash(secret_hash("s2")) is None
 
+    async def test_a_token_keeps_its_role_and_queue(
+        self, credentials: CredentialStore
+    ) -> None:
+        worker = await credentials.add_token(
+            "worker-1", secret_hash("w"), role=Role.WORKER, queue="python-gpu"
+        )
+        trigger = await credentials.add_token(
+            "webhook", secret_hash("t"), role=Role.EXTERNAL_TRIGGER
+        )
+
+        assert (worker.role, worker.queue) == (Role.WORKER, "python-gpu")
+        assert (trigger.role, trigger.queue) == (Role.EXTERNAL_TRIGGER, None)
+        assert await credentials.token_by_hash(secret_hash("w")) == worker
+        assert await credentials.tokens() == [trigger, worker]
+
     async def test_tokens_are_listed_by_name(
         self, credentials: CredentialStore
     ) -> None:
-        await credentials.add_token("b", secret_hash("b"))
-        await credentials.add_token("a", secret_hash("a"))
-        await credentials.add_token("c", secret_hash("c"))
+        await credentials.add_token("b", secret_hash("b"), role=Role.CI)
+        await credentials.add_token("a", secret_hash("a"), role=Role.CI)
+        await credentials.add_token("c", secret_hash("c"), role=Role.CI)
 
         assert [t.name for t in await credentials.tokens()] == ["a", "b", "c"]
 
     async def test_a_token_name_is_taken_once(
         self, credentials: CredentialStore
     ) -> None:
-        await credentials.add_token("ci", secret_hash("one"))
+        await credentials.add_token("ci", secret_hash("one"), role=Role.CI)
 
         with pytest.raises(InvalidValueError, match="ci"):
-            await credentials.add_token("ci", secret_hash("two"))
+            await credentials.add_token("ci", secret_hash("two"), role=Role.CI)
         assert await credentials.token_by_hash(secret_hash("two")) is None
 
     async def test_an_expired_token_is_not_found_but_still_listed(
         self, credentials: CredentialStore
     ) -> None:
         short = await credentials.add_token(
-            "short", secret_hash("short"), expires_seconds=SHORT
+            "short", secret_hash("short"), role=Role.CI, expires_seconds=SHORT
         )
         long = await credentials.add_token(
-            "long", secret_hash("long"), expires_seconds=LONG
+            "long", secret_hash("long"), role=Role.CI, expires_seconds=LONG
         )
         assert short.expires_at is not None and long.expires_at is not None
         assert short.expires_at - short.created_at == timedelta(seconds=SHORT)
@@ -95,7 +117,7 @@ class CredentialStoreContract:
         assert [t.name for t in await credentials.tokens()] == ["long", "short"]
 
     async def test_a_deleted_token_is_gone(self, credentials: CredentialStore) -> None:
-        await credentials.add_token("gone", secret_hash("g"))
+        await credentials.add_token("gone", secret_hash("g"), role=Role.CI)
 
         assert await credentials.delete_token("gone") is True
         assert await credentials.delete_token("gone") is False
@@ -112,6 +134,18 @@ class CredentialStoreContract:
         assert await credentials.session_by_hash(secret_hash("s")) == PERSON
         assert await credentials.session_by_hash(secret_hash("other")) is None
 
+    async def test_a_session_keeps_its_role(self, credentials: CredentialStore) -> None:
+        worker = Principal(
+            kind=PrincipalKind.SESSION,
+            subject="x",
+            name="x",
+            role=Role.WORKER,
+            queue="default",
+        )
+        await credentials.add_session(secret_hash("w"), worker, seconds=LONG)
+
+        assert await credentials.session_by_hash(secret_hash("w")) == worker
+
     async def test_a_principal_with_nothing_optional_is_kept_as_it_is(
         self, credentials: CredentialStore
     ) -> None:
@@ -119,6 +153,7 @@ class CredentialStoreContract:
             kind=PrincipalKind.SESSION,
             subject="x",
             name="x",
+            role=Role.USER,
         )
         await credentials.add_session(secret_hash("bare"), bare, seconds=LONG)
 

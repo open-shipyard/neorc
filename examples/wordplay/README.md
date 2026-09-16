@@ -37,7 +37,7 @@ are the same as in [hello](../hello/README.md#deployed).
        uv run neorc manager start --host 127.0.0.1 --create-schema --no-ui
 
        export NEORC_DATABASE_URL=...   # in another terminal
-       uv run neorc tokens create local
+       uv run neorc tokens create local --role user
 
 3. Upload the flows:
 

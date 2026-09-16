@@ -46,11 +46,13 @@ from neorc.postgres._schema import (
     RUNS_TABLE,
     SESSIONS_TABLE,
     TABLES,
+    TOKENS_TABLE,
 )
 from neorc_core import (
     Event,
     EventKind,
     PrincipalKind,
+    Role,
     Run,
     RunStatus,
     StoredFlow,
@@ -182,8 +184,10 @@ SELECT pg_get_constraintdef(c.oid) AS definition
         (RUNS_TABLE, "status", RunStatus),
         (EVENTS_TABLE, "kind", EventKind),
         (SESSIONS_TABLE, "kind", PrincipalKind),
+        (SESSIONS_TABLE, "role", Role),
+        (TOKENS_TABLE, "role", Role),
     ],
-    ids=["tasks", "runs", "events", "sessions"],
+    ids=["tasks", "runs", "events", "sessions", "session-roles", "token-roles"],
 )
 async def test_check_constraints_are_in_step_with_the_enums(
     conn: psycopg.AsyncConnection[DictRow],
