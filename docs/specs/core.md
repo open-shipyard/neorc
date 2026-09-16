@@ -31,7 +31,7 @@ After installing neorc users should be able to start
 
 neorc manager start --ssl-certfile manager.pem --ssl-keyfile manager-key.pem
 neorc tokens create --role ci ci-token
-neorc tokens create --role worker --queue default worker-token
+neorc tokens create --role worker-default worker-token
 neorc tokens create --role scheduler scheduler-token
 neorc tokens create --role external_trigger trigger-token
 

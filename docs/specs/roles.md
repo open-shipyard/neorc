@@ -2,12 +2,17 @@
 
 ## Roles
 
+Permissions described in this default roles are exhaustive, only these operations should be allowed.
+
+Today they can be granular on the "queue" resource. In future versions some users may have permissions on specific "flow" resources.
+
+
 ### Workers
 
 Workers receive a token that can only access one specific queue.
 
 
-Scope of the tokens must allow fetching task definitions, receiving, claiming, heartbeat and reporting status for tasks for a single, specific queue.
+The worker permissions must allow fetching task definitions, receiving, claiming, heartbeat and reporting status for tasks for a single, specific queue.
 
 When a worker is started, it will try to link to the received queue parameter at the start command, and will send the available token. If the manager refuse the token for that queue the worker will fail to start.
 
@@ -15,10 +20,18 @@ Claiming a task should be done by a hash, not by a sequential task ID that worke
 
 The hash is a randomly created UUID by the manager when the scheduler request a new task executing, it is used as the primary ID if the task. It is provided to the worker on "receive" and should be the primary Id the worker uses through task lifecycle.
 
+The worker-default role will have permissions for the default queue.
+
+
 
 ### Scheduler
 
 Scheduler will have a dedicated default role with all needed to carry its responsibilities.
+
+   - fetch definitions and poll events;
+   - publish tasks and sub-runs;
+   - mark runs succeeded or failed;
+   - read task results.
 
 It should not be able to create, modify or delete flows.
 
