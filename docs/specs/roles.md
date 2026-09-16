@@ -22,11 +22,15 @@ It should not be able to create, modify or delete roles.
 
 ### CI
 
-The CI should be able to post new versions of a flow or inactivate an existing flow, if that feature exists.
+The CI should be able to post new versions of a flow.
 
 ### User
 
-Anyone using the UI, will be able to execute new runs and query the status.
+Anyone using the UI, will be able to execute new runs, query the status, and cancel them.
+
+## External trigger
+
+Should be able to trigger new runs.
 
 
 ## Not in scope
