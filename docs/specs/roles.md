@@ -13,7 +13,7 @@ When a worker is started, it will try to link to the received queue parameter at
 
 Claiming a task should be done by a hash, not by a sequential task ID that workers could guess to claim task they were not assigned.
 
-The hash is a randomly created UUID by the manager when the scheduler request a new task executin, it is used as the primary ID if the task. It is provided to the worker on "receive" and should be the primary Id the worker uses through task lifecycle.
+The hash is a randomly created UUID by the manager when the scheduler request a new task executing, it is used as the primary ID if the task. It is provided to the worker on "receive" and should be the primary Id the worker uses through task lifecycle.
 
 
 ### Scheduler
@@ -46,6 +46,6 @@ They are done with the CLI connecting to the DB.
 
 At this version the following are not needed, and may be planned in future work.
 
-- Role editing. Only the default, fixed roles are shiped.
+- Role editing. Only the default, fixed roles are shipped.
 - Multiple different users roles.
 - UI for querying roles or users.
