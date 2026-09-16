@@ -396,7 +396,7 @@ def test_a_worker_whose_heartbeat_is_refused_exits_with_its_handler_still_busy(
         async def task_definitions(self, queue: str) -> list[TaskStep]:
             return list(step)
 
-        async def pick_next_task(
+        async def receive_task(
             self, queue: str, **kwargs: float
         ) -> TaskDelivery | None:
             if type(self).handed:
@@ -413,7 +413,7 @@ def test_a_worker_whose_heartbeat_is_refused_exits_with_its_handler_still_busy(
             )
             return TaskDelivery(task, {})
 
-        async def report_started(self, task_id: uuid.UUID) -> None:
+        async def claim_task(self, task_id: uuid.UUID) -> None:
             return None
 
         async def extend_lease(

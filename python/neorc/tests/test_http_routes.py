@@ -202,9 +202,9 @@ async def test_a_run_is_driven_to_its_end_over_http(http: httpx.AsyncClient) -> 
 
     published = await http.post(f"/runs/{run_id}/tasks", json={"address": WORK})
     definitions = await http.get("/queues/default/tasks")
-    picked = await http.post("/queues/default/tasks/next", params={"timeout": 1})
-    task_id = picked.json()["task"]["id"]
-    started = await http.post(f"/tasks/{task_id}/started")
+    received = await http.post("/queues/default/tasks/receive", params={"timeout": 1})
+    task_id = received.json()["task"]["id"]
+    claimed = await http.post(f"/tasks/{task_id}/claim")
     beat = await http.post(f"/tasks/{task_id}/heartbeat", json={"lease_seconds": 30})
     finished = await http.post(f"/tasks/{task_id}/finished", json={"result": "hi!"})
     succeeded = await http.post(
@@ -216,9 +216,9 @@ async def test_a_run_is_driven_to_its_end_over_http(http: httpx.AsyncClient) -> 
     assert published.status_code == 201
     assert published.json()["address"] == WORK
     assert [t["name"] for t in definitions.json()["tasks"]] == ["work"]
-    assert picked.status_code == 200
-    assert picked.json()["inputs"] == {"word": "hi"}
-    assert started.status_code == 204
+    assert received.status_code == 200
+    assert received.json()["inputs"] == {"word": "hi"}
+    assert claimed.status_code == 204
     assert beat.status_code == 200 and "lease_expires_at" in beat.json()
     assert finished.status_code == 204
     assert succeeded.status_code == 200
@@ -257,22 +257,22 @@ async def test_a_sub_run_starts_and_a_run_fails_over_http(
     assert (await http.get(f"/runs/{run_id}")).json()["reason"] == "boom"
 
 
-async def test_a_start_refused_for_an_inactive_run_is_a_409(
+async def test_a_claim_refused_for_an_inactive_run_is_a_409(
     http: httpx.AsyncClient,
 ) -> None:
     run_id = await _started(http)
     await http.post(f"/runs/{run_id}/tasks", json={"address": WORK})
-    picked = await http.post("/queues/default/tasks/next", params={"timeout": 1})
-    task_id = picked.json()["task"]["id"]
+    received = await http.post("/queues/default/tasks/receive", params={"timeout": 1})
+    task_id = received.json()["task"]["id"]
     await http.post(f"/runs/{run_id}/cancel")
 
-    started = await http.post(f"/tasks/{task_id}/started")
+    claimed = await http.post(f"/tasks/{task_id}/claim")
 
-    assert (started.status_code, _error(started)) == (409, "RunStateError")
+    assert (claimed.status_code, _error(claimed)) == (409, "RunStateError")
 
 
 @pytest.mark.parametrize(
-    "path", ["/events", "/queues/default/tasks/next"], ids=["events", "tasks"]
+    "path", ["/events", "/queues/default/tasks/receive"], ids=["events", "tasks"]
 )
 async def test_the_long_poll_deadline_caps_a_longer_request(
     http: httpx.AsyncClient, path: str
@@ -293,8 +293,8 @@ async def test_scheduler_and_worker_requests_are_validated(
 ) -> None:
     run_id = await _started(http)
     await http.post(f"/runs/{run_id}/tasks", json={"address": WORK})
-    picked = await http.post("/queues/default/tasks/next", params={"timeout": 1})
-    task_id = picked.json()["task"]["id"]
+    received = await http.post("/queues/default/tasks/receive", params={"timeout": 1})
+    task_id = received.json()["task"]["id"]
 
     not_an_address = await http.post(
         f"/runs/{run_id}/tasks", json={"address": {"step": 1, "scope": "x"}}
@@ -320,10 +320,10 @@ async def test_scheduler_and_worker_requests_are_validated(
         headers={"content-type": "application/json"},
     )
     infinite_lease = await http.post(
-        "/queues/default/tasks/next", params={"timeout": 0, "lease_seconds": "inf"}
+        "/queues/default/tasks/receive", params={"timeout": 0, "lease_seconds": "inf"}
     )
     bad_after = await http.get("/events", params={"after": -1})
-    unknown_task = await http.post(f"/tasks/{uuid.uuid4()}/started")
+    unknown_task = await http.post(f"/tasks/{uuid.uuid4()}/claim")
 
     for response in (not_an_address, bool_in_scope, not_a_task, not_a_reference):
         assert (response.status_code, _error(response)) == (422, "InvalidValueError")
@@ -341,8 +341,8 @@ async def test_a_result_the_manager_refuses_fails_the_task(
 ) -> None:
     run_id = await _started(http)
     await http.post(f"/runs/{run_id}/tasks", json={"address": WORK})
-    picked = await http.post("/queues/default/tasks/next", params={"timeout": 1})
-    task_id = picked.json()["task"]["id"]
+    received = await http.post("/queues/default/tasks/receive", params={"timeout": 1})
+    task_id = received.json()["task"]["id"]
 
     finished = await http.post(
         f"/tasks/{task_id}/finished", json={"result": {"$datetime": "no"}}

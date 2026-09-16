@@ -74,7 +74,7 @@ async def test_a_task_published_through_one_manager_wakes_a_worker_on_another(
     begun = loop.time()
     async with asyncio.TaskGroup() as group:
         group.create_task(publish_shortly())
-        delivery = await other.queue.pick_next_task("default", timeout=5)
+        delivery = await other.queue.receive_task("default", timeout=5)
 
     assert delivery is not None and delivery.task.run_id == run.id
     # Woken by the announcement, not by falling out of the poll timeout.

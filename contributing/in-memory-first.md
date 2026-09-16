@@ -72,9 +72,9 @@ actions.
 ### 4. One store port, one method per atomic operation
 
 The store is a single port. Each method is one atomic operation — storing a
-flow version and cancelling its run trees, failing a run tree, claiming a task —
-that Postgres runs as one transaction and the in-memory store runs under one
-lock.
+flow version and cancelling its run trees, failing a run tree, receiving or
+claiming a task — that Postgres runs as one transaction and the in-memory store
+runs under one lock.
 
 Core never composes several store calls into something that must be atomic:
 the in-memory store would make that sequence look safe when Postgres could not.
@@ -87,7 +87,7 @@ adapters do wherever it is observable:
 - Clients serialise every value through `_values.py` and JSON, as HTTP does, so
   datetime tags, reserved keys, unsupported types and the payload size limit
   fail locally exactly as they fail deployed.
-- The store applies the same status transitions, lease expiry and claim rules
+- The store applies the same status transitions, lease expiry and receive rules
   as Postgres.
 - The notifier's wakeups are hints, as `LISTEN`/`NOTIFY` wakeups are: a waiter
   that finds nothing goes back to waiting.

@@ -112,15 +112,15 @@ async def test_a_token_is_accepted_on_every_kind_of_route(
     uploaded = await guarded.post("/flows", json={"flows": [FLOW]}, headers=headers)
     run = await guarded.post("/flows/f/runs", json={"inputs": {}}, headers=headers)
     listed = await guarded.get("/runs", headers=headers)
-    polled = await guarded.post(
-        "/queues/default/tasks/next", params={"timeout": 0}, headers=headers
+    received = await guarded.post(
+        "/queues/default/tasks/receive", params={"timeout": 0}, headers=headers
     )
     events = await guarded.get("/events/latest", headers=headers)
 
     assert uploaded.status_code == 200
     assert run.status_code == 201
     assert listed.json()["runs"][0]["id"] == run.json()["id"]
-    assert polled.status_code == 204
+    assert received.status_code == 204
     assert events.status_code == 200
 
 
@@ -273,15 +273,15 @@ async def test_a_write_a_form_could_send_is_refused_with_no_body_or_fetch_metada
     headers = {} if content_type is None else {"content-type": content_type}
 
     cancelled = await open_app.post(f"/runs/{run.json()['id']}/cancel", headers=headers)
-    polled = await open_app.post(
-        "/queues/default/tasks/next",
+    received = await open_app.post(
+        "/queues/default/tasks/receive",
         params={"timeout": 0, "lease_seconds": 1e9},
         headers=headers,
     )
-    started = await open_app.post(f"/tasks/{uuid.uuid4()}/started", headers=headers)
+    claimed = await open_app.post(f"/tasks/{uuid.uuid4()}/claim", headers=headers)
     uploaded = await open_app.post("/flows", content=b'{"flows": []}', headers=headers)
 
-    for response in (cancelled, polled, started, uploaded):
+    for response in (cancelled, received, claimed, uploaded):
         assert (response.status_code, _error(response)) == (
             415,
             "UnsupportedMediaTypeError",

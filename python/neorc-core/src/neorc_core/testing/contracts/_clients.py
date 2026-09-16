@@ -103,7 +103,7 @@ class _Clients:
     async def take(
         self, queue_client: QueueClient, queue: str = "default"
     ) -> TaskDelivery:
-        delivery = await queue_client.pick_next_task(queue, timeout=1)
+        delivery = await queue_client.receive_task(queue, timeout=1)
         assert delivery is not None
         return delivery
 
@@ -324,7 +324,7 @@ class QueueClientContract(_Clients):
             with pytest.raises(InvalidValueError, match="queue name"):
                 await queue_client.task_definitions(queue)
             with pytest.raises(InvalidValueError, match="queue name"):
-                await queue_client.pick_next_task(queue, timeout=0)
+                await queue_client.receive_task(queue, timeout=0)
 
     async def test_a_delivery_carries_the_filled_in_inputs(
         self, manager_client: ManagerClient, queue_client: QueueClient
@@ -339,7 +339,7 @@ class QueueClientContract(_Clients):
         assert delivery.task.address == WORK
         assert delivery.task.handler == "tasks:work"
         assert delivery.task.attempts == 1
-        assert await queue_client.pick_next_task("default", timeout=0) is None
+        assert await queue_client.receive_task("default", timeout=0) is None
 
     async def test_a_waiting_worker_gets_the_task_when_it_is_published(
         self, manager_client: ManagerClient, queue_client: QueueClient
@@ -354,19 +354,19 @@ class QueueClientContract(_Clients):
         begun = loop.time()
         async with asyncio.TaskGroup() as group:
             group.create_task(publish_shortly())
-            delivery = await queue_client.pick_next_task("default", timeout=5)
+            delivery = await queue_client.receive_task("default", timeout=5)
 
         assert delivery is not None
         assert loop.time() - begun < 2
 
-    async def test_a_task_is_started_heartbeated_and_finished(
+    async def test_a_task_is_claimed_heartbeated_and_finished(
         self, manager_client: ManagerClient, queue_client: QueueClient
     ) -> None:
         run_id = await self.started(manager_client)
         await manager_client.publish_task(run_id, WORK)
         delivery = await self.take(queue_client)
 
-        await queue_client.report_started(delivery.task.id)
+        await queue_client.claim_task(delivery.task.id)
         expires_at = await queue_client.extend_lease(delivery.task.id, lease_seconds=30)
         await queue_client.report_finished(delivery.task.id, result={"when": WHEN})
 
@@ -393,7 +393,7 @@ class QueueClientContract(_Clients):
         # Refused by the manager, or by the client's own transit first: JSON
         # cannot carry an infinity either way.
         with pytest.raises(InvalidValueError):
-            await queue_client.pick_next_task(
+            await queue_client.receive_task(
                 "default", timeout=0, lease_seconds=lease_seconds
             )
         delivery = await self.take(queue_client)
@@ -471,7 +471,7 @@ class QueueClientContract(_Clients):
         state = await manager_client.run_state(run_id)
         assert state.steps[WORK].outcome is Outcome.FAILED
 
-    async def test_a_task_of_a_cancelled_run_is_refused_its_start(
+    async def test_a_task_of_a_cancelled_run_is_refused_its_claim(
         self, manager_client: ManagerClient, queue_client: QueueClient
     ) -> None:
         run_id = await self.started(manager_client)
@@ -480,14 +480,14 @@ class QueueClientContract(_Clients):
         await manager_client.cancel_run(run_id)
 
         with pytest.raises(RunStateError):
-            await queue_client.report_started(delivery.task.id)
+            await queue_client.claim_task(delivery.task.id)
 
     async def test_a_lapsed_lease_hands_the_task_on(
         self, manager_client: ManagerClient, queue_client: QueueClient
     ) -> None:
         run_id = await self.started(manager_client)
         await manager_client.publish_task(run_id, WORK)
-        first = await queue_client.pick_next_task(
+        first = await queue_client.receive_task(
             "default", timeout=1, lease_seconds=0.05
         )
         assert first is not None
@@ -525,7 +525,7 @@ class QueueClientContract(_Clients):
         assert delivery is not None
         state = await manager_client.run_state(run.id)
         assert state.steps[WORK].outcome is Outcome.FAILED
-        assert await queue_client.pick_next_task("default", timeout=0) is None
+        assert await queue_client.receive_task("default", timeout=0) is None
 
     async def test_a_result_at_the_depth_limit_can_be_read_by_the_next_task(
         self,
@@ -569,4 +569,4 @@ class QueueClientContract(_Clients):
         self, queue_client: QueueClient
     ) -> None:
         with pytest.raises(TaskNotFoundError):
-            await queue_client.report_started(uuid.uuid4())
+            await queue_client.claim_task(uuid.uuid4())

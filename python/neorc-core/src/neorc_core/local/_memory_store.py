@@ -236,24 +236,24 @@ class MemoryStore(Store):
             self._tasks[task_id] = task
             return task
 
-    async def claim_task(
+    async def receive_task(
         self, queue: str, *, lease_seconds: float = DEFAULT_LEASE_SECONDS
     ) -> Task | None:
         now = datetime.now(UTC)
         async with self._lock:
             for task in self._tasks.values():  # in publishing order: oldest first
-                if task.queue == queue and _is_claimable(task, now):
-                    claimed = replace(
+                if task.queue == queue and _is_receivable(task, now):
+                    received = replace(
                         task,
-                        status=TaskStatus.CLAIMED,
+                        status=TaskStatus.RECEIVED,
                         attempts=task.attempts + 1,
                         lease_expires_at=now + timedelta(seconds=lease_seconds),
                     )
-                    self._tasks[task.id] = claimed
-                    return claimed
+                    self._tasks[task.id] = received
+                    return received
             return None
 
-    async def start_task(self, task_id: TaskId) -> Task:
+    async def claim_task(self, task_id: TaskId) -> Task:
         async with self._lock:
             task = self._task(task_id)
             ensure_transition(task.status, TaskStatus.RUNNING)
@@ -268,11 +268,11 @@ class MemoryStore(Store):
                     finished_at=now,
                 )
                 ensure_active(run)
-            started = replace(
+            claimed = replace(
                 task, status=TaskStatus.RUNNING, started_at=task.started_at or now
             )
-            self._tasks[task_id] = started
-            return started
+            self._tasks[task_id] = claimed
+            return claimed
 
     async def extend_task_lease(
         self, task_id: TaskId, *, lease_seconds: float = DEFAULT_LEASE_SECONDS
@@ -354,7 +354,7 @@ class MemoryStore(Store):
                 self._append(run.id, EventKind.RUN_FINISHED)
 
 
-def _is_claimable(task: Task, now: datetime) -> bool:
+def _is_receivable(task: Task, now: datetime) -> bool:
     if task.status is TaskStatus.PENDING:
         return True
     return (

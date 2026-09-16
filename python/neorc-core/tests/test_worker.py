@@ -205,7 +205,7 @@ async def test_what_no_report_could_carry_fails_its_task_once(
         assert task.error == "FileNotFoundError: no such file: '/data/\ufffd'"
     else:
         assert len(task.error) == MAX_ERROR_LENGTH
-    assert await flows.pick_next_task("default", timeout=0) is None
+    assert await flows.receive_task("default", timeout=0) is None
 
 
 async def test_a_task_whose_run_was_cancelled_is_dropped_unrun(
@@ -223,7 +223,7 @@ async def test_a_task_whose_run_was_cancelled_is_dropped_unrun(
     )
     run_id = await published(flows, flow({"handler": f"{module}:work"}), {})
     client = DirectQueueClient(flows)
-    delivery = await client.pick_next_task("default", timeout=0)
+    delivery = await client.receive_task("default", timeout=0)
     assert delivery is not None
     await flows.cancel_run(run_id)
 
@@ -413,7 +413,7 @@ async def test_a_long_task_keeps_its_lease_by_heartbeating(
 
     async def try_to_steal() -> None:
         await asyncio.sleep(0.4)
-        stolen.append(await other.pick_next_task("default", timeout=0))
+        stolen.append(await other.receive_task("default", timeout=0))
 
     async with asyncio.TaskGroup() as group:
         group.create_task(try_to_steal())

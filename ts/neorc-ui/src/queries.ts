@@ -106,7 +106,7 @@ export interface LiveOptions {
 
 /**
  * The event log says when a task or run finished, and nothing else: a task
- * being published, claimed or started, or a sub-run starting, records no
+ * being published, received or claimed, or a sub-run starting, records no
  * event. So while a run is active its page asks again on its own.
  */
 function whileActive({ active, everyMs = ACTIVE_POLL_MS }: LiveOptions) {

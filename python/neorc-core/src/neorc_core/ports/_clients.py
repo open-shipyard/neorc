@@ -5,8 +5,8 @@
 
 Values cross them in their JSON form, datetimes tagged. Errors are the core
 exceptions, whatever carries the call. The HTTP implementation in ``neorc``
-long-polls the manager; Redis or SQS could take its place for the worker's
-port without either side changing.
+long-polls the manager; Redis or SQS could take its place for receiving
+tasks, while claiming them stays with the manager.
 """
 
 from __future__ import annotations
@@ -62,7 +62,7 @@ class QueueClient(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def pick_next_task(
+    async def receive_task(
         self,
         queue: str,
         *,
@@ -71,7 +71,8 @@ class QueueClient(ABC):
     ) -> TaskDelivery | None:
         """Lease the next task on ``queue``, waiting up to ``timeout`` for one.
 
-        The lease is exclusive for ``lease_seconds`` unless extended.
+        Receiving is not the final word: a queue backend may deliver a task
+        again, so a worker claims the task before running it.
         """
         raise NotImplementedError
 
@@ -83,8 +84,8 @@ class QueueClient(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def report_started(self, task_id: TaskId) -> None:
-        """Tell the manager the task is being executed.
+    async def claim_task(self, task_id: TaskId) -> None:
+        """Claim the task from the manager, before executing it.
 
         ``RunStateError`` means its run is no longer active: drop the task.
         """

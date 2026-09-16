@@ -5,7 +5,7 @@
 
 Flows and runs for whoever deploys and starts them, and the listings a status
 page reads; events, tasks and sub-runs for the scheduler; task definitions,
-long-polled tasks, starts, heartbeats and results for workers.
+long-polled task receives, claims, heartbeats and results for workers.
 
 Bodies and responses are the ``neorc_core._wire`` forms, so the direct and
 HTTP clients send the same JSON. A request body is read as bytes, capped, and
@@ -438,13 +438,13 @@ async def task_definitions(
 
 
 @router.post(
-    "/queues/{queue}/tasks/next",
+    "/queues/{queue}/tasks/receive",
     responses={
         **documented(DeliveryResponse),
         status.HTTP_204_NO_CONTENT: {"description": "The wait ended with no task"},
     },
 )
-async def pick_next_task(
+async def receive_task(
     request: Request,
     manager: Managed,
     queue: str,
@@ -453,8 +453,8 @@ async def pick_next_task(
 ) -> Response:
     """Long-poll for a task on a queue. 204 when the wait ends empty."""
     # A worker that left mid-poll must not be leased a task: the wait asks
-    # whether the client is still there before every claim.
-    delivery = await manager.pick_next_task(
+    # whether the client is still there before every receive.
+    delivery = await manager.receive_task(
         queue,
         timeout=_waited(request, timeout),
         lease_seconds=lease_seconds,
@@ -471,10 +471,10 @@ async def get_task(manager: Managed, task_id: TaskId) -> dict[str, Any]:
     return wire.task_to(await manager.get_task(task_id))
 
 
-@router.post("/tasks/{task_id}/started", status_code=status.HTTP_204_NO_CONTENT)
-async def report_started(manager: Managed, task_id: TaskId) -> Response:
-    """A worker began a task it holds; 409 if its run is no longer active."""
-    await manager.report_started(task_id)
+@router.post("/tasks/{task_id}/claim", status_code=status.HTTP_204_NO_CONTENT)
+async def claim_task(manager: Managed, task_id: TaskId) -> Response:
+    """A worker claims a task it received; 409 if its run is no longer active."""
+    await manager.claim_task(task_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

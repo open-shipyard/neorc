@@ -124,7 +124,7 @@ async def test_a_success_that_is_not_the_managers_is_unavailability() -> None:
             manager_client.get_run(uuid.uuid4()),
             manager_client.wait_for_events(0, timeout=0),
             queue_client.task_definitions("default"),
-            queue_client.pick_next_task("default", timeout=0),
+            queue_client.receive_task("default", timeout=0),
             queue_client.extend_lease(uuid.uuid4()),
         ):
             with pytest.raises(ManagerUnavailableError, match="unexpected body"):
@@ -142,7 +142,7 @@ async def test_the_manager_caps_a_long_poll_at_its_own_deadline(
     if who == "scheduler":
         assert await manager_client.wait_for_events(0, timeout=3600) == []
     else:
-        assert await queue_client.pick_next_task("default", timeout=3600) is None
+        assert await queue_client.receive_task("default", timeout=3600) is None
 
     assert loop.time() - begun < 10
 
@@ -196,7 +196,7 @@ async def test_a_refused_token_raises_authentication_error(
         with pytest.raises(AuthenticationError, match="unknown, revoked or expired"):
             await manager_client.wait_for_events(0, timeout=0)
         with pytest.raises(AuthenticationError, match="needs an API token"):
-            await queue_client.pick_next_task("default", timeout=0)
+            await queue_client.receive_task("default", timeout=0)
 
 
 @pytest.mark.parametrize(
@@ -265,7 +265,7 @@ async def test_every_post_is_sent_as_json_body_or_not() -> None:
         HttpQueueClient("manager.test", transport=transport) as queue_client,
     ):
         await manager_client.cancel_run(uuid.uuid4())
-        await queue_client.report_started(uuid.uuid4())
-        await queue_client.pick_next_task("default", timeout=0)
+        await queue_client.claim_task(uuid.uuid4())
+        await queue_client.receive_task("default", timeout=0)
 
     assert seen == [("POST", "application/json")] * 3
