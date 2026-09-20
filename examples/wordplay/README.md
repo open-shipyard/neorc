@@ -18,6 +18,15 @@ runs both flows and asserts what they produce, in memory;
 [python/neorc/tests/test_end_to_end.py](../../python/neorc/tests/test_end_to_end.py)
 runs them deployed, as below.
 
+## Deployed, in one command
+
+    uv run python examples/demo.py
+
+[demo.py](../demo.py) starts a throwaway Postgres, the manager with its web
+UI, a scheduler and a worker per queue, uploads these flows and starts no run:
+open the UI and start one from there. Ctrl+C stops it all. The steps below are
+the same deployment by hand, with a token for each process.
+
 ## Deployed
 
 The same flows on a manager, a scheduler and a worker per queue. Run each step

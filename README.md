@@ -33,6 +33,11 @@ Try a directory of flow files in one process, with nothing to deploy:
     uv run neorc run examples/wordplay --flow word_picker \
         --inputs '{"sentence": "potato tomate berry watermelon", "preferred_letter": "t"}'
 
+Or bring up a whole deployment on this machine, Postgres and the web UI
+included, with the example's flows loaded and nothing started:
+
+    uv run python examples/demo.py
+
 A deployment installs what each host needs — the base install pulls in nothing:
 
     pip install 'neorc[manager,postgres]'   # the manager host

@@ -8,6 +8,15 @@ after `uv sync`:
 The worker prints `a`, and the command prints the run's output, `null`: these
 flows have none. `--flow b` prints `b`.
 
+## Deployed, in one command
+
+    uv run python examples/demo.py --example hello
+
+[demo.py](../demo.py) starts a throwaway Postgres, the manager with its web
+UI, a scheduler and a worker, uploads these flows and starts no run. Ctrl+C
+stops it all. The steps below are the same deployment by hand, with a token
+for each process.
+
 ## Deployed
 
 A manager, a scheduler, a worker with two handlers (`a` prints `a`, `b` prints

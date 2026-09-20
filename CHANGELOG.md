@@ -241,6 +241,11 @@ one version, cut from a single tag on `main`.
   restored after signing in. The browser test signs in through a stand-in
   OpenID provider and runs its deployment with a token.
 
+- `examples/demo.py`: the whole deployment on one machine in one command, for
+  a look around — a throwaway Postgres from `pgserver`, the manager with its
+  web UI and no authentication, a scheduler, a worker per queue, and one
+  example's flows uploaded with no run started. Ctrl+C stops every part.
+
 ### Changed
 
 - The flow classes take the task API's names: `FlowManager` is `Manager`,
