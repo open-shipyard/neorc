@@ -11,7 +11,7 @@ from textwrap import dedent
 import pytest
 
 from neorc_core import HandlerError, RunStatus, TaskStatus
-from neorc_core._runs import RunId, sub_run_id_for, task_id_for
+from neorc_core._runs import RunId, sub_run_id_for
 from neorc_core._values import MAX_PAYLOAD_BYTES
 from neorc_core.flows import Address
 from neorc_core.local import DirectQueueClient, LocalCluster, run_local
@@ -76,14 +76,13 @@ async def started_chain(cluster: LocalCluster, flows_dir: Path) -> RunId:
     await cluster.upload(flows_dir)
     await cluster.start()
     run = await cluster.client.start_run("chain", {"word": "red"})
-    slow = task_id_for(run.id, Address("slow"))
 
     async def slow_is_running() -> bool:
-        try:
-            task = await cluster.manager.get_task(slow)
-        except Exception:
-            return False
-        return task.status is TaskStatus.RUNNING
+        tasks = await cluster.manager.run_tasks(run.id)
+        return any(
+            task.address == Address("slow") and task.status is TaskStatus.RUNNING
+            for task in tasks
+        )
 
     await until(slow_is_running)
     return run.id
@@ -101,7 +100,11 @@ async def test_uploading_a_new_version_cancels_the_run_and_lets_the_task_finish(
         assert await cluster.upload(flows_dir) == [True]
         run = await cluster.wait(run_id, timeout=TIMEOUT)
 
-        slow = await cluster.manager.get_task(task_id_for(run_id, Address("slow")))
+        (slow,) = [
+            task
+            for task in await cluster.manager.run_tasks(run_id)
+            if task.address == Address("slow")
+        ]
 
         async def slow_finished() -> bool:
             task = await cluster.manager.get_task(slow.id)

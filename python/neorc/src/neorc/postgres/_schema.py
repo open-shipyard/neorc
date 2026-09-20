@@ -68,7 +68,7 @@ INDEXES = (
     f"{RUNS_TABLE}_active_by_flow_idx",
     f"{RUNS_TABLE}_position_idx",
     f"{RUNS_TABLE}_flow_position_idx",
-    f"{FLOW_TASKS_TABLE}_run_idx",
+    f"{FLOW_TASKS_TABLE}_run_address_idx",
     f"{FLOW_TASKS_TABLE}_receive_idx",
     f"{SESSIONS_TABLE}_expires_idx",
     f"{PENDING_LOGINS_TABLE}_expires_idx",
@@ -147,8 +147,8 @@ CREATE INDEX IF NOT EXISTS {RUNS_TABLE}_position_idx ON {RUNS_TABLE} (position);
 CREATE INDEX IF NOT EXISTS {RUNS_TABLE}_flow_position_idx
     ON {RUNS_TABLE} (flow, position);
 
--- position orders tasks by publication: their ids come from their address and
--- carry no order. An insert that hits ON CONFLICT still consumes a value, so
+-- position orders tasks by publication: their ids are random and carry no
+-- order. An insert that hits ON CONFLICT still consumes a value, so
 -- positions have gaps; only their order means anything.
 CREATE TABLE IF NOT EXISTS {FLOW_TASKS_TABLE} (
     id               uuid PRIMARY KEY,
@@ -184,7 +184,10 @@ BEGIN
     END IF;
 END $$;
 
-CREATE INDEX IF NOT EXISTS {FLOW_TASKS_TABLE}_run_idx ON {FLOW_TASKS_TABLE} (run_id);
+-- One task per address in a run: publishing it again finds the first. Serves
+-- listing a run's tasks too.
+CREATE UNIQUE INDEX IF NOT EXISTS {FLOW_TASKS_TABLE}_run_address_idx
+    ON {FLOW_TASKS_TABLE} (run_id, address);
 
 -- The receive query's index: the oldest unfinished task of a queue. Partial, so
 -- finished tasks cost nothing to skip over.

@@ -19,7 +19,7 @@ from neorc_core import (
     RunStatus,
     TaskStatus,
 )
-from neorc_core._runs import sub_run_id_for, task_id_for
+from neorc_core._runs import sub_run_id_for
 from neorc_core._values import MAX_PAYLOAD_BYTES, JsonValue
 from neorc_core.flows import Address
 from neorc_core.local import MemoryStore, MemoryTaskNotifier
@@ -92,7 +92,6 @@ async def test_a_published_task_takes_its_definition_from_the_flow(
 
     task = await flows.publish_task(run_id, FIRST)
 
-    assert task.id == task_id_for(run_id, FIRST)
     assert task.handler == "tasks:first"
     assert task.queue == "default"
     assert {name: str(ref) for name, ref in task.params.items()} == {
@@ -107,14 +106,15 @@ async def test_a_delivery_fills_in_references_and_metadata(
     flows: Manager,
 ) -> None:
     run_id = await started(flows)
-    await flows.publish_task(run_id, FIRST)
+    task = await flows.publish_task(run_id, FIRST)
 
     delivery = await flows.receive_task("default", timeout=0)
 
     assert delivery is not None
+    assert delivery.task.id == task.id
     assert delivery.inputs == {
         "word": "red",
-        "id": str(task_id_for(run_id, FIRST)),
+        "id": str(task.id),
         "pad": "*",
     }
 

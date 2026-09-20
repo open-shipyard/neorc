@@ -17,7 +17,7 @@ from neorc_core import (
     TaskStatus,
     Worker,
 )
-from neorc_core._runs import task_id_for
+from neorc_core._runs import Task
 from neorc_core._values import MAX_PAYLOAD_BYTES, MAX_VALUE_DEPTH, JsonValue
 from neorc_core._worker import MAX_ERROR_LENGTH
 from neorc_core.flows import Address, Outcome
@@ -61,6 +61,12 @@ async def published(
     run = await flows.start_run("f", inputs)
     await flows.publish_task(run.id, Address("work"))
     return run.id
+
+
+async def task_at(flows: Manager, run_id: uuid.UUID, address: Address) -> Task:
+    """The task published at ``address`` in a run: ids say nothing about it."""
+    (task,) = [t for t in await flows.run_tasks(run_id) if t.address == address]
+    return task
 
 
 def worker(flows: Manager, tmp_path: Path, **kwargs: float) -> Worker:
@@ -146,7 +152,7 @@ async def test_a_raising_handler_fails_its_task_with_the_reason(
 
     await running.run_once()
 
-    task = await flows.get_task(task_id_for(run_id, Address("work")))
+    task = await task_at(flows, run_id, Address("work"))
     assert task.status is TaskStatus.FAILED
     assert task.error == "ValueError: no words"
 
@@ -166,7 +172,7 @@ async def test_a_result_that_is_not_a_value_fails_its_task(
 
     await running.run_once()
 
-    task = await flows.get_task(task_id_for(run_id, Address("work")))
+    task = await task_at(flows, run_id, Address("work"))
     assert task.status is TaskStatus.FAILED
     assert task.error is not None and task.error.startswith("invalid result")
 
@@ -196,7 +202,7 @@ async def test_what_no_report_could_carry_fails_its_task_once(
 
     await worker(flows, tmp_path).run_once()
 
-    task = await flows.get_task(task_id_for(run_id, Address("work")))
+    task = await task_at(flows, run_id, Address("work"))
     assert task.status is TaskStatus.FAILED
     assert task.error is not None
     if what in ("deep", "big"):
@@ -319,7 +325,7 @@ async def test_a_handler_outside_the_code_location_is_never_called(
 
     await running.run_once()
 
-    task = await flows.get_task(task_id_for(run_id, Address("work")))
+    task = await task_at(flows, run_id, Address("work"))
     assert task.status is TaskStatus.FAILED
     assert task.result is None
     assert task.error is not None and "code location" in task.error
@@ -466,7 +472,7 @@ async def test_a_handler_cannot_take_the_worker_down(
 
     await worker(flows, tmp_path).run_once()
 
-    task = await flows.get_task(task_id_for(run_id, Address("work")))
+    task = await task_at(flows, run_id, Address("work"))
     assert task.status is TaskStatus.FAILED
     assert task.error is not None and task.error.startswith(error)
 

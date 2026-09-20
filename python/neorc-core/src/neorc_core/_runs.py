@@ -142,11 +142,6 @@ class Event:
     kind: EventKind
 
 
-def task_id_for(run_id: RunId, address: Address) -> TaskId:
-    """The id of the task at ``address`` in a run: the same on every publish."""
-    return uuid.uuid5(run_id, f"task:{address}")
-
-
 def sub_run_id_for(parent_id: RunId, address: Address) -> RunId:
     """The id of the sub-flow run at ``address`` in a parent run."""
     return uuid.uuid5(parent_id, f"run:{address}")

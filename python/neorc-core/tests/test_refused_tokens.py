@@ -22,7 +22,7 @@ from neorc_core import (
     TaskStatus,
     Worker,
 )
-from neorc_core._runs import TaskDelivery, task_id_for
+from neorc_core._runs import Task, TaskDelivery
 from neorc_core._task import TaskId
 from neorc_core._values import JsonValue
 from neorc_core.flows import Address
@@ -42,6 +42,12 @@ def flows() -> Manager:
     return Manager(
         MemoryStore(), tasks=MemoryTaskNotifier(), events=MemoryTaskNotifier()
     )
+
+
+async def task_at(flows: Manager, run_id: uuid.UUID, address: Address) -> Task:
+    """The task published at ``address`` in a run: ids say nothing about it."""
+    (task,) = [t for t in await flows.run_tasks(run_id) if t.address == address]
+    return task
 
 
 class RefusingManagerClient(DirectManagerClient):
@@ -145,7 +151,7 @@ async def test_a_refused_heartbeat_cancels_an_async_handler_before_its_lease_lap
     # ends there, before the lease could lapse and hand the task on.
     assert time.monotonic() - begun < lease
     assert client.reports == []
-    task = await flows.get_task(task_id_for(run_id, Address("work")))
+    task = await task_at(flows, run_id, Address("work"))
     assert task.status is TaskStatus.RUNNING
 
 
