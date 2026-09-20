@@ -24,17 +24,20 @@ work is:
     export NEORC_DATABASE_URL=postgresql://localhost/neorc
     neorc manager start --create-schema \
         --ssl-certfile manager.pem --ssl-keyfile manager-key.pem
-    neorc tokens create worker-1 --role worker --queue default  # prints its secret, once
+    neorc tokens create ci --role ci             # each prints its secret, once
+    neorc tokens create scheduler --role scheduler
+    neorc tokens create worker-1 --role worker --queue default
 
     export NEORC_MANAGER_ADDRESS=https://manager.internal:8420
-    export NEORC_API_TOKEN=neorc_...
-    neorc flows upload myapp/flows
-    neorc scheduler start
-    neorc worker start --code-location myapp
+    NEORC_API_TOKEN=<ci>        neorc flows upload myapp/flows
+    NEORC_API_TOKEN=<scheduler> neorc scheduler start
+    NEORC_API_TOKEN=<worker-1>  neorc worker start --code-location myapp
 
 Every request to the manager needs an API token, sent only over HTTPS or to a
-loopback address; `neorc manager start --no-auth` asks for none, for trying it
-on a machine nobody else reaches.
+loopback address, and its role must allow the request: `ci`, `scheduler`,
+`worker` (bound to one queue), `user` or `external-trigger`. `neorc manager
+start --no-auth` asks for none, for trying it on a machine nobody else
+reaches.
 
 Each task in a flow file names its handler by import path, `module:function`,
 resolved from the worker's code location first. Handlers are plain or `async`

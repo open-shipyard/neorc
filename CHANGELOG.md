@@ -240,6 +240,15 @@ one version, cut from a single tag on `main`.
   mid-page shows the sign-in page, and the page the reader was on is
   restored after signing in. The browser test signs in through a stand-in
   OpenID provider and runs its deployment with a token.
+- Roles, as `docs/specs/roles.md` lists them. `neorc-core`: `Role`,
+  `Permission`, `PERMISSIONS` and `authorize`; every token has one role, and a
+  worker token is bound to one queue; a signed-in person is a `user`.
+  `neorc.manager`: every route asks for the one permission it needs, and
+  answers `PermissionDeniedError` with 403 when the role may not, or when a
+  worker token names another queue; a task on another queue is not found.
+  `neorc tokens create` takes `--role` and, for a worker, `--queue`; `tokens
+  list` shows them. The scheduler, the worker and the CLI stop on a 403 as on
+  a refused token, under their common base, `AccessError`.
 
 ### Changed
 
@@ -250,6 +259,11 @@ one version, cut from a single tag on `main`.
   and the worker routes move from `/flow-tasks` to `/tasks`. The table keeps
   its name, `neorc_flow_tasks`, since a database from before holds the old
   `neorc_tasks`, which create-if-absent would leave in place.
+- `neorc-core`: a task's id is a random UUID made when it is first published,
+  not derived from its run and address, so a worker cannot compute the id of a
+  task it did not receive. Publishing an address again still returns the first
+  task. `Manager.claim_task`, `extend_lease` and `report_finished` take the
+  queue a worker token is bound to.
 
 ### Security
 

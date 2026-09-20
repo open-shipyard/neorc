@@ -191,7 +191,7 @@ route of its own.
 | 2    | `feature/roles-2-token-roles`           | done   |
 | 3    | `feature/roles-3-permissions`           | done   |
 | 4    | `feature/roles-4-routes`                | done   |
-| 5    | `feature/roles-5-end-to-end-docs`       | to do  |
+| 5    | `feature/roles-5-end-to-end-docs`       | done   |
 
 Re-split while carrying out step 2: giving `CredentialStore.add_token` a role
 changes the Postgres adapter and `neorc tokens create` in the same commit, or

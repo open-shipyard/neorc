@@ -12,6 +12,7 @@ role, and a worker token per queue.
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -20,7 +21,8 @@ import pytest
 from conftest import EXAMPLES, Tokens, deployed_example, role_tokens, serve_app
 
 from neorc.manager import build_app
-from neorc_core import Access
+from neorc_core import Access, Role, RunStatus
+from neorc_core.flows import read_flows
 from neorc_core.testing import examples
 
 pytestmark = pytest.mark.postgres
@@ -101,3 +103,35 @@ async def test_the_manager_serves_the_ui_and_the_listings(
     assert anonymous.status_code == 401
     assert flows.status_code == 200 and flows.json() == {"flows": []}
     assert runs.status_code == 200 and runs.json() == {"runs": []}
+
+
+@pytest.mark.usefixtures("own_tasks_module")
+async def test_an_external_trigger_starts_runs_and_reads_nothing(
+    pg_schema: str, manager_address: str, tokens: Tokens
+) -> None:
+    from neorc.postgres import PostgresCredentialStore
+
+    async with PostgresCredentialStore(pg_schema) as credentials:
+        trigger, _ = await Access(credentials).create_token(
+            "webhook", Role.EXTERNAL_TRIGGER
+        )
+    headers = {"authorization": f"Bearer {trigger}"}
+
+    async with (
+        deployed_example(
+            manager_address, "hello", ["default"], tokens=tokens
+        ) as client,
+        httpx.AsyncClient(base_url=manager_address, headers=headers) as webhook,
+    ):
+        await client.upload_flows(read_flows(EXAMPLES / "hello" / "flows"))
+        started = await webhook.post("/flows/a/runs", json={"inputs": {}})
+        run_id = started.json()["id"]
+        read = await webhook.get(f"/runs/{run_id}")
+        cancel = await webhook.post(f"/runs/{run_id}/cancel", json={})
+        run = await examples.wait_for_run(client, uuid.UUID(run_id))
+
+    assert started.status_code == 201
+    assert run.status is RunStatus.SUCCEEDED
+    assert (read.status_code, read.json()["error"]) == (403, "PermissionDeniedError")
+    assert "external-trigger token may not runs:read" in read.json()["detail"]
+    assert cancel.status_code == 403
