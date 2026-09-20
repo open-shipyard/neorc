@@ -22,6 +22,7 @@ from neorc_core._errors import (
     FlowVersionError,
     InvalidValueError,
     RunStateError,
+    TaskNotFoundError,
 )
 from neorc_core._runs import (
     Event,
@@ -338,29 +339,45 @@ class Manager:
                     if await abandoned():
                         return None
 
-    async def claim_task(self, task_id: TaskId) -> None:
+    # A worker's claim, heartbeat and report name the queue its token is bound
+    # to, when it has one: a task on another queue is not found, as an id that
+    # does not exist, so a token learns nothing about other queues' tasks.
+
+    async def claim_task(self, task_id: TaskId, *, queue: str | None = None) -> None:
         """Record that a worker claimed a task and is starting it.
 
         Raises ``RunStateError`` if the task's run is no longer active: the
         worker drops the task, and it is never handed out again.
         """
+        await self._ensure_on_queue(task_id, queue)
         await self._store.claim_task(task_id)
 
     async def extend_lease(
-        self, task_id: TaskId, *, lease_seconds: float = DEFAULT_LEASE_SECONDS
+        self,
+        task_id: TaskId,
+        *,
+        lease_seconds: float = DEFAULT_LEASE_SECONDS,
+        queue: str | None = None,
     ) -> datetime:
         """Take a worker's heartbeat; return the lease's new expiry."""
         check_lease_seconds(lease_seconds)
+        await self._ensure_on_queue(task_id, queue)
         return await self._store.extend_task_lease(task_id, lease_seconds=lease_seconds)
 
     async def report_finished(
-        self, task_id: TaskId, *, result: JsonValue = None, error: str | None = None
+        self,
+        task_id: TaskId,
+        *,
+        result: JsonValue = None,
+        error: str | None = None,
+        queue: str | None = None,
     ) -> Task:
         """Record a task's result, or its failure when ``error`` is set.
 
         A result that is not a valid value, or is over the size limit, fails the
         task instead, with the reason as its error.
         """
+        await self._ensure_on_queue(task_id, queue)
         if error is None:
             try:
                 result = _values.encode(_values.decode(result))
@@ -408,6 +425,14 @@ class Manager:
         run = await self._store.get_run(run_id)
         definition = (await self._store.get_flow(run.flow, run.version)).definition
         return run, definition, await self._store.run_state(run_id)
+
+    async def _ensure_on_queue(self, task_id: TaskId, queue: str | None) -> None:
+        """Raise ``TaskNotFoundError`` for a task that is not on ``queue``, if named.
+
+        A task's queue never changes, so the answer holds for the write after.
+        """
+        if queue is not None and (await self._store.get_task(task_id)).queue != queue:
+            raise TaskNotFoundError(str(task_id))
 
     async def _delivery(self, task: Task) -> TaskDelivery:
         run, definition, state = await self._context(task.run_id)

@@ -19,6 +19,7 @@ from typing import Any
 
 import neorc_core
 from neorc_core import (
+    AccessError,
     AuthenticationError,
     CrossSiteRequestError,
     FlowDefinitionError,
@@ -29,6 +30,7 @@ from neorc_core import (
     ManagerUnavailableError,
     NeorcError,
     PayloadTooLargeError,
+    PermissionDeniedError,
     ResolutionError,
     RunNotFoundError,
     RunStateError,
@@ -52,7 +54,9 @@ STATUS_OF: dict[type[NeorcError], int] = {
     RunStateError: 409,
     TaskStateError: 409,
     # Who is asking is not known, or not let in.
+    AccessError: 403,
     AuthenticationError: 401,
+    PermissionDeniedError: 403,
     SignInRefusedError: 403,
     CrossSiteRequestError: 403,
     # What was named is not there.

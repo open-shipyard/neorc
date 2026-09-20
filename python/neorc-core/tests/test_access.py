@@ -16,10 +16,13 @@ from neorc_core import (
     Identity,
     InvalidValueError,
     Matcher,
+    Permission,
+    PermissionDeniedError,
     Principal,
     PrincipalKind,
     Role,
     SignInRefusedError,
+    authorize,
 )
 from neorc_core._access import MAX_SECONDS, TOKEN_PREFIX, allowed, secret_hash
 from neorc_core.local import MemoryCredentialStore
@@ -443,3 +446,74 @@ def test_lives_out_of_bounds_are_refused(
         Access(credentials, session_seconds=seconds)
     with pytest.raises(InvalidValueError, match="sign-in's life"):
         Access(credentials, login_seconds=seconds)
+
+
+# Permissions.
+
+ALLOWED = {
+    Role.WORKER: {
+        "queue:definitions",
+        "queue:receive",
+        "tasks:claim",
+        "tasks:heartbeat",
+        "tasks:finish",
+    },
+    Role.SCHEDULER: {"flows:read", "runs:read", "runs:schedule", "events:read"},
+    Role.CI: {"flows:upload"},
+    Role.USER: {
+        "flows:read",
+        "runs:start",
+        "runs:read",
+        "runs:cancel",
+        "events:read",
+    },
+    Role.EXTERNAL_TRIGGER: {"runs:start"},
+}
+"""roles.md, written out here rather than read from ``PERMISSIONS``."""
+
+
+def token(role: Role, queue: str | None = None) -> Principal:
+    return Principal(PrincipalKind.TOKEN, "id", "t", role, queue)
+
+
+@pytest.mark.parametrize("role", list(Role))
+@pytest.mark.parametrize("permission", list(Permission))
+def test_a_role_may_do_what_roles_md_lists_and_nothing_else(
+    role: Role, permission: Permission
+) -> None:
+    principal = token(role, "default" if role is Role.WORKER else None)
+
+    if permission.value in ALLOWED[role]:
+        authorize(principal, permission)
+    else:
+        with pytest.raises(PermissionDeniedError, match=permission.value):
+            authorize(principal, permission)
+
+
+def test_every_permission_is_some_roles() -> None:
+    assert set().union(*ALLOWED.values()) == {p.value for p in Permission}
+
+
+def test_with_authentication_off_everything_is_allowed() -> None:
+    for permission in Permission:
+        authorize(None, permission, queue="any")
+
+
+def test_a_worker_may_act_on_its_own_queue_only() -> None:
+    worker = token(Role.WORKER, "default")
+
+    authorize(worker, Permission.QUEUE_RECEIVE, queue="default")
+    authorize(worker, Permission.TASKS_CLAIM)
+    with pytest.raises(PermissionDeniedError, match="bound to queue 'default'"):
+        authorize(worker, Permission.QUEUE_RECEIVE, queue="python-gpu")
+    with pytest.raises(PermissionDeniedError, match="on queue 'python-gpu'"):
+        authorize(worker, Permission.QUEUE_DEFINITIONS, queue="python-gpu")
+
+
+def test_a_refusal_says_who_was_refused_what() -> None:
+    person = Principal(PrincipalKind.SESSION, "sub", "Ada", Role.USER)
+
+    with pytest.raises(PermissionDeniedError) as refused:
+        authorize(person, Permission.FLOWS_UPLOAD)
+
+    assert str(refused.value) == "a user session may not flows:upload"

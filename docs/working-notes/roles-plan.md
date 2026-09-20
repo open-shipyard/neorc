@@ -189,7 +189,7 @@ route of its own.
 | 0    | `feature/roles-0-specs`                 | done   |
 | 1    | `feature/roles-1-random-task-ids`       | done   |
 | 2    | `feature/roles-2-token-roles`           | done   |
-| 3    | `feature/roles-3-permissions`           | to do  |
+| 3    | `feature/roles-3-permissions`           | done   |
 | 4    | `feature/roles-4-routes`                | to do  |
 | 5    | `feature/roles-5-end-to-end-docs`       | to do  |
 

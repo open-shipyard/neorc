@@ -9,8 +9,9 @@ under the worker's code location is a handler, whether it is checked by
 ``prepare`` or first met in a task: flows may be uploaded after the worker
 started, and whoever uploads them names the handlers.
 
-A refused token ends the worker: ``run`` raises the ``AuthenticationError``
-rather than poll again. Refused while a handler runs, by a heartbeat, it ends
+A refused token ends the worker: ``run`` raises the ``AccessError``, whether
+the token is not accepted or its role may not do what was asked, rather than
+poll again. Refused while a handler runs, by a heartbeat, it ends
 the handler too, since without heartbeats the lease lapses and another worker
 may take the task: an async handler is cancelled, and a handler in a thread,
 which cannot be, is left behind; ``run`` raises without waiting for it.
@@ -27,7 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from neorc_core import _values
-from neorc_core._errors import AuthenticationError, NeorcError, RunStateError
+from neorc_core._errors import AccessError, NeorcError, RunStateError
 from neorc_core._handlers import resolve_handler, signature_problems
 from neorc_core._runs import TaskDelivery, storable_text
 from neorc_core._task import TaskId
@@ -60,7 +61,7 @@ class Worker:
     the queue imports and takes exactly its task's inputs.
 
     A program running a worker whose handlers run in threads must end its
-    process when ``run`` raises ``AuthenticationError``, as ``neorc worker
+    process when ``run`` raises ``AccessError``, as ``neorc worker
     start`` does: a handler thread left behind still runs, and the task it
     holds may be taken and run again by another worker once its lease lapses.
     """
@@ -120,8 +121,8 @@ class Worker:
         while not self._stopping:
             try:
                 await self.run_once()
-            except AuthenticationError:
-                _log.error("the manager refused the worker's API token")
+            except AccessError as exc:
+                _log.error("the manager refused the worker's API token: %s", exc)
                 raise
             except NeorcError:
                 _log.exception("worker iteration failed")
@@ -247,7 +248,7 @@ class Worker:
                 await self._client.extend_lease(
                     task_id, lease_seconds=self._lease_seconds
                 )
-            except AuthenticationError:
+            except AccessError:
                 raise
             except Exception:
                 # Keep beating: one failed call should not cost the task.

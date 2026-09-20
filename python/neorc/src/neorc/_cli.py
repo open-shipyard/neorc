@@ -37,8 +37,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, TypeVar
 
 from neorc_core import (
+    AccessError,
     ApiToken,
-    AuthenticationError,
     FlowDefinitionError,
     HandlerError,
     InvalidValueError,
@@ -258,7 +258,7 @@ def _client_options() -> dict[str, object]:
     return options
 
 
-def _refused(exc: AuthenticationError) -> str:
+def _refused(exc: AccessError) -> str:
     where = (
         f"the API token in ${API_TOKEN_ENV}"
         if os.environ.get(API_TOKEN_ENV)
@@ -602,7 +602,7 @@ def flows_upload_command(args: argparse.Namespace) -> int:
 
     try:
         stored = asyncio.run(upload())
-    except AuthenticationError as exc:
+    except AccessError as exc:
         print(_refused(exc), file=sys.stderr)
         return 1
     except FlowDefinitionError as exc:
@@ -636,7 +636,7 @@ def scheduler_start_command(args: argparse.Namespace) -> int:
 
     try:
         asyncio.run(serve())
-    except AuthenticationError as exc:
+    except AccessError as exc:
         raise SystemExit(_refused(exc)) from None
     return 0
 
@@ -684,7 +684,7 @@ def _serve_queue(args: argparse.Namespace, address: str) -> int:
                 return 0
             try:
                 await worker.run()
-            except AuthenticationError as exc:
+            except AccessError as exc:
                 print(_refused(exc), file=sys.stderr)
                 sys.stdout.flush()
                 sys.stderr.flush()
@@ -716,7 +716,7 @@ async def _prepared(
         try:
             await worker.prepare()
             return True
-        except AuthenticationError as exc:
+        except AccessError as exc:
             raise SystemExit(_refused(exc)) from exc
         except HandlerError as exc:
             raise SystemExit(
