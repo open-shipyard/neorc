@@ -250,6 +250,11 @@ one version, cut from a single tag on `main`.
   list` shows them. The scheduler, the worker and the CLI stop on a 403 as on
   a refused token, under their common base, `AccessError`.
 
+- `examples/demo.py`: the whole deployment on one machine in one command, for
+  a look around — a throwaway Postgres from `pgserver`, the manager with its
+  web UI and no authentication, a scheduler, a worker per queue, and one
+  example's flows uploaded with no run started. Ctrl+C stops every part.
+
 ### Changed
 
 - The flow classes take the task API's names: `FlowManager` is `Manager`,
