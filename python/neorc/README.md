@@ -24,7 +24,7 @@ work is:
     export NEORC_DATABASE_URL=postgresql://localhost/neorc
     neorc manager start --create-schema \
         --ssl-certfile manager.pem --ssl-keyfile manager-key.pem
-    neorc tokens create worker-1            # prints the token's secret, once
+    neorc tokens create worker-1 --role worker --queue default  # prints its secret, once
 
     export NEORC_MANAGER_ADDRESS=https://manager.internal:8420
     export NEORC_API_TOKEN=neorc_...

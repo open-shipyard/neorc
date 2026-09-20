@@ -19,13 +19,14 @@ from psycopg import errors
 from neorc.postgres._pool import Pooled
 from neorc.postgres._schema import PENDING_LOGINS_TABLE, SESSIONS_TABLE, TOKENS_TABLE
 from neorc_core import ApiToken, CredentialStore, InvalidValueError
-from neorc_core._access import PendingLogin, Principal, PrincipalKind
+from neorc_core._access import PendingLogin, Principal, PrincipalKind, Role
 
-_TOKEN_COLUMNS = "id, name, created_at, expires_at"
+_TOKEN_COLUMNS = "id, name, role, queue, created_at, expires_at"
 
 _INSERT_TOKEN = f"""
-INSERT INTO {TOKENS_TABLE} (id, name, secret_hash, created_at, expires_at)
-VALUES (%(id)s, %(name)s, %(hash)s, now(),
+INSERT INTO {TOKENS_TABLE} (id, name, secret_hash, role, queue, created_at,
+                           expires_at)
+VALUES (%(id)s, %(name)s, %(hash)s, %(role)s, %(queue)s, now(),
         now() + make_interval(secs => %(seconds)s::double precision))
 RETURNING {_TOKEN_COLUMNS}
 """
@@ -42,14 +43,15 @@ _TOKENS = f"SELECT {_TOKEN_COLUMNS} FROM {TOKENS_TABLE} ORDER BY name"
 _DELETE_TOKEN = f"DELETE FROM {TOKENS_TABLE} WHERE name = %(name)s"
 
 _INSERT_SESSION = f"""
-INSERT INTO {SESSIONS_TABLE} (secret_hash, kind, subject, name, provider, email,
-                              created_at, expires_at)
-VALUES (%(hash)s, %(kind)s, %(subject)s, %(name)s, %(provider)s, %(email)s,
-        now(), now() + make_interval(secs => %(seconds)s::double precision))
+INSERT INTO {SESSIONS_TABLE} (secret_hash, kind, subject, name, role, queue,
+                              provider, email, created_at, expires_at)
+VALUES (%(hash)s, %(kind)s, %(subject)s, %(name)s, %(role)s, %(queue)s,
+        %(provider)s, %(email)s, now(),
+        now() + make_interval(secs => %(seconds)s::double precision))
 """
 
 _SESSION_BY_HASH = f"""
-SELECT kind, subject, name, provider, email FROM {SESSIONS_TABLE}
+SELECT kind, subject, name, role, queue, provider, email FROM {SESSIONS_TABLE}
  WHERE secret_hash = %(hash)s AND now() < expires_at
 """
 
@@ -88,12 +90,20 @@ class PostgresCredentialStore(Pooled, CredentialStore):
         super().__init__(dsn, min_size=min_size, max_size=max_size)
 
     async def add_token(
-        self, name: str, secret_hash: str, *, expires_seconds: float | None = None
+        self,
+        name: str,
+        secret_hash: str,
+        *,
+        role: Role,
+        queue: str | None = None,
+        expires_seconds: float | None = None,
     ) -> ApiToken:
         params = {
             "id": uuid.uuid4(),
             "name": name,
             "hash": secret_hash,
+            "role": Role(role).value,
+            "queue": queue,
             "seconds": expires_seconds,
         }
         try:
@@ -134,6 +144,8 @@ class PostgresCredentialStore(Pooled, CredentialStore):
                     "kind": principal.kind.value,
                     "subject": principal.subject,
                     "name": principal.name,
+                    "role": principal.role.value,
+                    "queue": principal.queue,
                     "provider": principal.provider,
                     "email": principal.email,
                     "seconds": seconds,
@@ -150,6 +162,8 @@ class PostgresCredentialStore(Pooled, CredentialStore):
             kind=PrincipalKind(row["kind"]),
             subject=row["subject"],
             name=row["name"],
+            role=Role(row["role"]),
+            queue=row["queue"],
             provider=row["provider"],
             email=row["email"],
         )
@@ -201,6 +215,8 @@ def _token(row: Any) -> ApiToken:
     return ApiToken(
         id=row["id"],
         name=row["name"],
+        role=Role(row["role"]),
         created_at=row["created_at"],
+        queue=row["queue"],
         expires_at=row["expires_at"],
     )

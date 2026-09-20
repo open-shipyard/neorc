@@ -19,7 +19,7 @@ import pytest
 from conftest import EXAMPLES, deployed_example, serve_app
 
 from neorc.manager import build_app
-from neorc_core import Access
+from neorc_core import Access, Role
 from neorc_core.testing import examples
 
 pytestmark = pytest.mark.postgres
@@ -32,7 +32,7 @@ async def token(pg_schema: str) -> str:
 
     await create_schema(pg_schema)
     async with PostgresCredentialStore(pg_schema) as credentials:
-        secret, _ = await Access(credentials).create_token("end-to-end")
+        secret, _ = await Access(credentials).create_token("end-to-end", Role.USER)
     return secret
 
 

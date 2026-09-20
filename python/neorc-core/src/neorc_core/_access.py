@@ -6,8 +6,10 @@
 A ``Principal`` is the identity behind a request. It comes from an API token,
 which a machine sends, or from a session, which a person opens by signing in
 with an identity provider: the provider says who they are, as an ``Identity``,
-and the deployment's allow list says whether they may sign in. There are no
-roles yet: a principal may do everything the API allows.
+and the deployment's allow list says whether they may sign in.
+
+Every principal has a ``Role``: a token the one it was created with, a person
+signed in ``USER``. A worker's token is bound to the one queue it serves.
 
 Tokens, sessions and sign-ins in progress are secrets handed out once. The
 credential store keeps only their SHA-256: each has 256 random bits and is
@@ -34,6 +36,7 @@ from neorc_core._errors import (
     InvalidValueError,
     SignInRefusedError,
 )
+from neorc_core.flows._definition import is_queue_name
 
 if TYPE_CHECKING:  # the port names this module's records
     from neorc_core.ports._credentials import CredentialStore
@@ -46,6 +49,47 @@ class PrincipalKind(StrEnum):
     SESSION = "session"
 
 
+class Role(StrEnum):
+    """What a principal is for; each role is a fixed set of permissions."""
+
+    WORKER = "worker"
+    """Takes and runs the tasks of the one queue its token is bound to."""
+    SCHEDULER = "scheduler"
+    CI = "ci"
+    """Uploads flows."""
+    USER = "user"
+    """A person: signed in, or with a token for their scripts."""
+    EXTERNAL_TRIGGER = "external-trigger"
+    """Starts runs, and nothing else."""
+
+
+def _role(value: str) -> Role:
+    """``value`` as a ``Role``; ``InvalidValueError`` naming the roles otherwise."""
+    try:
+        return Role(value)
+    except ValueError:
+        roles = ", ".join(role.value for role in Role)
+        raise InvalidValueError(f"{value!r} is not a role: one of {roles}") from None
+
+
+def check_role(role: Role, queue: str | None) -> None:
+    """Raise ``InvalidValueError`` unless a credential may have this role and queue.
+
+    A worker is bound to one queue, named as queues are; no other role is.
+    """
+    if role is Role.WORKER:
+        if queue is None:
+            raise InvalidValueError("a worker token is bound to a queue: name one")
+        if not is_queue_name(queue):
+            raise InvalidValueError(
+                f"{queue!r} is not a queue name: letters, digits, _ and -"
+            )
+    elif queue is not None:
+        raise InvalidValueError(
+            f"only a worker token is bound to a queue, not a {role.value} token"
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class Principal:
     """Who a request comes from."""
@@ -55,6 +99,9 @@ class Principal:
     """A token's id, or the provider's identifier for a person."""
     name: str
     """A token's name, or a person's name as their provider gave it."""
+    role: Role
+    queue: str | None = None
+    """The queue a worker is bound to; ``None`` for every other role."""
     provider: str | None = None
     """The identity provider a session was opened with; ``None`` for a token."""
     email: str | None = None
@@ -159,7 +206,10 @@ class ApiToken:
 
     id: uuid.UUID
     name: str
+    role: Role
     created_at: datetime
+    queue: str | None = None
+    """The queue a worker token is bound to; ``None`` for every other role."""
     expires_at: datetime | None = None
     """When the token stops being accepted; ``None`` if never."""
 
@@ -270,23 +320,35 @@ class Access:
     # API tokens.
 
     async def create_token(
-        self, name: str, *, expires_seconds: float | None = None
+        self,
+        name: str,
+        role: Role,
+        *,
+        queue: str | None = None,
+        expires_seconds: float | None = None,
     ) -> tuple[str, ApiToken]:
         """A new token and its secret, which is not kept and cannot be shown again.
 
-        Raises ``InvalidValueError`` for a name that is not one or is taken,
-        or a life out of bounds.
+        Raises ``InvalidValueError`` for a name that is not one or is taken, a
+        worker token without a queue or another role's with one, or a life out
+        of bounds.
         """
         if not is_token_name(name):
             raise InvalidValueError(
                 f"{name!r} is not a token name: up to 100 letters, digits, _, . "
                 "and -, starting with a letter or digit"
             )
+        role = _role(role)
+        check_role(role, queue)
         if expires_seconds is not None:
             check_seconds(expires_seconds, "a token's life")
         secret = TOKEN_PREFIX + secrets.token_urlsafe(_SECRET_BYTES)
         token = await self._credentials.add_token(
-            name, secret_hash(secret), expires_seconds=expires_seconds
+            name,
+            secret_hash(secret),
+            role=role,
+            queue=queue,
+            expires_seconds=expires_seconds,
         )
         return secret, token
 
@@ -306,7 +368,11 @@ class Access:
         if token is None:
             raise AuthenticationError("the API token is unknown, revoked or expired")
         return Principal(
-            kind=PrincipalKind.TOKEN, subject=str(token.id), name=token.name
+            kind=PrincipalKind.TOKEN,
+            subject=str(token.id),
+            name=token.name,
+            role=token.role,
+            queue=token.queue,
         )
 
     # Signing in.
@@ -375,6 +441,7 @@ class Access:
             kind=PrincipalKind.SESSION,
             subject=identity.subject,
             name=identity.name or email or identity.subject,
+            role=Role.USER,
             provider=identity.provider,
             email=email,
         )

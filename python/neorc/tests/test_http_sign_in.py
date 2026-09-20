@@ -27,7 +27,7 @@ from neorc.auth import parse_auth_config
 from neorc.manager import create_app
 from neorc.manager._schemas import SessionResponse
 from neorc.manager._sign_in import SignIn
-from neorc_core import Access, Manager
+from neorc_core import Access, Manager, Role
 from neorc_core.local import MemoryCredentialStore
 
 FLOW = {"name": "f", "version": "1.0.0", "steps": {"work": {"handler": "m:work"}}}
@@ -272,7 +272,7 @@ async def test_a_session_works_behind_a_proxy_that_rewrites_the_host(
 
 
 async def test_a_token_s_writes_need_no_origin(deployment: Deployment) -> None:
-    secret, _ = await deployment.access.create_token("ci")
+    secret, _ = await deployment.access.create_token("ci", Role.CI)
 
     async with httpx.AsyncClient(
         transport=deployment.transport, base_url=deployment.public_url
@@ -290,7 +290,7 @@ async def test_a_request_with_both_a_token_and_a_session_is_refused(
     deployment: Deployment,
 ) -> None:
     await signed_in(deployment)
-    secret, _ = await deployment.access.create_token("ci")
+    secret, _ = await deployment.access.create_token("ci", Role.CI)
 
     both = await deployment.manager.get(
         "/flows", headers={"authorization": f"Bearer {secret}"}

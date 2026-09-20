@@ -9,7 +9,7 @@ import asyncio
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from neorc_core._access import ApiToken, PendingLogin, Principal
+from neorc_core._access import ApiToken, PendingLogin, Principal, Role
 from neorc_core._errors import InvalidValueError
 from neorc_core.ports._credentials import CredentialStore
 
@@ -25,7 +25,13 @@ class MemoryCredentialStore(CredentialStore):
         self._logins: dict[str, tuple[PendingLogin, datetime]] = {}
 
     async def add_token(
-        self, name: str, secret_hash: str, *, expires_seconds: float | None = None
+        self,
+        name: str,
+        secret_hash: str,
+        *,
+        role: Role,
+        queue: str | None = None,
+        expires_seconds: float | None = None,
     ) -> ApiToken:
         async with self._lock:
             if name in self._tokens:
@@ -34,7 +40,9 @@ class MemoryCredentialStore(CredentialStore):
             token = ApiToken(
                 id=uuid.uuid4(),
                 name=name,
+                role=role,
                 created_at=now,
+                queue=queue,
                 expires_at=_after(now, expires_seconds),
             )
             self._tokens[name] = (secret_hash, token)

@@ -44,8 +44,8 @@ it. Every request needs one; `neorc tokens create` prints its secret once:
     export NEORC_DATABASE_URL=postgresql://localhost/neorc
     neorc manager start --create-schema \
         --ssl-certfile manager.pem --ssl-keyfile manager-key.pem
-    neorc tokens create scheduler
-    neorc tokens create worker-1
+    neorc tokens create scheduler --role scheduler
+    neorc tokens create worker-1 --role worker --queue default
 
 A token is sent only over HTTPS, or to a loopback address: serve the manager
 with a certificate as above, or behind a proxy that terminates TLS. `neorc

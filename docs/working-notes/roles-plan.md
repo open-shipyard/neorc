@@ -160,9 +160,10 @@ Core decides, the route asks:
   `authorize`, with the path's `{queue}` for the two queue routes. Every route
   in the router declares one. The three task routes then pass
   `principal.queue` to `Manager`.
-- `Worker` and `Scheduler` treat `PermissionDeniedError` as
-  `AuthenticationError`: raised from `run`, not retried; the CLI exits on it,
-  saying which role the token lacks the permission in.
+- `AuthenticationError` and `PermissionDeniedError` share a base,
+  `AccessError`. `Worker` and `Scheduler` stop on it where they stop on
+  `AuthenticationError` today: raised from `run`, not retried; the CLI exits
+  on it with the manager's reason.
 
 A worker started on a queue its token is not bound to is refused at
 `prepare`, by `GET /queues/{queue}/tasks`: roles.md's start-up check needs no
@@ -185,13 +186,17 @@ route of its own.
 
 | Step | Branch                                  | Status |
 | ---- | --------------------------------------- | ------ |
-| 0    | `feature/roles-0-specs`                 | specs and this plan |
+| 0    | `feature/roles-0-specs`                 | done   |
 | 1    | `feature/roles-1-random-task-ids`       | done   |
-| 2    | `feature/roles-2-core`                  | to do  |
-| 3    | `feature/roles-3-postgres-credentials`  | to do  |
+| 2    | `feature/roles-2-token-roles`           | done   |
+| 3    | `feature/roles-3-permissions`           | to do  |
 | 4    | `feature/roles-4-routes`                | to do  |
-| 5    | `feature/roles-5-cli`                   | to do  |
-| 6    | `feature/roles-6-end-to-end-docs`       | to do  |
+| 5    | `feature/roles-5-end-to-end-docs`       | to do  |
+
+Re-split while carrying out step 2: giving `CredentialStore.add_token` a role
+changes the Postgres adapter and `neorc tokens create` in the same commit, or
+their tests fail. So credentials on every store and the command line come
+first, with nothing enforced, and permissions after.
 
 ### 0. Specs and this plan
 
@@ -211,38 +216,47 @@ route of its own.
   address" no longer holds). `PostgresStore` passes the contract.
 - A test that `neorc.task_id` in a delivery is the stored task's id.
 
-### 2. Roles and permissions in core
+### 2. Every token has a role
 
-- `Role`, `Permission`, `PERMISSIONS`, `QUEUE_PERMISSIONS`, `authorize`, and
-  `PermissionDeniedError`, exported from `neorc_core`.
-- `Principal` and `ApiToken` with `role` and `queue`; `Access.create_token`
-  with its checks; `open_session` gives `user`; `authenticate_token` carries
-  the token's role and queue.
+Nothing is enforced yet: a token of any role still reaches every route.
+
+- `Role` in `neorc_core._access`, exported. `Principal` and `ApiToken` with
+  `role` and `queue`; `Access.create_token` with its checks; `open_session`
+  gives `user`; `authenticate_token` carries the token's role and queue.
 - `CredentialStore.add_token` with role and queue; `MemoryCredentialStore`;
   `CredentialStoreContract` round-trips role and queue through tokens,
   `tokens()` and sessions.
+- Postgres: `neorc_api_tokens` and `neorc_sessions` with `role` and `queue`,
+  and their checks, edited in place. `PostgresCredentialStore` writes and
+  reads them and passes the contract. The schema test keeps the role check in
+  step with `Role`; a test that the database refuses a worker row without a
+  queue, and another role with one, beneath the checks `Access` makes.
+- `neorc tokens create NAME --role ROLE [--queue QUEUE] [--expires-days N]`:
+  `--role` required, choices from `Role`; the refusals of `create_token` as
+  one line each. `neorc tokens list`: role and queue columns.
+- Every test that creates a token gives it a role, and every command in the
+  docs that creates one.
+
+### 3. Permissions in core
+
+- `Permission`, `PERMISSIONS`, `QUEUE_PERMISSIONS` and `authorize` in
+  `neorc_core._access`. `AccessError`, a new base of `AuthenticationError`
+  and of the new `PermissionDeniedError`; `STATUS_OF` gives
+  `PermissionDeniedError` 403, and the clients raise it.
 - `Manager.claim_task`, `extend_lease`, `report_finished` with `queue`, and
-  `TaskNotFoundError` for a task on another queue; the unchanged calls from
-  `local/` pass none.
-- `Worker` and `Scheduler`: `PermissionDeniedError` handled as
-  `AuthenticationError`, in `run`, in `Scheduler.advance` (not a rejected
-  action that fails the run), and in the worker's heartbeat. Tests beside
-  `test_refused_tokens.py`.
+  `TaskNotFoundError` for a task on another queue; the calls from `local/`
+  pass none.
+- `Worker` and `Scheduler` stop on any `AccessError`, where they stop on
+  `AuthenticationError` today: in `run`, in `Scheduler.advance` (not a
+  rejected action that fails the run), and in the worker's heartbeat. The CLI
+  exits on it the same way, with the manager's reason. Tests beside
+  `test_refused_tokens.py` and in `test_cli_auth.py`.
 - Tests: `authorize` for every role against every permission, from the
   tables above written out in the test rather than read from `PERMISSIONS`;
   `None` allows everything; a queue permission on another queue is refused.
 
-### 3. Credentials on Postgres
-
-- `neorc_api_tokens` and the sessions table with `role` and `queue`, and
-  their checks, edited in place. `PostgresCredentialStore` writes and reads
-  them and passes the contract.
-- A test that the database refuses a worker row without a queue, and another
-  role with one, beneath the checks `Access` makes.
-
 ### 4. The manager asks before every route
 
-- `PermissionDeniedError: 403` in `STATUS_OF`; the clients raise it.
 - `permit(permission)` in `neorc/manager/_access.py`; every route in
   `_routes.py` declares its permission; the task routes pass the principal's
   queue to `Manager`.
@@ -256,28 +270,18 @@ route of its own.
     against a task published on `other` is 404 on claim, heartbeat and
     finish;
   - a session is `user`; with `--no-auth` every route is allowed.
+- `neorc worker start` on a queue its token is not bound to exits at
+  `prepare`, with the manager's reason.
+- `test_end_to_end.py`, `test_ui_browser.py` and the example READMEs, which
+  use one token for every process: a token per role, since one role no
+  longer does everything.
 - `openapi.json` and the UI's generated types refreshed if the schema
   changed; the 403 body is already documented.
 
-### 5. The command line
+### 5. End to end, docs and changelog
 
-- `neorc tokens create NAME --role ROLE [--queue QUEUE] [--expires-days N]`:
-  `--role` required, choices from `Role`; the refusals of `create_token` as
-  one line each.
-- `neorc tokens list`: role and queue columns.
-- `flows upload`, `scheduler start`, `worker start`: a 403 exits 1 saying the
-  token's role may not do it, as `_refused` does for a 401; `worker start`
-  on a queue its token is not bound to exits at `prepare`, naming the queue
-  it was started on and the token's, which `PermissionDeniedError`'s message
-  carries.
-- `test_cli_auth.py` for each.
-
-### 6. End to end, docs and changelog
-
-- `test_end_to_end.py` and `test_ui_browser.py`: a `scheduler` token, a
-  `worker` token per queue served, a `ci` token for the upload; the browser
-  session unchanged. One end-to-end case with an `external-trigger` token
-  starting a run over HTTP, and refused reading it.
+- One end-to-end case with an `external-trigger` token starting a run over
+  HTTP, and refused reading it.
 - README: `neorc tokens create` with roles, as core.md's "Task Queues" shows;
   a short table of the roles.
 - CHANGELOG: roles, `--role`/`--queue`, random task ids, the 403.

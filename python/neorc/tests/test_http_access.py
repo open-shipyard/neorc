@@ -22,7 +22,7 @@ import pytest
 from starlette.routing import Route
 
 from neorc.manager import create_app
-from neorc_core import Access, Manager
+from neorc_core import Access, Manager, Role
 from neorc_core.local import MemoryCredentialStore
 
 FLOW = {"name": "f", "version": "1.0.0", "steps": {"work": {"handler": "m:work"}}}
@@ -94,7 +94,7 @@ async def test_a_request_without_a_token_is_refused_and_told_how(
 async def test_a_request_with_a_token_not_accepted_is_refused(
     guarded: httpx.AsyncClient, access: Access, authorization: str
 ) -> None:
-    await access.create_token("ci")
+    await access.create_token("ci", Role.CI)
 
     response = await guarded.get("/runs", headers={"authorization": authorization})
 
@@ -106,7 +106,7 @@ async def test_a_request_with_a_token_not_accepted_is_refused(
 async def test_a_token_is_accepted_on_every_kind_of_route(
     guarded: httpx.AsyncClient, access: Access
 ) -> None:
-    secret, _ = await access.create_token("ci")
+    secret, _ = await access.create_token("ci", Role.CI)
     headers = bearer(secret)
 
     uploaded = await guarded.post("/flows", json={"flows": [FLOW]}, headers=headers)
@@ -127,8 +127,8 @@ async def test_a_token_is_accepted_on_every_kind_of_route(
 async def test_a_revoked_or_expired_token_is_refused(
     guarded: httpx.AsyncClient, access: Access
 ) -> None:
-    revoked, _ = await access.create_token("revoked")
-    brief, _ = await access.create_token("brief", expires_seconds=0.1)
+    revoked, _ = await access.create_token("revoked", Role.CI)
+    brief, _ = await access.create_token("brief", Role.CI, expires_seconds=0.1)
     await access.revoke_token("revoked")
     await asyncio.sleep(0.2)
 

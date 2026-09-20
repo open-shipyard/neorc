@@ -14,6 +14,7 @@ from neorc_core._access import (
     PendingLogin,
     Principal,
     PrincipalKind,
+    Role,
 )
 from neorc_core._errors import (
     AuthenticationError,
@@ -95,6 +96,7 @@ __all__ = [
     "PrincipalKind",
     "QueueClient",
     "ResolutionError",
+    "Role",
     "Run",
     "RunId",
     "RunNotFoundError",

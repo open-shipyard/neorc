@@ -458,7 +458,7 @@ def test_a_worker_whose_heartbeat_is_refused_exits_with_its_handler_still_busy(
 
 def test_the_token_commands_need_a_database() -> None:
     for command in (
-        ["tokens", "create", "ci"],
+        ["tokens", "create", "ci", "--role", "ci"],
         ["tokens", "list"],
         ["tokens", "revoke", "ci"],
         ["sessions", "clear"],
@@ -475,12 +475,14 @@ def test_tokens_are_created_listed_and_revoked(
 ) -> None:
     monkeypatch.setenv(_cli.DATABASE_URL_ENV, pg_schema)
 
-    assert _cli.main(["tokens", "create", "worker-1"]) == 0
+    worker = ["tokens", "create", "worker-1", "--role", "worker", "--queue", "gpu"]
+    assert _cli.main(worker) == 0
     created = capsys.readouterr()
-    assert _cli.main(["tokens", "create", "ci", "--expires-days", "30"]) == 0
+    ci = ["tokens", "create", "ci", "--role", "ci"]
+    assert _cli.main([*ci, "--expires-days", "30"]) == 0
     capsys.readouterr()
     with pytest.raises(SystemExit, match="exists"):
-        _cli.main(["tokens", "create", "ci"])
+        _cli.main(ci)
     assert _cli.main(["tokens", "list"]) == 0
     listed = capsys.readouterr().out
     assert _cli.main(["tokens", "revoke", "ci"]) == 0
@@ -491,10 +493,14 @@ def test_tokens_are_created_listed_and_revoked(
 
     secret = created.out.strip()
     assert secret.startswith("neorc_") and "\n" not in secret
-    assert "worker-1" in created.err and "never" in created.err
+    assert "worker on queue 'gpu' token 'worker-1'" in created.err
+    assert "never" in created.err
     assert secret not in created.err
     lines = listed.splitlines()
-    assert [line.split("\t")[0] for line in lines] == ["ci", "worker-1"]
+    assert [line.split("\t")[:2] for line in lines] == [
+        ["ci", "ci"],
+        ["worker-1", "worker on queue 'gpu'"],
+    ]
     assert "expires 20" in lines[0] and "never expires" in lines[1]
     assert secret not in listed
     assert [line.split("\t")[0] for line in after.splitlines()] == ["worker-1"]
@@ -507,17 +513,60 @@ def test_a_created_token_is_one_the_manager_accepts(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     from neorc.postgres import PostgresCredentialStore
-    from neorc_core import Access
+    from neorc_core import Access, Principal, Role
 
     monkeypatch.setenv(_cli.DATABASE_URL_ENV, pg_schema)
-    assert _cli.main(["tokens", "create", "worker-1"]) == 0
+    created = ["tokens", "create", "worker-1", "--role", "worker", "--queue", "default"]
+    assert _cli.main(created) == 0
     secret = capsys.readouterr().out.strip()
 
-    async def authenticate() -> str:
+    async def authenticate() -> Principal:
         async with PostgresCredentialStore(pg_schema) as credentials:
-            return (await Access(credentials).authenticate_token(secret)).name
+            return await Access(credentials).authenticate_token(secret)
 
-    assert asyncio.run(authenticate()) == "worker-1"
+    principal = asyncio.run(authenticate())
+    assert (principal.name, principal.role, principal.queue) == (
+        "worker-1",
+        Role.WORKER,
+        "default",
+    )
+
+
+@pytest.mark.postgres
+@pytest.mark.parametrize(
+    ("arguments", "problem"),
+    [
+        (["--role", "worker"], "cannot create the token: a worker token is bound"),
+        (["--role", "worker", "--queue", "a.b"], "'a.b' is not a queue name"),
+        (["--role", "ci", "--queue", "default"], "only a worker token is bound"),
+    ],
+)
+def test_a_token_with_a_role_it_cannot_have_is_not_created(
+    pg_schema: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    arguments: list[str],
+    problem: str,
+) -> None:
+    monkeypatch.setenv(_cli.DATABASE_URL_ENV, pg_schema)
+
+    with pytest.raises(SystemExit, match=problem):
+        _cli.main(["tokens", "create", "t", *arguments])
+    assert _cli.main(["tokens", "list"]) == 0
+    assert capsys.readouterr().out == ""
+
+
+@pytest.mark.parametrize(
+    "arguments", [[], ["--role", "admin"]], ids=["no-role", "unknown-role"]
+)
+def test_a_token_needs_one_of_the_roles(
+    capsys: pytest.CaptureFixture[str], arguments: list[str]
+) -> None:
+    with pytest.raises(SystemExit) as exited:
+        _cli.main(["tokens", "create", "t", *arguments])
+
+    assert exited.value.code == 2
+    assert "--role" in capsys.readouterr().err
 
 
 @pytest.mark.postgres
@@ -560,4 +609,4 @@ def test_the_token_commands_create_no_tables(
     monkeypatch.setenv(_cli.DATABASE_URL_ENV, pg_schema)
 
     with pytest.raises(SystemExit, match="neorc manager start --create-schema"):
-        _cli.main(["tokens", "create", "ci"])
+        _cli.main(["tokens", "create", "ci", "--role", "ci"])

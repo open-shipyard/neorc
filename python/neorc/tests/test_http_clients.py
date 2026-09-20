@@ -29,6 +29,7 @@ from neorc_core import (
     ManagerClient,
     ManagerUnavailableError,
     QueueClient,
+    Role,
 )
 from neorc_core.local import MemoryCredentialStore
 from neorc_core.testing.contracts import (
@@ -154,7 +155,7 @@ async def test_the_manager_caps_a_long_poll_at_its_own_deadline(
 async def secured(manager: Manager) -> AsyncIterator[tuple[httpx.ASGITransport, str]]:
     """A manager that needs a token, and one it accepts."""
     access = Access(MemoryCredentialStore())
-    secret, _ = await access.create_token("clients")
+    secret, _ = await access.create_token("clients", Role.USER)
     app = create_app(manager, access=access, long_poll_timeout=2)
     yield httpx.ASGITransport(app=app), secret
 
