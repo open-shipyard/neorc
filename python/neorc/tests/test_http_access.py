@@ -19,9 +19,11 @@ from typing import Any
 
 import httpx
 import pytest
+from fastapi.routing import APIRoute
 from starlette.routing import Route
 
 from neorc.manager import create_app
+from neorc.manager._access import PERMISSION_ATTRIBUTE
 from neorc_core import Access, Manager, Role
 from neorc_core.local import MemoryCredentialStore
 
@@ -103,19 +105,20 @@ async def test_a_request_with_a_token_not_accepted_is_refused(
     assert not secret or secret not in response.text
 
 
-async def test_a_token_is_accepted_on_every_kind_of_route(
+async def test_a_token_is_accepted_on_the_routes_its_role_may_use(
     guarded: httpx.AsyncClient, access: Access
 ) -> None:
-    secret, _ = await access.create_token("ci", Role.CI)
-    headers = bearer(secret)
+    ci, _ = await access.create_token("ci", Role.CI)
+    user, _ = await access.create_token("person", Role.USER)
+    worker, _ = await access.create_token("worker-1", Role.WORKER, queue="default")
 
-    uploaded = await guarded.post("/flows", json={"flows": [FLOW]}, headers=headers)
-    run = await guarded.post("/flows/f/runs", json={"inputs": {}}, headers=headers)
-    listed = await guarded.get("/runs", headers=headers)
+    uploaded = await guarded.post("/flows", json={"flows": [FLOW]}, headers=bearer(ci))
+    run = await guarded.post("/flows/f/runs", json={"inputs": {}}, headers=bearer(user))
+    listed = await guarded.get("/runs", headers=bearer(user))
     received = await guarded.post(
-        "/queues/default/tasks/receive", params={"timeout": 0}, headers=headers
+        "/queues/default/tasks/receive", params={"timeout": 0}, headers=bearer(worker)
     )
-    events = await guarded.get("/events/latest", headers=headers)
+    events = await guarded.get("/events/latest", headers=bearer(user))
 
     assert uploaded.status_code == 200
     assert run.status_code == 201
@@ -219,6 +222,176 @@ async def test_every_route_but_the_public_ones_needs_a_token(
             assert response.status_code != 401, f"{method} {path}"
         else:
             assert response.status_code == 401, f"{method} {path}"
+
+
+# Permissions.
+
+ROUTE_PERMISSIONS = {
+    ("POST", "/flows"): "flows:upload",
+    ("GET", "/flows"): "flows:read",
+    ("GET", "/flows/{name}"): "flows:read",
+    ("GET", "/flows/{name}/versions"): "flows:read",
+    ("GET", "/flows/{name}/versions/{version}"): "flows:read",
+    ("POST", "/flows/{name}/runs"): "runs:start",
+    ("GET", "/runs"): "runs:read",
+    ("GET", "/runs/{run_id}"): "runs:read",
+    ("GET", "/runs/{run_id}/tasks"): "runs:read",
+    ("GET", "/runs/{run_id}/sub-runs"): "runs:read",
+    ("GET", "/runs/{run_id}/state"): "runs:read",
+    ("GET", "/tasks/{task_id}"): "runs:read",
+    ("POST", "/runs/{run_id}/cancel"): "runs:cancel",
+    ("POST", "/runs/{run_id}/tasks"): "runs:schedule",
+    ("POST", "/runs/{run_id}/sub-runs"): "runs:schedule",
+    ("POST", "/runs/{run_id}/succeed"): "runs:schedule",
+    ("POST", "/runs/{run_id}/fail"): "runs:schedule",
+    ("GET", "/events"): "events:read",
+    ("GET", "/events/latest"): "events:read",
+    ("GET", "/queues/{queue}/tasks"): "queue:definitions",
+    ("POST", "/queues/{queue}/tasks/receive"): "queue:receive",
+    ("POST", "/tasks/{task_id}/claim"): "tasks:claim",
+    ("POST", "/tasks/{task_id}/heartbeat"): "tasks:heartbeat",
+    ("POST", "/tasks/{task_id}/finished"): "tasks:finish",
+}
+"""The plan's table of routes, written out rather than read from the routes."""
+
+ALLOWED = {
+    Role.WORKER: {
+        "queue:definitions",
+        "queue:receive",
+        "tasks:claim",
+        "tasks:heartbeat",
+        "tasks:finish",
+    },
+    Role.SCHEDULER: {"flows:read", "runs:read", "runs:schedule", "events:read"},
+    Role.CI: {"flows:upload"},
+    Role.USER: {"flows:read", "runs:start", "runs:read", "runs:cancel", "events:read"},
+    Role.EXTERNAL_TRIGGER: {"runs:start"},
+}
+
+
+def permissions_asked(dependant: Any) -> list[str]:
+    """Every permission a route's dependencies ask for, at any depth."""
+    asked = []
+    for dependency in dependant.dependencies:
+        permission = getattr(dependency.call, PERMISSION_ATTRIBUTE, None)
+        if permission is not None:
+            asked.append(permission.value)
+        asked.extend(permissions_asked(dependency))
+    return asked
+
+
+def guarded_routes(routes: Iterable[Any]) -> Iterator[tuple[str, str, Any]]:
+    """Method, path and route of every route in the guarded router."""
+    for route in routes:
+        included = getattr(route, "original_router", None)
+        if included is not None:
+            yield from guarded_routes(included.routes)
+        elif isinstance(route, APIRoute) and route.path not in PUBLIC:
+            for method in sorted(route.methods or ()):
+                yield method, route.path, route
+
+
+def test_every_route_asks_for_exactly_the_permission_it_needs(
+    manager: Manager, access: Access
+) -> None:
+    app = create_app(manager, access=access)
+
+    asked = {
+        (method, path): permissions_asked(route.dependant)
+        for method, path, route in guarded_routes(app.routes)
+    }
+
+    assert asked == {key: [value] for key, value in ROUTE_PERMISSIONS.items()}
+
+
+def sample_url(path: str, queue: str = "default") -> str:
+    samples = {
+        "run_id": str(uuid.uuid4()),
+        "task_id": str(uuid.uuid4()),
+        "queue": queue,
+        "name": "f",
+        "version": "1.0.0",
+    }
+    return re.sub(r"{(\w+)}", lambda m: samples[m.group(1)], path)
+
+
+@pytest.mark.parametrize("role", list(Role))
+async def test_a_role_reaches_its_routes_and_is_refused_the_rest(
+    guarded: httpx.AsyncClient, access: Access, role: Role
+) -> None:
+    queue = "default" if role is Role.WORKER else None
+    secret, _ = await access.create_token("t", role, queue=queue)
+
+    for (method, path), permission in ROUTE_PERMISSIONS.items():
+        response = await guarded.request(
+            method, sample_url(path), params={"timeout": 0}, headers=bearer(secret)
+        )
+        where = f"{role.value}: {method} {path} answered {response.status_code}"
+        if permission in ALLOWED[role]:
+            assert response.status_code not in (401, 403), where
+        else:
+            assert response.status_code == 403, where
+            assert _error(response) == "PermissionDeniedError", where
+            assert permission in response.json()["detail"], where
+
+
+async def test_a_worker_is_refused_another_queue_and_does_not_see_its_tasks(
+    guarded: httpx.AsyncClient, access: Access
+) -> None:
+    ci, _ = await access.create_token("ci", Role.CI)
+    user, _ = await access.create_token("person", Role.USER)
+    scheduler, _ = await access.create_token("scheduler", Role.SCHEDULER)
+    default, _ = await access.create_token("w1", Role.WORKER, queue="default")
+    other, _ = await access.create_token("w2", Role.WORKER, queue="other")
+    flow = {"name": "f", "version": "1.0.0", "steps": {"work": {"handler": "m:w"}}}
+    await guarded.post("/flows", json={"flows": [flow]}, headers=bearer(ci))
+    run = await guarded.post("/flows/f/runs", json={"inputs": {}}, headers=bearer(user))
+    published = await guarded.post(
+        f"/runs/{run.json()['id']}/tasks",
+        json={"address": {"step": "work", "scope": []}},
+        headers=bearer(scheduler),
+    )
+    task_id = published.json()["id"]
+
+    for path in ("/queues/default/tasks", "/queues/default/tasks/receive"):
+        method = "GET" if path.endswith("/tasks") else "POST"
+        refused = await guarded.request(method, path, headers=bearer(other))
+        assert (refused.status_code, _error(refused)) == (403, "PermissionDeniedError")
+        assert "bound to queue 'other'" in refused.json()["detail"]
+    received = await guarded.post(
+        "/queues/default/tasks/receive", params={"timeout": 0}, headers=bearer(default)
+    )
+    assert received.json()["task"]["id"] == task_id
+    for action, body in (
+        ("claim", None),
+        ("heartbeat", {"lease_seconds": 30}),
+        ("finished", {"result": "done"}),
+    ):
+        hidden = await guarded.post(
+            f"/tasks/{task_id}/{action}", json=body, headers=bearer(other)
+        )
+        assert (hidden.status_code, _error(hidden)) == (404, "TaskNotFoundError")
+    for action, body in (
+        ("claim", None),
+        ("heartbeat", {"lease_seconds": 30}),
+        ("finished", {"result": "done"}),
+    ):
+        done = await guarded.post(
+            f"/tasks/{task_id}/{action}", json=body, headers=bearer(default)
+        )
+        assert done.status_code in (200, 204), action
+    task = await guarded.get(f"/tasks/{task_id}", headers=bearer(user))
+    assert task.json()["status"] == "succeeded"
+
+
+async def test_with_authentication_off_every_route_is_open(
+    open_app: httpx.AsyncClient,
+) -> None:
+    for method, path in ROUTE_PERMISSIONS:
+        response = await open_app.request(
+            method, sample_url(path), params={"timeout": 0}, headers=JSON
+        )
+        assert response.status_code not in (401, 403), f"{method} {path}"
 
 
 # Writes from other sites, with authentication off.

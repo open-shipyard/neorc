@@ -15,9 +15,11 @@ The models check the shape of the envelope alone; values inside it are checked
 by core, so a request the in-memory manager accepts is not refused by HTTP
 first, and one it refuses is refused the same way.
 
-No route declares a body parameter: FastAPI would read that body before the
-router's guard in ``_access.py`` runs, and a request with no token, or a
-cross-site write, must be refused before its body is read.
+Every route declares the one permission it needs, with ``permit``; a test
+walks the routes to hold that. No route declares a body parameter: FastAPI
+would read that body before the router's guard in ``_access.py`` runs, and a
+request with no token, or a cross-site write, must be refused before its body
+is read.
 """
 
 from __future__ import annotations
@@ -29,6 +31,7 @@ from fastapi import APIRouter, Depends, Query, Request, Response, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ValidationError
 
+from neorc.manager._access import permit, worker_queue
 from neorc.manager._schemas import (
     DeliveryResponse,
     EventListResponse,
@@ -50,6 +53,8 @@ from neorc_core import (
     InvalidValueError,
     Manager,
     PayloadTooLargeError,
+    Permission,
+    Principal,
     RunId,
     RunStatus,
     TaskId,
@@ -181,20 +186,35 @@ def _flow_response(flow: Any) -> dict[str, Any]:
     return {"name": flow.name, "version": str(flow.version), "content": flow.content}
 
 
-@router.post("/flows", response_model=None, responses=documented(UploadResponse))
+@router.post(
+    "/flows",
+    dependencies=[permit(Permission.FLOWS_UPLOAD)],
+    response_model=None,
+    responses=documented(UploadResponse),
+)
 async def upload_flows(request: Request, manager: Managed) -> dict[str, list[bool]]:
     """Upload flows deployed together; per flow, whether a version was stored."""
     body = await read_body(request, UploadRequest)
     return {"stored": await manager.upload_flows(body.flows)}
 
 
-@router.get("/flows", response_model=None, responses=documented(FlowListResponse))
+@router.get(
+    "/flows",
+    dependencies=[permit(Permission.FLOWS_READ)],
+    response_model=None,
+    responses=documented(FlowListResponse),
+)
 async def list_flows(manager: Managed) -> dict[str, list[dict[str, Any]]]:
     """The latest version of every flow, by name."""
     return {"flows": [_flow_response(f) for f in await manager.latest_flows()]}
 
 
-@router.get("/flows/{name}", response_model=None, responses=documented(FlowResponse))
+@router.get(
+    "/flows/{name}",
+    dependencies=[permit(Permission.FLOWS_READ)],
+    response_model=None,
+    responses=documented(FlowResponse),
+)
 async def get_latest_flow(manager: Managed, name: str) -> dict[str, Any]:
     """A flow's latest version, with its content as uploaded."""
     return _flow_response(await manager.get_flow(name))
@@ -202,6 +222,7 @@ async def get_latest_flow(manager: Managed, name: str) -> dict[str, Any]:
 
 @router.get(
     "/flows/{name}/versions",
+    dependencies=[permit(Permission.FLOWS_READ)],
     response_model=None,
     responses=documented(FlowVersionsResponse),
 )
@@ -212,6 +233,7 @@ async def flow_versions(manager: Managed, name: str) -> dict[str, list[dict[str,
 
 @router.get(
     "/flows/{name}/versions/{version}",
+    dependencies=[permit(Permission.FLOWS_READ)],
     response_model=None,
     responses=documented(FlowResponse),
 )
@@ -226,6 +248,7 @@ async def get_flow_version(manager: Managed, name: str, version: str) -> dict[st
 
 @router.post(
     "/flows/{name}/runs",
+    dependencies=[permit(Permission.RUNS_START)],
     status_code=status.HTTP_201_CREATED,
     responses=documented(RunResponse, status.HTTP_201_CREATED),
 )
@@ -236,7 +259,12 @@ async def start_run(request: Request, manager: Managed, name: str) -> JSONRespon
     return JSONResponse(wire.run_to(run), status_code=status.HTTP_201_CREATED)
 
 
-@router.get("/runs", response_model=None, responses=documented(RunListResponse))
+@router.get(
+    "/runs",
+    dependencies=[permit(Permission.RUNS_READ)],
+    response_model=None,
+    responses=documented(RunListResponse),
+)
 async def list_runs(
     manager: Managed,
     flow: str | None = None,
@@ -252,14 +280,22 @@ async def list_runs(
     return {"runs": [wire.run_to(run) for run in runs]}
 
 
-@router.get("/runs/{run_id}", response_model=None, responses=documented(RunResponse))
+@router.get(
+    "/runs/{run_id}",
+    dependencies=[permit(Permission.RUNS_READ)],
+    response_model=None,
+    responses=documented(RunResponse),
+)
 async def get_run(manager: Managed, run_id: RunId) -> dict[str, Any]:
     """A run, for a status query."""
     return wire.run_to(await manager.get_run(run_id))
 
 
 @router.get(
-    "/runs/{run_id}/tasks", response_model=None, responses=documented(TaskListResponse)
+    "/runs/{run_id}/tasks",
+    dependencies=[permit(Permission.RUNS_READ)],
+    response_model=None,
+    responses=documented(TaskListResponse),
 )
 async def run_tasks(manager: Managed, run_id: RunId) -> dict[str, list[dict[str, Any]]]:
     """A run's tasks, in the order they were published."""
@@ -268,6 +304,7 @@ async def run_tasks(manager: Managed, run_id: RunId) -> dict[str, list[dict[str,
 
 @router.get(
     "/runs/{run_id}/sub-runs",
+    dependencies=[permit(Permission.RUNS_READ)],
     response_model=None,
     responses=documented(RunListResponse),
 )
@@ -276,7 +313,11 @@ async def sub_runs(manager: Managed, run_id: RunId) -> dict[str, list[dict[str, 
     return {"runs": [wire.run_to(r) for r in await manager.sub_runs(run_id)]}
 
 
-@router.post("/runs/{run_id}/cancel", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/runs/{run_id}/cancel",
+    dependencies=[permit(Permission.RUNS_CANCEL)],
+    status_code=status.HTTP_204_NO_CONTENT,
+)
 async def cancel_run(manager: Managed, run_id: RunId) -> Response:
     """Cancel a run by hand, and with it every active run in its tree."""
     await manager.cancel_run(run_id)
@@ -284,7 +325,10 @@ async def cancel_run(manager: Managed, run_id: RunId) -> Response:
 
 
 @router.get(
-    "/runs/{run_id}/state", response_model=None, responses=documented(RunStateResponse)
+    "/runs/{run_id}/state",
+    dependencies=[permit(Permission.RUNS_READ)],
+    response_model=None,
+    responses=documented(RunStateResponse),
 )
 async def run_state(manager: Managed, run_id: RunId) -> dict[str, Any]:
     """What a run's tasks and sub-flow runs have produced so far."""
@@ -336,7 +380,12 @@ def _waited(request: Request, timeout: float | None) -> float:
     return limit if timeout is None else min(timeout, limit)
 
 
-@router.get("/events", response_model=None, responses=documented(EventListResponse))
+@router.get(
+    "/events",
+    dependencies=[permit(Permission.EVENTS_READ)],
+    response_model=None,
+    responses=documented(EventListResponse),
+)
 async def wait_for_events(
     request: Request,
     manager: Managed,
@@ -352,7 +401,10 @@ async def wait_for_events(
 
 
 @router.get(
-    "/events/latest", response_model=None, responses=documented(LatestEventResponse)
+    "/events/latest",
+    dependencies=[permit(Permission.EVENTS_READ)],
+    response_model=None,
+    responses=documented(LatestEventResponse),
 )
 async def latest_event(manager: Managed) -> dict[str, int]:
     """The latest event's sequence, or 0: a reader wanting only news starts after it."""
@@ -361,6 +413,7 @@ async def latest_event(manager: Managed) -> dict[str, int]:
 
 @router.post(
     "/runs/{run_id}/tasks",
+    dependencies=[permit(Permission.RUNS_SCHEDULE)],
     status_code=status.HTTP_201_CREATED,
     responses=documented(TaskResponse, status.HTTP_201_CREATED),
 )
@@ -375,6 +428,7 @@ async def publish_task(
 
 @router.post(
     "/runs/{run_id}/sub-runs",
+    dependencies=[permit(Permission.RUNS_SCHEDULE)],
     status_code=status.HTTP_201_CREATED,
     responses=documented(RunResponse, status.HTTP_201_CREATED),
 )
@@ -388,7 +442,10 @@ async def start_sub_run(
 
 
 @router.post(
-    "/runs/{run_id}/succeed", response_model=None, responses=documented(RunResponse)
+    "/runs/{run_id}/succeed",
+    dependencies=[permit(Permission.RUNS_SCHEDULE)],
+    response_model=None,
+    responses=documented(RunResponse),
 )
 async def succeed_run(
     request: Request, manager: Managed, run_id: RunId
@@ -404,7 +461,11 @@ async def succeed_run(
     return wire.run_to(await manager.succeed_run(run_id, output))
 
 
-@router.post("/runs/{run_id}/fail", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/runs/{run_id}/fail",
+    dependencies=[permit(Permission.RUNS_SCHEDULE)],
+    status_code=status.HTTP_204_NO_CONTENT,
+)
 async def fail_run(request: Request, manager: Managed, run_id: RunId) -> Response:
     """Fail a run and the rest of its tree."""
     body = await read_body(request, FailRequest)
@@ -426,6 +487,7 @@ class FinishedRequest(BaseModel):
 
 @router.get(
     "/queues/{queue}/tasks",
+    dependencies=[permit(Permission.QUEUE_DEFINITIONS)],
     response_model=None,
     responses=documented(TaskDefinitionsResponse),
 )
@@ -439,6 +501,7 @@ async def task_definitions(
 
 @router.post(
     "/queues/{queue}/tasks/receive",
+    dependencies=[permit(Permission.QUEUE_RECEIVE)],
     responses={
         **documented(DeliveryResponse),
         status.HTTP_204_NO_CONTENT: {"description": "The wait ended with no task"},
@@ -465,16 +528,25 @@ async def receive_task(
     return JSONResponse(wire.delivery_to(delivery))
 
 
-@router.get("/tasks/{task_id}", response_model=None, responses=documented(TaskResponse))
+@router.get(
+    "/tasks/{task_id}",
+    dependencies=[permit(Permission.RUNS_READ)],
+    response_model=None,
+    responses=documented(TaskResponse),
+)
 async def get_task(manager: Managed, task_id: TaskId) -> dict[str, Any]:
     """A task, for a status query."""
     return wire.task_to(await manager.get_task(task_id))
 
 
 @router.post("/tasks/{task_id}/claim", status_code=status.HTTP_204_NO_CONTENT)
-async def claim_task(manager: Managed, task_id: TaskId) -> Response:
+async def claim_task(
+    manager: Managed,
+    task_id: TaskId,
+    principal: Annotated[Principal | None, permit(Permission.TASKS_CLAIM)],
+) -> Response:
     """A worker claims a task it received; 409 if its run is no longer active."""
-    await manager.claim_task(task_id)
+    await manager.claim_task(task_id, queue=worker_queue(principal))
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -484,19 +556,29 @@ async def claim_task(manager: Managed, task_id: TaskId) -> Response:
     responses=documented(HeartbeatResponse),
 )
 async def extend_lease(
-    request: Request, manager: Managed, task_id: TaskId
+    request: Request,
+    manager: Managed,
+    task_id: TaskId,
+    principal: Annotated[Principal | None, permit(Permission.TASKS_HEARTBEAT)],
 ) -> dict[str, str]:
     """A worker keeping the task it holds; when its lease now lapses."""
     body = await read_body(request, HeartbeatRequest)
-    expires_at = await manager.extend_lease(task_id, lease_seconds=body.lease_seconds)
+    expires_at = await manager.extend_lease(
+        task_id, lease_seconds=body.lease_seconds, queue=worker_queue(principal)
+    )
     return {"lease_expires_at": expires_at.isoformat()}
 
 
 @router.post("/tasks/{task_id}/finished", status_code=status.HTTP_204_NO_CONTENT)
 async def report_finished(
-    request: Request, manager: Managed, task_id: TaskId
+    request: Request,
+    manager: Managed,
+    task_id: TaskId,
+    principal: Annotated[Principal | None, permit(Permission.TASKS_FINISH)],
 ) -> Response:
     """A worker's result in its JSON form, or its failure."""
     body = await read_body(request, FinishedRequest)
-    await manager.report_finished(task_id, result=body.result, error=body.error)
+    await manager.report_finished(
+        task_id, result=body.result, error=body.error, queue=worker_queue(principal)
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)

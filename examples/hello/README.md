@@ -22,18 +22,22 @@ each step from the repository root in its own terminal, after `uv sync`.
 
    It prints an `export NEORC_DATABASE_URL=...` line; copy it for step 2.
 
-2. The manager, and an API token for the processes below:
+2. The manager, and an API token for each process below, of its role:
 
        export NEORC_DATABASE_URL=...   # from step 1
        uv run neorc manager start --host 127.0.0.1 --create-schema --no-ui
 
        export NEORC_DATABASE_URL=...   # in another terminal
-       uv run neorc tokens create local --role user
+       uv run neorc tokens create ci --role ci
+       uv run neorc tokens create scheduler --role scheduler
+       uv run neorc tokens create worker --role worker --queue default
+       uv run neorc tokens create me --role user
 
-   The second command prints the token's secret, once. In every terminal
-   below, `export NEORC_API_TOKEN=<that secret>` first: the manager answers
-   no request without it. A token is sent over plain `http` only to a
-   loopback address, as here.
+   Each prints its token's secret, once. In each terminal below,
+   `export NEORC_API_TOKEN=<secret>` first, with the token the step names:
+   the manager answers no request without one, and a role may do only what
+   [roles.md](../../docs/specs/roles.md) lists. A token is sent over plain
+   `http` only to a loopback address, as here.
 
    `--no-ui` because a checkout holds no built web UI; the `neorc-ui` wheel
    does, and `neorc manager start` serves it at `/ui/` unless told not to.
@@ -47,21 +51,23 @@ each step from the repository root in its own terminal, after `uv sync`.
    needs no token anywhere: anyone who reaches the manager can then do
    everything.
 
-3. Upload the flows, as CI/CD would:
+3. Upload the flows, as CI/CD would, with the `ci` token:
 
        uv run neorc flows upload --manager-address 127.0.0.1:8420 \
            examples/hello/flows
 
-4. The scheduler:
+4. The scheduler, with the `scheduler` token:
 
        uv run neorc scheduler start --manager-address 127.0.0.1:8420
 
-5. The worker, serving the `default` queue with the code in this directory:
+5. The worker, with the `worker` token, serving the `default` queue it is
+   bound to with the code in this directory:
 
        uv run neorc worker start --manager-address 127.0.0.1:8420 \
            --code-location examples/hello
 
-6. Start runs, as often as you like. The worker prints `a` or `b`:
+6. Start runs, as often as you like, with the `me` token. The worker prints
+   `a` or `b`:
 
        curl -X POST 127.0.0.1:8420/flows/a/runs \
            -H "authorization: Bearer $NEORC_API_TOKEN" \

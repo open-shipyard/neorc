@@ -22,7 +22,15 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
-from conftest import EXAMPLES, StandInProvider, deployed_example, free_port, serve_app
+from conftest import (
+    EXAMPLES,
+    StandInProvider,
+    Tokens,
+    deployed_example,
+    free_port,
+    role_tokens,
+    serve_app,
+)
 
 from neorc.manager import build_app
 from neorc_core.flows import read_flows
@@ -50,8 +58,8 @@ def _built_ui() -> Path:
 @dataclass(frozen=True)
 class Deployed:
     address: str
-    token: str
-    """What the scheduler and workers send; people sign in instead."""
+    tokens: Tokens
+    """What the scheduler, workers and uploads send; people sign in instead."""
 
 
 @pytest.fixture
@@ -69,7 +77,7 @@ async def deployed(
     """
     from neorc.auth import parse_auth_config
     from neorc.postgres import PostgresCredentialStore, create_schema
-    from neorc_core import Access, Role
+    from neorc_core import Access
 
     monkeypatch.setattr("neorc_ui.STATIC", _built_ui())
     manager_port, provider_port = free_port(), free_port()
@@ -91,7 +99,7 @@ async def deployed(
     )
     await create_schema(pg_schema)
     async with PostgresCredentialStore(pg_schema) as credentials:
-        token, _ = await Access(credentials).create_token("browser-test", Role.USER)
+        tokens = await role_tokens(Access(credentials), ["default", "scoring"])
     app = build_app(
         pg_schema,
         auth=True,
@@ -102,10 +110,10 @@ async def deployed(
     async with (
         serve_app(stand_in.app, port=provider_port),
         serve_app(app, port=manager_port) as address,
-        deployed_example(address, "wordplay", ["default"], token=token) as client,
+        deployed_example(address, "wordplay", ["default"], tokens=tokens) as client,
     ):
         await client.upload_flows(read_flows(EXAMPLES / "wordplay" / "flows"))
-        yield Deployed(address, token)
+        yield Deployed(address, tokens)
 
 
 @pytest.fixture
@@ -168,7 +176,7 @@ async def test_a_run_is_started_watched_and_another_cancelled_in_the_browser(
     # A run started from the form, with every declared input, watched to its
     # end: with a worker on the scoring queue for as long as that takes.
     async with deployed_example(
-        ui_address, "wordplay", ["scoring"], scheduler=False, token=deployed.token
+        ui_address, "wordplay", ["scoring"], scheduler=False, tokens=deployed.tokens
     ):
         await _start_word_picker_rounds(page, ui_address)
         await expect(heading).to_contain_text("succeeded", timeout=RUN_TIMEOUT_MS)

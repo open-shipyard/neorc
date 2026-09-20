@@ -24,8 +24,9 @@ import os
 import sys
 import time
 import uuid
-from collections.abc import AsyncIterator, Iterator, Mapping
+from collections.abc import AsyncIterator, Iterable, Iterator, Mapping
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, unquote
@@ -35,7 +36,7 @@ import pytest
 # At module level: FastAPI resolves the stand-in provider's annotations here.
 from starlette.requests import Request
 
-from neorc_core import Manager, ManagerClient
+from neorc_core import Access, Manager, ManagerClient, Role
 from neorc_core.local import MemoryStore, MemoryTaskNotifier
 
 if TYPE_CHECKING:
@@ -172,6 +173,32 @@ def own_tasks_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     sys.modules.pop("tasks", None)
 
 
+@dataclass(frozen=True)
+class Tokens:
+    """A token for each process of a deployment, of its role, as roles.md has it."""
+
+    ci: str
+    """Uploads flows."""
+    scheduler: str
+    user: str
+    """Starts runs and watches them, as a person's script would."""
+    workers: Mapping[str, str]
+    """A worker token per queue, bound to it."""
+
+
+async def role_tokens(access: Access, queues: Iterable[str]) -> Tokens:
+    """A token of each role on ``access``, and a worker token for each queue."""
+    ci, _ = await access.create_token("ci", Role.CI)
+    scheduler, _ = await access.create_token("scheduler", Role.SCHEDULER)
+    user, _ = await access.create_token("user", Role.USER)
+    workers = {}
+    for queue in queues:
+        workers[queue], _ = await access.create_token(
+            f"worker-{queue}", Role.WORKER, queue=queue
+        )
+    return Tokens(ci, scheduler, user, workers)
+
+
 @asynccontextmanager
 async def deployed_example(
     manager_address: str,
@@ -179,28 +206,47 @@ async def deployed_example(
     queues: list[str],
     *,
     scheduler: bool = True,
-    token: str | None = None,
+    tokens: Tokens | None = None,
 ) -> AsyncIterator[ManagerClient]:
     """A scheduler and a worker per queue on the HTTP clients, for the block.
 
     The client yielded reaches the same manager, to upload and start runs.
     Without ``scheduler``, only the workers: for more workers beside a block
-    that already runs the deployment's one scheduler. Every client sends
-    ``token``, if given.
+    that already runs the deployment's one scheduler. With ``tokens``, each
+    client sends the token of its role: the client yielded a user's, and a
+    CI token for uploads.
     """
     from neorc.http import HttpManagerClient, HttpQueueClient
     from neorc_core import Scheduler, Worker
 
+    def token(role: str, queue: str | None = None) -> str | None:
+        if tokens is None:
+            return None
+        return tokens.workers[queue] if queue is not None else getattr(tokens, role)
+
+    class Deploying(HttpManagerClient):
+        """A person's client, uploading as CI/CD does, with CI's token."""
+
+        def __init__(self, uploader: HttpManagerClient) -> None:
+            super().__init__(manager_address, poll_timeout=2, token=token("user"))
+            self._uploader = uploader
+
+        async def upload_flows(self, contents: Any) -> list[bool]:
+            return await self._uploader.upload_flows(contents)
+
     async with contextlib.AsyncExitStack() as stack:
-        client = await stack.enter_async_context(
-            HttpManagerClient(manager_address, poll_timeout=2, token=token)
+        uploader = await stack.enter_async_context(
+            HttpManagerClient(manager_address, poll_timeout=2, token=token("ci"))
         )
+        client = await stack.enter_async_context(Deploying(uploader))
         schedulers = []
         if scheduler:
             schedulers.append(
                 Scheduler(
                     await stack.enter_async_context(
-                        HttpManagerClient(manager_address, poll_timeout=2, token=token)
+                        HttpManagerClient(
+                            manager_address, poll_timeout=2, token=token("scheduler")
+                        )
                     ),
                     poll_timeout=2,
                 )
@@ -208,7 +254,9 @@ async def deployed_example(
         workers = [
             Worker(
                 await stack.enter_async_context(
-                    HttpQueueClient(manager_address, poll_timeout=2, token=token)
+                    HttpQueueClient(
+                        manager_address, poll_timeout=2, token=token("worker", queue)
+                    )
                 ),
                 queue=queue,
                 code_location=EXAMPLES / example,
