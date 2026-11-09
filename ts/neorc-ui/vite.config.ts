@@ -72,6 +72,9 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: ["src/test/setup.ts"],
     css: false,
+    // Role queries on a whole page are slow in jsdom: the slowest tests take
+    // 3 s on an idle machine and over 5 s on a busy one.
+    testTimeout: 20_000,
   },
   server: {
     // `npm run dev` against a local `neorc manager start`. The pattern is
