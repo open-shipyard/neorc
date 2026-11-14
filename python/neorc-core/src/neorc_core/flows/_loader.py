@@ -396,8 +396,15 @@ class _Parser:
             if "form" in data:
                 # The form of a task: its controls are the fields of the result.
                 self._with_form.add(name)
+                params = [
+                    key
+                    for given in (data.get("params"), data.get("fixed_params"))
+                    if isinstance(given, Mapping)
+                    for key in given
+                ]
                 self.problems.extend(
-                    f"{path}.{problem}" for problem in form_problems(data["form"], None)
+                    f"{path}.{problem}"
+                    for problem in form_problems(data["form"], None, params=params)
                 )
             return TaskStep(
                 name,

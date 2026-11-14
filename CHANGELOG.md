@@ -12,6 +12,22 @@ one version, cut from a single tag on `main`.
 
 ### Added
 
+- `neorc-core`, `neorc-ui`: a task's form can read the task's inputs and end
+  with buttons, so a person triages a list on a queue's page. The inputs seed
+  the form's data under `/inputs`, read only. A `Text` may show a value there,
+  and a `List` may repeat a template once per item of a list in them; inside
+  the template, a path without a leading slash is relative to the item. A
+  control in the template submits one value per item. A `Button` completes
+  the task, setting the one field its action's context names, and a form with
+  buttons has no other "Complete". `Row`, `Card` and a `ChoicePicker` shown as
+  `chips`, a bar of buttons, join the subset, for a flow's form too. The
+  manager holds every completion to the form with the task's inputs: one value
+  per item of the list, each one the control takes, and the field of the
+  buttons one of their values. At upload, a task's form reads only the task's
+  params, and a flow's form has no template, bound text or button.
+  `check_form_result` takes the task's inputs, and `form_problems` the task's
+  params. `examples/review_loop` is a loop that waits for a person to triage
+  a review's issues each round.
 - `neorc-core`, `neorc`: task completion, as
   [task-completion.md](docs/specs/task-completion.md) has it. A queue has a
   kind, `worker` or `external`, declared with `neorc queues declare` and

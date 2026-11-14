@@ -149,6 +149,26 @@ describe("a flow's form", () => {
     await waitFor(() => expect(posted).toEqual([{ inputs: { repo: "acme/billing" } }]));
   });
 
+  it("lays its controls out in rows and cards", () => {
+    const content = structuredClone(CODE_TASK.content) as { form: typeof example };
+    const components = content.form[1]!.updateComponents!.components as unknown[];
+    const root = components[0] as { children: string[] };
+    root.children = ["intro", "where"];
+    components.push(
+      { id: "where", component: "Card", child: "where_row" },
+      { id: "where_row", component: "Row", children: ["description", "repo", "model"] },
+      { id: "how", component: "Row", children: ["attempts", "draft"] },
+    );
+    root.children.push("how");
+
+    renderWithClient(<StartRunForm flow={{ ...CODE_TASK, content }} />);
+
+    const card = screen.getByRole("article");
+    expect(within(card).getByLabelText("Task description")).toBeInTheDocument();
+    expect(within(card).getByRole("group", { name: "Model" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Attempts")).toBeInTheDocument();
+  });
+
   it("falls back to one field per input for a form this page cannot read", () => {
     const content = structuredClone(CODE_TASK.content) as { form: typeof example };
     content.form[1]!.updateComponents!.components[1]!.component = "Video";

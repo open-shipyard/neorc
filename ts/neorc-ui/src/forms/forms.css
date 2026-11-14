@@ -33,3 +33,64 @@
 .start-run .flow-form h6 {
   margin: 0;
 }
+
+/* What a task's form adds: rows, cards repeated over a list, a bar of
+   buttons for a choice, and the buttons that complete the task. */
+
+.start-run .flow-form .flow-form-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.start-run .flow-form .flow-form-list {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.start-run .flow-form .flow-form-card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  padding: 0.6rem 0.9rem;
+}
+
+.start-run .flow-form fieldset.flow-form-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+}
+
+.start-run .flow-form fieldset.flow-form-chips legend {
+  width: 100%;
+  margin-bottom: 0.25rem;
+  color: var(--muted);
+  font-size: 0.9em;
+}
+
+.start-run .flow-form .flow-form-chips button {
+  padding: 0.25rem 0.8rem;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.start-run .flow-form .flow-form-chips button + button {
+  border-left: 0;
+}
+
+.start-run .flow-form .flow-form-chips button:first-of-type {
+  border-radius: var(--radius) 0 0 var(--radius);
+}
+
+.start-run .flow-form .flow-form-chips button:last-of-type {
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+.start-run .flow-form .flow-form-chips button[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--on-accent);
+}

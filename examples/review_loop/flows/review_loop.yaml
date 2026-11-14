@@ -1,0 +1,36 @@
+# A loop that waits for a person each round. A worker reviews a change and
+# lists the issues it finds; a person triages them on the queue's page of the
+# web UI, then chooses Ready, which ends the loop, or Re-work, which starts
+# another round. README.md says how to run it.
+name: review_loop
+version: 1.0.0
+
+inputs:
+  change: string
+
+output: tasks.report
+
+steps:
+  rounds:
+    loop:
+      max_cycles: 3
+      exit_condition: ready
+    steps:
+      # A sub-flow: inside it, the triage reads this round's review alone.
+      round:
+        flow: review_round
+        params:
+          change: inputs.change
+
+      # Inside the loop: every round's triage so far, the current one last.
+      ready:
+        queue: default
+        handler: tasks:ready
+        params:
+          triages: flows.round
+
+  report:
+    queue: default
+    handler: tasks:report
+    params:
+      triages: flows.round

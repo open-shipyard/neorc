@@ -9,7 +9,9 @@ with a token, and Chromium, driven by Playwright, signs in through a stand-in
 OpenID provider, sees a flow's steps as a graph, starts a run from the form,
 watches it succeed, looks at it as a graph, cancels another, and signs out.
 A second journey is a person's on ``examples/approval``: the queues, a queue's
-tasks, and the two answers its run waits for.
+tasks, and the two answers its run waits for. A third is a person's on
+``examples/review_loop``: a list of issues triaged on a queue's page, two
+rounds of it, and the run ending with the result.
 Skipped without a built UI or a browser: CI builds and installs both for one
 Python, and contributing/dev-environment.md says how to locally.
 """
@@ -160,6 +162,26 @@ async def approving(
         pg_schema,
         monkeypatch,
         "approval",
+        queues=["default"],
+        served=["default"],
+        external=["editors"],
+    ) as deployment:
+        yield deployment
+
+
+@pytest.fixture
+async def triaging(
+    pg_schema: str, monkeypatch: pytest.MonkeyPatch
+) -> AsyncIterator[tuple[Deployed, ManagerClient]]:
+    """The manager serving the built UI, the review_loop example uploaded.
+
+    Its ``default`` queue has a worker, which reviews. Its ``editors`` queue
+    is external: the person in the browser triages.
+    """
+    async with _deployment(
+        pg_schema,
+        monkeypatch,
+        "review_loop",
         queues=["default"],
         served=["default"],
         external=["editors"],
@@ -460,6 +482,95 @@ async def test_a_person_answers_the_tasks_of_an_external_queue_in_the_browser(
     await expect(panel).to_contain_text("Its run ended (cancelled: cancelled by hand)")
     await expect(panel.get_by_role("form")).to_have_count(0)
     await expect(page.get_by_text("No pending task")).to_be_visible()
+
+    # The browser's console names the one completion the manager refused.
+    assert len(complaints) == 1 and "status of 422" in complaints[0], complaints
+
+
+@pytest.mark.usefixtures("own_tasks_module")
+async def test_a_person_triages_a_list_of_issues_in_the_browser(
+    triaging: tuple[Deployed, ManagerClient], browsing: tuple[Page, list[str]]
+) -> None:
+    """docs/architecture/forms.md, a task with a form that reads its inputs.
+
+    One card per issue of the review, a bar of three buttons in each, and
+    Re-work and Ready to complete the task: twice, as the loop goes round.
+    """
+    from playwright.async_api import expect
+
+    (deployed, client), (page, complaints) = triaging, browsing
+    ui_address = deployed.address
+    expect.set_options(timeout=10_000)
+    run = await client.start_run("review_loop", {"change": "Add a retry"})
+
+    await page.goto(f"{ui_address}/ui/#/queues/editors")
+    await page.get_by_role("link", name="Sign in with Stand-in").click()
+    await expect(page.get_by_label("Profile")).to_contain_text("Ada Lovelace")
+    rows = page.get_by_role("row")
+    panel = page.get_by_role("complementary", name="Task")
+    await expect(rows).to_have_count(2, timeout=RUN_TIMEOUT_MS)
+
+    # The first round: the review's issues, one card each, read from the
+    # task's input.
+    await page.get_by_role("link", name=re.compile("triage")).click()
+    form = panel.get_by_role("form", name="Complete triage")
+    await expect(form).to_contain_text("The review of 'Add a retry' found 3 issues.")
+    cards = form.get_by_role("article")
+    await expect(cards).to_have_count(3)
+    await expect(cards.nth(0)).to_contain_text("blocker")
+    await expect(cards.nth(0)).to_contain_text("Crash on empty input")
+    await expect(cards.nth(0)).to_contain_text("a.py:9")
+    await expect(cards.nth(2)).to_contain_text("Typo in a docstring")
+    # Re-work and Ready complete the task: the form has no other button.
+    await expect(form.get_by_role("button", name="Complete")).to_have_count(0)
+    # Every issue needs a decision, before anything is sent.
+    first = cards.nth(0).get_by_role("group", name="Decision")
+    await first.get_by_role("button", name="Fix").click()
+    await expect(first.get_by_role("button", name="Fix")).to_have_attribute(
+        "aria-pressed", "true"
+    )
+    await form.get_by_role("button", name="Ready").click()
+    await expect(form.get_by_role("alert")).to_have_text("Decision, item 2: choose one")
+    # What the form cannot submit, the manager refuses: a decision per item.
+    await form.get_by_role("button", name="Edit as JSON").click()
+    await form.get_by_label("Result as JSON").fill(
+        '{"decision": ["fix"], "verdict": "ready"}'
+    )
+    await form.get_by_role("button", name="Complete").click()
+    await expect(form.get_by_role("alert")).to_contain_text(
+        "field 'decision' has 1 values, and /inputs/review/issues has 3 items"
+    )
+    await form.get_by_role("button", name="Back to the form").click()
+    for card, decision in zip(range(3), ["Defer", "Defer", "Discard"], strict=True):
+        bar = cards.nth(card).get_by_role("group", name="Decision")
+        await bar.get_by_role("button", name=decision).click()
+    await form.get_by_role("button", name="Re-work").click()
+    await expect(panel.locator("[data-status]")).to_have_attribute(
+        "data-status", "succeeded"
+    )
+    await expect(panel).to_contain_text('"verdict": "rework"')
+
+    # Re-work starts another round, with a task of its own.
+    await expect(rows).to_have_count(2, timeout=RUN_TIMEOUT_MS)
+    await page.get_by_role("link", name=re.compile("triage")).click()
+    await expect(cards).to_have_count(3)
+    for card, decision in zip(range(3), ["Fix", "Fix", "Discard"], strict=True):
+        bar = cards.nth(card).get_by_role("group", name="Decision")
+        await bar.get_by_role("button", name=decision).click()
+    await form.get_by_role("button", name="Ready").click()
+    await expect(panel.locator("[data-status]")).to_have_attribute(
+        "data-status", "succeeded"
+    )
+
+    # Ready ends the loop, and the run goes on with the triage. The task was
+    # a round's, a sub-flow's run; the run started is the loop's.
+    await page.goto(f"{ui_address}/ui/#/runs/{run.id}")
+    heading = page.get_by_role("heading", level=1)
+    await expect(heading).to_contain_text("succeeded", timeout=RUN_TIMEOUT_MS)
+    finished = await client.get_run(run.id)
+    assert finished.output == (
+        "Ready after 2 rounds: 2 to fix, 0 deferred, 1 discarded."
+    )
 
     # The browser's console names the one completion the manager refused.
     assert len(complaints) == 1 and "status of 422" in complaints[0], complaints

@@ -1,0 +1,99 @@
+[
+  {
+    "version": "v0.9",
+    "createSurface": {
+      "surfaceId": "triage",
+      "catalogId": "https://github.com/open-shipyard/neorc/forms/v1"
+    }
+  },
+  {
+    "version": "v0.9",
+    "updateComponents": {
+      "surfaceId": "triage",
+      "components": [
+        {
+          "id": "root",
+          "component": "Column",
+          "children": ["summary", "issues", "verdicts"]
+        },
+        {
+          "id": "summary",
+          "component": "Text",
+          "variant": "body",
+          "text": { "path": "/inputs/review/summary" }
+        },
+        {
+          "id": "issues",
+          "component": "List",
+          "children": { "componentId": "issue", "path": "/inputs/review/issues" }
+        },
+        { "id": "issue", "component": "Card", "child": "issue_body" },
+        {
+          "id": "issue_body",
+          "component": "Column",
+          "children": ["issue_head", "issue_detail", "decision"]
+        },
+        {
+          "id": "issue_head",
+          "component": "Row",
+          "children": ["issue_severity", "issue_title"]
+        },
+        {
+          "id": "issue_severity",
+          "component": "Text",
+          "variant": "caption",
+          "text": { "path": "severity" }
+        },
+        {
+          "id": "issue_title",
+          "component": "Text",
+          "variant": "h2",
+          "text": { "path": "title" }
+        },
+        {
+          "id": "issue_detail",
+          "component": "Text",
+          "variant": "body",
+          "text": { "path": "detail" }
+        },
+        {
+          "id": "decision",
+          "component": "ChoicePicker",
+          "label": "Decision",
+          "variant": "mutuallyExclusive",
+          "displayStyle": "chips",
+          "value": { "path": "decision" },
+          "options": [
+            { "label": "Fix", "value": "fix" },
+            { "label": "Defer", "value": "defer" },
+            { "label": "Discard", "value": "discard" }
+          ]
+        },
+        {
+          "id": "verdicts",
+          "component": "Row",
+          "children": ["rework", "ready"]
+        },
+        {
+          "id": "rework",
+          "component": "Button",
+          "child": "rework_label",
+          "action": {
+            "event": { "name": "submit", "context": { "verdict": "rework" } }
+          }
+        },
+        { "id": "rework_label", "component": "Text", "text": "Re-work" },
+        {
+          "id": "ready",
+          "component": "Button",
+          "variant": "primary",
+          "child": "ready_label",
+          "action": {
+            "event": { "name": "submit", "context": { "verdict": "ready" } }
+          }
+        },
+        { "id": "ready_label", "component": "Text", "text": "Ready" }
+      ]
+    }
+  }
+]
