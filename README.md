@@ -113,7 +113,7 @@ form to start a run and a button to cancel one. People sign in to it with an ide
 manager started with `--no-auth` asks nobody, and says so on every page.
 
 A flow can give that form its own fields, a list of values, radio buttons, a
-check box, in a file next to the flow's: [docs/architecture/forms.md](docs/architecture/forms.md),
+check box, laid out in rows and cards, in a file next to the flow's: [docs/architecture/forms.md](docs/architecture/forms.md),
 and [examples/code_task](examples/code_task) to try one.
 
 [examples/hello](examples/hello) and [examples/wordplay](examples/wordplay)
@@ -152,6 +152,12 @@ filled in, and completes one with a result, or with an error that fails it:
 A task is completed once: a second completion answers 409. Workers are kept
 off an external queue. A responder token for a worker queue completes a task
 there until a worker receives it.
+
+A person completes such a task on the queue's page of the web UI. A step can
+name a form for it, as a flow does. The form can show the task's inputs, a
+card for each item of a list in them with a choice in each, and buttons that
+complete the task: [docs/architecture/forms.md](docs/architecture/forms.md),
+and [examples/review_loop](examples/review_loop) to try one.
 
 Every queue is declared before it is used, a worker queue with `--kind
 worker`. An upload naming a queue nobody declared is refused, and so is a

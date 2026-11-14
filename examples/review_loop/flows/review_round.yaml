@@ -1,0 +1,27 @@
+# One round of review_loop: a worker reviews the change, and a person triages
+# the issues it lists. The output is the person's triage.
+name: review_round
+version: 1.0.0
+
+inputs:
+  change: string
+
+output: tasks.triage
+
+steps:
+  review:
+    queue: default
+    handler: tasks:review
+    params:
+      change: inputs.change
+
+  # On `editors`, an external queue: a person answers it. The form shows one
+  # card per issue of the review, each with Fix, Defer and Discard, and ends
+  # with Re-work and Ready. The result is a mapping:
+  # {"decision": ["fix", "defer", ...], "verdict": "ready"}.
+  triage:
+    queue: editors
+    handler: triage-issues
+    params:
+      review: tasks.review
+    form: triage.form.json

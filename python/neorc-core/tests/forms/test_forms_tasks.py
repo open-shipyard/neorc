@@ -140,7 +140,7 @@ def test_a_tasks_form_needs_a_control() -> None:
     del form[2]
 
     assert form_problems(form, None) == [
-        "form: needs at least one control, for the result to hold"
+        "form: needs at least one control or button, for the result to hold"
     ]
 
 

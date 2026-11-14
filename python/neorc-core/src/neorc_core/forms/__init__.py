@@ -15,7 +15,8 @@ the rest of neorc meets it in these places only:
   form asks of them, whoever sends them?
 - ``step_forms`` and ``check_form_result``, where a flow is uploaded and a
   task completed: which steps have a form, and is the result what the form
-  of its step submits, whoever sends it?
+  of its step submits, whoever sends it? A task's form may read the task's
+  inputs, so the check is given them.
 
 Nothing here imports the rest of ``neorc_core`` but its errors, and nothing
 outside this package knows what a form holds. The whole of it, and how to take

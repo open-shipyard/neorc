@@ -99,7 +99,9 @@ function Opened({ delivery, kind }: { delivery: Delivery; kind: QueueKind | unde
           <pre className="error">{task.error}</pre>
         </>
       )}
-      {task.finished_at === null && <Unfinished task={task} kind={kind} />}
+      {task.finished_at === null && (
+        <Unfinished task={task} kind={kind} inputs={inputs} />
+      )}
     </>
   );
 }
@@ -108,7 +110,15 @@ function Opened({ delivery, kind }: { delivery: Delivery; kind: QueueKind | unde
  * What a task that has not finished waits for. Its run decides first: once
  * the run ended, nothing finishes the task, and it has no form.
  */
-function Unfinished({ task, kind }: { task: Task; kind: QueueKind | undefined }) {
+function Unfinished({
+  task,
+  kind,
+  inputs,
+}: {
+  task: Task;
+  kind: QueueKind | undefined;
+  inputs: Record<string, unknown>;
+}) {
   const run = useRun(task.run_id);
   if (run.isError) return <Failed what="the task's run" error={run.error} />;
   if (!run.isSuccess) return <Loading what="the task's run" />;
@@ -122,7 +132,7 @@ function Unfinished({ task, kind }: { task: Task; kind: QueueKind | undefined })
     );
   }
   if (task.status !== "pending") return <p className="muted">A worker has this task.</p>;
-  if (kind === "external") return <Answer task={task} run={run.data} />;
+  if (kind === "external") return <Answer task={task} run={run.data} inputs={inputs} />;
   if (kind === "worker") {
     return <p className="muted">This task waits for a worker of its queue.</p>;
   }
@@ -138,8 +148,19 @@ function Value({ value }: { value: unknown }) {
   );
 }
 
-/** The form of the task's step, read from the version of the flow its run is on. */
-function Answer({ task, run }: { task: Task; run: Run }) {
+/**
+ * The form of the task's step, read from the version of the flow its run is
+ * on. It may read the task's inputs.
+ */
+function Answer({
+  task,
+  run,
+  inputs,
+}: {
+  task: Task;
+  run: Run;
+  inputs: Record<string, unknown>;
+}) {
   const flow = useFlow(run.flow, run.version);
   if (flow.isError) return <Failed what="the task's flow" error={flow.error} />;
   if (!flow.isSuccess) return <Loading what="the form" />;
@@ -148,7 +169,7 @@ function Answer({ task, run }: { task: Task; run: Run }) {
     <AnswerForm
       taskId={task.id}
       step={step}
-      form={formOf(rawStep(flow.data.content, step))}
+      form={formOf(rawStep(flow.data.content, step), inputs)}
       yesOrNo={isExitCondition(flow.data.content, step)}
     />
   );
@@ -167,7 +188,8 @@ export function jsonResultOf(text: string): { result: unknown } | { problem: str
 
 /**
  * Complete a pending task: with the step's own form when it has one
- * (../forms), and its fields as the result; with a yes or no for a loop's
+ * (../forms), and its fields as the result; a form with buttons is completed
+ * by one of them, which sets a field of its own. With a yes or no for a loop's
  * exit condition; with a text otherwise. A JSON editor is there for what
  * those cannot say, and a reason fails the task instead. The manager's
  * refusal is shown as it came.
@@ -204,7 +226,9 @@ export function AnswerForm({
     },
   });
 
-  function built(): { result: unknown } | { error: string } | { problem: string } {
+  function built(
+    pressed?: string,
+  ): { result: unknown } | { error: string } | { problem: string } {
     if (mode === "fail") {
       return reason.trim() === ""
         ? { problem: "Say why the task fails." }
@@ -212,7 +236,7 @@ export function AnswerForm({
     }
     if (mode === "json") return jsonResultOf(json);
     if (form !== null) {
-      const filled = answered(form, answers);
+      const filled = answered(form, answers, pressed);
       return "problem" in filled ? filled : { result: filled.inputs };
     }
     if (yesOrNo) {
@@ -223,7 +247,12 @@ export function AnswerForm({
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    const body = built();
+    send();
+  }
+
+  /** Send the answer; `pressed` is the value of the form's button pressed. */
+  function send(pressed?: string) {
+    const body = built(pressed);
     if ("problem" in body) {
       setProblem(body.problem);
       return;
@@ -244,7 +273,13 @@ export function AnswerForm({
       <h3>{mode === "fail" ? "Fail the task" : "Your answer"}</h3>
       {mode === "form" &&
         (form !== null ? (
-          <FlowForm form={form} answers={answers} onChange={setAnswers} />
+          <FlowForm
+            form={form}
+            answers={answers}
+            onChange={setAnswers}
+            onPress={send}
+            pressing={complete.isPending}
+          />
         ) : yesOrNo ? (
           <fieldset className="fields">
             <legend>The loop ends on a yes.</legend>
@@ -307,13 +342,12 @@ export function AnswerForm({
       )}
       {(problem ?? refused) && <p role="alert">{problem ?? refused}</p>}
       <div className="task-answer-actions">
-        <button type="submit" className="primary" disabled={complete.isPending}>
-          {complete.isPending
-            ? "Sending…"
-            : mode === "fail"
-              ? "Fail task"
-              : "Complete"}
-        </button>
+        {/* A form with buttons of its own is completed by one of them. */}
+        {!(mode === "form" && form?.buttons) && (
+          <button type="submit" className="primary" disabled={complete.isPending}>
+            {complete.isPending ? "Sending…" : mode === "fail" ? "Fail task" : "Complete"}
+          </button>
+        )}
         {mode !== "form" && (
           <button type="button" className="link" onClick={() => show("form")}>
             Back to the form

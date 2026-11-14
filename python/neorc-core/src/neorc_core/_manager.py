@@ -474,7 +474,10 @@ class Manager:
             content = (await self._store.get_flow(run.flow, run.version)).content
             form = step_forms(content).get(task.address.step)
             if form is not None:
-                check_form_result(task.address.step, form, result)
+                # The form may read the task's inputs: a list of items, each
+                # with a value of its own in the result.
+                inputs = (await self._delivery(task)).inputs
+                check_form_result(task.address.step, form, result, inputs)
         completed = await self._store.complete_task(task_id, result=result, error=error)
         await self._events.notify()
         return completed

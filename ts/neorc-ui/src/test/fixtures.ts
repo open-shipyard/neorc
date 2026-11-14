@@ -11,6 +11,7 @@ import type {
   Task,
 } from "../api";
 import reviewForm from "../forms/review_draft.form.json";
+import triageForm from "../forms/triage.form.json";
 
 /** A manager started with --no-auth. */
 export const OPEN: Session = {
@@ -226,3 +227,43 @@ export function listed(task: Task): QueueTask {
 export function delivered(task: Task): Delivery {
   return { task, inputs: { draft: "A first draft about tea." } };
 }
+
+// A round of examples/review_loop: a person triages the issues of a review.
+
+export const REVIEW_ROUND: Flow = {
+  name: "review_round",
+  version: "1.0.0",
+  content: {
+    name: "review_round",
+    version: "1.0.0",
+    inputs: { change: "string" },
+    output: "tasks.triage",
+    steps: {
+      review: { handler: "tasks:review", params: { change: "inputs.change" } },
+      triage: {
+        queue: "editors",
+        handler: "triage-issues",
+        params: { review: "tasks.review" },
+        form: triageForm,
+      },
+    },
+  },
+};
+
+export const TRIAGE: Task = {
+  ...REVIEW,
+  id: "7e1a9e00-0000-4000-8000-000000000003",
+  address: { step: "triage", scope: [] },
+  handler: "triage-issues",
+  params: { review: "tasks.review" },
+};
+
+/** What the reviewer found, as the triage task's input. */
+export const FOUND = {
+  pr_url: "https://github.com/o/r/pull/7",
+  summary: "The review found 2 issues.",
+  issues: [
+    { n: 1, severity: "blocker", title: "Crash on empty input", detail: "a.py:9" },
+    { n: 2, severity: "minor", title: "Typo in a docstring", detail: "a.py:2" },
+  ],
+};

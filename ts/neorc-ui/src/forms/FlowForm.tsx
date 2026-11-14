@@ -1,6 +1,6 @@
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 
-import type { Answers, Control, Form } from "./subset";
+import { textOf, type Answers, type Control, type Form, type Held } from "./subset";
 import "./forms.css";
 
 /** A choice of up to this many options is radio buttons; of more, a list. */
@@ -8,45 +8,113 @@ const RADIOS_UP_TO = 4;
 
 const HEADINGS = { h1: "h3", h2: "h4", h3: "h5", h4: "h6", h5: "h6" } as const;
 
+/** Where a component is drawn: in the item of a List's template, or not. */
+interface Scope {
+  index: number;
+  item: unknown;
+}
+
 /**
- * A flow's form, drawn: its controls, with what each holds in `answers`. It
- * has no button of its own; the page around it starts the run
- * (`answered`, in ./subset).
+ * A flow's form, or a task's, drawn: its controls, with what each holds in
+ * `answers`. A flow's form has no button of its own; the page around it
+ * starts the run (`answered`, in ./subset). A task's form may have buttons,
+ * which complete the task: `onPress` is given the value the button sets.
  */
 export function FlowForm({
   form,
   answers,
   onChange,
+  onPress,
+  pressing = false,
 }: {
   form: Form;
   answers: Answers;
   onChange: (answers: Answers) => void;
+  onPress?: (value: string) => void;
+  /** While a press is being sent, the buttons wait. */
+  pressing?: boolean;
 }) {
-  function draw(control: Control): ReactNode {
-    const id = `form-${control.id}`;
+  /** What a control holds, in its item when it is in a template. */
+  function held(input: string, scope: Scope | undefined): Held | undefined {
+    const value = answers[input];
+    return Array.isArray(value) ? value[scope?.index ?? 0] : value;
+  }
+  function set(input: string, scope: Scope | undefined, value: Held) {
+    if (scope === undefined) {
+      onChange({ ...answers, [input]: value });
+      return;
+    }
+    const before = answers[input];
+    const each = Array.isArray(before) ? [...before] : [];
+    each[scope.index] = value;
+    onChange({ ...answers, [input]: each });
+  }
+
+  function draw(control: Control, scope?: Scope): ReactNode {
+    const id = `form-${control.id}${scope === undefined ? "" : `-${scope.index}`}`;
     switch (control.kind) {
       case "column":
+      case "row":
+      case "list": {
+        const look = {
+          column: "fields",
+          row: "flow-form-row",
+          list: "flow-form-list",
+        };
         return (
-          <div className="fields" key={control.id}>
-            {control.children.map(draw)}
+          <div className={look[control.kind]} key={control.id}>
+            {control.children.map((child) => draw(child, scope))}
+          </div>
+        );
+      }
+      case "card":
+        return (
+          <article className="flow-form-card" key={control.id}>
+            {draw(control.child, scope)}
+          </article>
+        );
+      case "repeat":
+        return (
+          <div className="flow-form-list" key={control.id}>
+            {control.items.map((item, index) => (
+              <Fragment key={index}>{draw(control.template, { index, item })}</Fragment>
+            ))}
           </div>
         );
       case "text": {
+        const text = textOf(control.text, scope?.item);
         if (control.variant === "body" || control.variant === "caption") {
           const quiet = control.variant === "caption" ? "muted" : undefined;
           return (
             <p key={control.id} className={quiet}>
-              {control.text}
+              {text}
             </p>
           );
         }
         const Heading = HEADINGS[control.variant];
-        return <Heading key={control.id}>{control.text}</Heading>;
+        return <Heading key={control.id}>{text}</Heading>;
       }
+      case "button":
+        return (
+          <button
+            key={control.id}
+            type="button"
+            className={
+              control.variant === "primary"
+                ? "primary"
+                : control.variant === "borderless"
+                  ? "link"
+                  : undefined
+            }
+            disabled={pressing}
+            onClick={() => onPress?.(control.value)}
+          >
+            {control.label}
+          </button>
+        );
       case "field": {
-        const value = String(answers[control.input] ?? "");
-        const set = (text: string) =>
-          onChange({ ...answers, [control.input]: text });
+        const value = String(held(control.input, scope) ?? "");
+        const change = (text: string) => set(control.input, scope, text);
         return (
           <label key={control.id} htmlFor={id}>
             {control.label}
@@ -55,7 +123,7 @@ export function FlowForm({
                 id={id}
                 rows={4}
                 value={value}
-                onChange={(e) => set(e.target.value)}
+                onChange={(e) => change(e.target.value)}
               />
             ) : (
               <input
@@ -63,7 +131,7 @@ export function FlowForm({
                 type="text"
                 inputMode={control.variant === "number" ? "decimal" : undefined}
                 value={value}
-                onChange={(e) => set(e.target.value)}
+                onChange={(e) => change(e.target.value)}
               />
             )}
           </label>
@@ -75,18 +143,33 @@ export function FlowForm({
             <input
               id={id}
               type="checkbox"
-              checked={answers[control.input] === true}
-              onChange={(e) =>
-                onChange({ ...answers, [control.input]: e.target.checked })
-              }
+              checked={held(control.input, scope) === true}
+              onChange={(e) => set(control.input, scope, e.target.checked)}
             />
             {control.label}
           </label>
         );
       case "choice": {
-        const chosen = String(answers[control.input] ?? "");
-        const choose = (value: string) =>
-          onChange({ ...answers, [control.input]: value });
+        const chosen = String(held(control.input, scope) ?? "");
+        const choose = (value: string) => set(control.input, scope, value);
+        if (control.display === "chips") {
+          // A bar of buttons, one pressed at a time.
+          return (
+            <fieldset key={control.id} className="flow-form-chips">
+              <legend>{control.label}</legend>
+              {control.options.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  aria-pressed={chosen === option.value}
+                  onClick={() => choose(option.value)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </fieldset>
+          );
+        }
         if (control.options.length > RADIOS_UP_TO) {
           return (
             <label key={control.id} htmlFor={id}>

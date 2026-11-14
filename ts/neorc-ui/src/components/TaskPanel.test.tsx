@@ -2,7 +2,16 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { Flow, QueueKind, Task } from "../api";
-import { APPROVAL, REVIEW, TITLE, WAITING, delivered } from "../test/fixtures";
+import {
+  APPROVAL,
+  FOUND,
+  REVIEW,
+  REVIEW_ROUND,
+  TITLE,
+  TRIAGE,
+  WAITING,
+  delivered,
+} from "../test/fixtures";
 import { mockApi, refusal, renderWithClient, type Reply } from "../test/render";
 import { TaskPanel } from "./TaskPanel";
 
@@ -28,16 +37,26 @@ const ENOUGH: Task = {
   handler: "good-enough",
 };
 
-/** The manager, for one task; what was posted to complete it is recorded. */
-function serve(task: Task, flow: Flow = APPROVAL, complete?: Reply) {
+/**
+ * The manager, for one task of a run of `flow`; what was posted to complete
+ * it is recorded. `inputs` are the task's.
+ */
+function serve(
+  task: Task,
+  flow: Flow = APPROVAL,
+  complete?: Reply,
+  inputs?: Record<string, unknown>,
+) {
   const posted: unknown[] = [];
+  const deliver = (given: Task) =>
+    inputs === undefined ? delivered(given) : { task: given, inputs };
   const api = mockApi({
     [`/tasks/${task.id}/inputs`]: () =>
       posted.length > 0 && complete === undefined
-        ? delivered({ ...task, status: "succeeded", result: resultOf(posted[0]) })
-        : delivered(task),
-    [`/runs/${WAITING.id}`]: WAITING,
-    "/flows/approval/versions/1.0.0": flow,
+        ? deliver({ ...task, status: "succeeded", result: resultOf(posted[0]) })
+        : deliver(task),
+    [`/runs/${WAITING.id}`]: { ...WAITING, flow: flow.name, version: flow.version },
+    [`/flows/${flow.name}/versions/${flow.version}`]: flow,
     [`/tasks/${task.id}/complete`]: (_url: URL, init: RequestInit | undefined) => {
       posted.push(JSON.parse(String(init?.body)));
       return complete;
@@ -112,6 +131,105 @@ describe("TaskPanel", () => {
       "Comment for the author: Keep the comment under 500 characters.",
     );
     expect(posted).toEqual([]);
+  });
+
+  it("draws a card per item of a list in the task's inputs", async () => {
+    serve(TRIAGE, REVIEW_ROUND, undefined, { review: FOUND });
+    open(TRIAGE);
+
+    const form = await screen.findByRole("form", { name: "Complete triage" });
+    expect(form).toHaveTextContent("The review found 2 issues.");
+    const cards = within(form).getAllByRole("article");
+    expect(cards).toHaveLength(2);
+    expect(cards[0]).toHaveTextContent("blocker");
+    expect(within(cards[0]!).getByRole("heading")).toHaveTextContent(
+      "Crash on empty input",
+    );
+    expect(cards[1]).toHaveTextContent("a.py:2");
+    // A bar of three buttons in each card, none pressed to start with.
+    const bar = within(cards[1]!).getByRole("group", { name: "Decision" });
+    expect(within(bar).getAllByRole("button").map((each) => each.textContent)).toEqual([
+      "Fix",
+      "Defer",
+      "Discard",
+    ]);
+    for (const each of within(bar).getAllByRole("button")) {
+      expect(each).toHaveAttribute("aria-pressed", "false");
+    }
+    // The form's own buttons complete the task: there is no other.
+    expect(within(form).queryByRole("button", { name: "Complete" })).toBeNull();
+    expect(within(form).getByRole("button", { name: "Re-work" })).toBeInTheDocument();
+    expect(within(form).getByRole("button", { name: "Ready" })).toHaveClass("primary");
+  });
+
+  it.each([
+    ["Ready", "ready"],
+    ["Re-work", "rework"],
+  ])(
+    "completes a triage with a decision per item and %s",
+    async (button, verdict) => {
+      const { posted } = serve(TRIAGE, REVIEW_ROUND, undefined, { review: FOUND });
+      open(TRIAGE);
+
+      const form = await screen.findByRole("form", { name: "Complete triage" });
+      const cards = within(form).getAllByRole("article");
+      for (const [card, decision] of [
+        [0, "Fix"],
+        [1, "Discard"],
+      ] as const) {
+        const bar = within(cards[card]!).getByRole("group", { name: "Decision" });
+        fireEvent.click(within(bar).getByRole("button", { name: decision }));
+        expect(within(bar).getByRole("button", { name: decision })).toHaveAttribute(
+          "aria-pressed",
+          "true",
+        );
+      }
+      fireEvent.click(within(form).getByRole("button", { name: button }));
+
+      await waitFor(() =>
+        expect(posted).toEqual([{ result: { decision: ["fix", "discard"], verdict } }]),
+      );
+    },
+  );
+
+  it("needs a decision for every item, and sends nothing without", async () => {
+    const { posted } = serve(TRIAGE, REVIEW_ROUND, undefined, { review: FOUND });
+    open(TRIAGE);
+
+    const form = await screen.findByRole("form", { name: "Complete triage" });
+    const first = within(form).getAllByRole("group", { name: "Decision" })[0]!;
+    fireEvent.click(within(first).getByRole("button", { name: "Defer" }));
+    fireEvent.click(within(form).getByRole("button", { name: "Ready" }));
+
+    expect(await within(form).findByRole("alert")).toHaveTextContent(
+      "Decision, item 2: choose one",
+    );
+    expect(posted).toEqual([]);
+  });
+
+  it("keeps the JSON editor, with its own Complete, beside a form's buttons", async () => {
+    const { posted } = serve(TRIAGE, REVIEW_ROUND, undefined, { review: FOUND });
+    open(TRIAGE);
+
+    const form = await screen.findByRole("form", { name: "Complete triage" });
+    fireEvent.click(within(form).getByRole("button", { name: "Edit as JSON" }));
+    fireEvent.change(within(form).getByLabelText("Result as JSON"), {
+      target: { value: '{"decision": ["fix", "fix"], "verdict": "ready"}' },
+    });
+    fireEvent.click(within(form).getByRole("button", { name: "Complete" }));
+
+    await waitFor(() =>
+      expect(posted).toEqual([{ result: { decision: ["fix", "fix"], verdict: "ready" } }]),
+    );
+  });
+
+  it("falls back to a text for a form whose list is not in the inputs", async () => {
+    serve(TRIAGE, REVIEW_ROUND, undefined, { review: "no issues" });
+    open(TRIAGE);
+
+    const form = await screen.findByRole("form", { name: "Complete triage" });
+    expect(within(form).getByLabelText("Answer")).toBeInTheDocument();
+    expect(within(form).queryByRole("article")).toBeNull();
   });
 
   it("completes a task with no form with a text", async () => {
