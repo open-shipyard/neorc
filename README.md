@@ -38,12 +38,14 @@ A deployment installs what each host needs — the base install pulls in nothing
     pip install 'neorc[manager,postgres]'   # the manager host
     pip install 'neorc[http]'               # scheduler and worker hosts
 
-Start the manager, and create an API token for each process that will reach
-it. Every request needs one; `neorc tokens create` prints its secret once:
+Start the manager, declare the queues, and create an API token for each
+process that will reach the manager. Every request needs one; `neorc tokens
+create` prints its secret once:
 
     export NEORC_DATABASE_URL=postgresql://localhost/neorc
     neorc manager start --create-schema \
         --ssl-certfile manager.pem --ssl-keyfile manager-key.pem
+    neorc queues declare default --kind worker
     neorc tokens create github-actions --role ci
     neorc tokens create scheduler --role scheduler
     neorc tokens create worker-1 --role worker --queue default
@@ -57,6 +59,7 @@ Each token has a role, and may do only what its role allows
 | `ci`               | upload flows                                                           |
 | `scheduler`        | read flows, runs and events; publish tasks, start sub-runs, end runs   |
 | `worker`           | fetch, receive, claim, heartbeat and finish the tasks of its one queue |
+| `responder`        | list and complete the pending tasks of its one queue                   |
 | `user`             | read flows, runs and events; start and cancel runs                     |
 | `external-trigger` | start runs                                                             |
 
@@ -115,6 +118,46 @@ and [examples/code_task](examples/code_task) to try one.
 
 [examples/hello](examples/hello) and [examples/wordplay](examples/wordplay)
 walk through both ways of running, step by step.
+
+## Tasks for a person or another system
+
+Some tasks are done outside a neorc worker: an approval a person gives, or
+work another system does. Such a task waits on an *external* queue until a
+*responder* completes it by its id, with no lease to keep
+([task-completion.md](docs/specs/task-completion.md)).
+
+Declare the queue external, and create a responder token for it:
+
+    neorc queues declare editors --kind external
+    neorc tokens create inbox-app --role responder --queue editors
+
+A step names that queue. Its handler is a text for the responder:
+
+```yaml
+approve_draft:
+  queue: editors
+  handler: approve-draft
+  params: {draft: tasks.write_draft}
+```
+
+The responder lists the pending tasks of its queue, each with its inputs
+filled in, and completes one with a result, or with an error that fails it:
+
+    curl https://manager.internal:8420/queues/editors/tasks/pending \
+        -H "authorization: Bearer <inbox-app>"
+    curl -X POST https://manager.internal:8420/tasks/<task id>/complete \
+        -H "authorization: Bearer <inbox-app>" \
+        -H 'content-type: application/json' -d '{"result": {"approved": true}}'
+
+A task is completed once: a second completion answers 409. Workers are kept
+off an external queue. A responder token for a worker queue completes a task
+there until a worker receives it.
+
+Every queue is declared before it is used, a worker queue with `--kind
+worker`. An upload naming a queue nobody declared is refused, and so is a
+token for one. `neorc queues list` shows the declared queues. `neorc run`
+declares the queues of its flow files as worker queues and starts no
+responder, so a run with a task for a person waits there.
 
 ## Signing in with Google or Okta
 
@@ -175,6 +218,8 @@ origin; behind a proxy, `public_url` is the address people type.
   each other
 - [docs/specs/flows.md](docs/specs/flows.md) — flow files: tasks, loops,
   fan-outs, sub-flows and references
+- [docs/specs/task-completion.md](docs/specs/task-completion.md) — tasks a
+  person or another system completes: queue kinds, pending tasks, responders
 - [docs/specs/postgres-implementation.md](docs/specs/postgres-implementation.md)
   — how the reference persistence layer receives, leases and recovers
 - [docs/working-notes/sso-plan.md](docs/working-notes/sso-plan.md) — API

@@ -12,6 +12,28 @@ one version, cut from a single tag on `main`.
 
 ### Added
 
+- `neorc-core`, `neorc`: task completion, as
+  [task-completion.md](docs/specs/task-completion.md) has it. A queue has a
+  kind, `worker` or `external`, declared with `neorc queues declare` and
+  listed with `neorc queues list`. Every queue is declared before it is used:
+  an upload naming a queue nobody declared is refused, a worker or responder
+  token is bound only to a declared queue, and no worker is served from an
+  undeclared one. An existing deployment declares its queues, `default`
+  included, before its next upload. `neorc run` and `LocalCluster.upload`
+  declare the queues of their flow files as worker queues.
+  The tasks of an external queue are handed to no worker: a responder lists a
+  queue's pending tasks with their inputs filled in, at
+  `GET /queues/{queue}/tasks/pending`, and completes one by its id, with a
+  result or an error and no lease, at `POST /tasks/{task_id}/complete`. A task
+  is completed once, only while it is pending and its run active. The new
+  `responder` role holds the two permissions, `queue:pending` and
+  `tasks:complete`, on the one queue its token is bound to, of either kind. A
+  worker token is refused an external queue, and a queue with worker tokens
+  is refused the external kind. `Store` gains `pending_tasks`,
+  `complete_task`, `declare_queue`, `queues` and `queue_kind`, with their
+  contract tests. A database created before this needs
+  `neorc manager start --create-schema` for the new `neorc_queues` table, and
+  keeps role constraints that refuse a responder token.
 - `neorc-ui`: opened with `?embedded` in its URL (`/ui/?embedded#/runs`), the
   UI leaves out its sidebar and shows the page alone, for an application that
   frames it beside a navigation of its own.
