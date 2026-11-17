@@ -80,6 +80,103 @@ A queue name is letters, digits, `_` and `-`: it travels in a URL path, where a
 Task definitions are local to their flow. One handler can back several tasks,
 in the same flow or in different flows.
 
+## Executables
+
+A task can run an executable file, written in any language. The Python worker
+starts it as a process of its own.
+
+```yaml
+close_month:
+  queue: python-default
+  handler: executables/billing/close_month.sh
+  params:
+    month: inputs.month
+```
+
+A handler that starts with `executables/` names an executable. Every
+executable of a code location is in its `executables` directory.
+
+### Which files count
+
+- The path is plain names joined by `/`. A name has letters, digits, `_`, `-`
+  and `.`, and does not start with `.` or `-`. So the path has no `.`, no `..`
+  and no empty part.
+- The file is in the `executables` directory after links are followed. A link
+  inside the directory is followed, as for a mounted ConfigMap. A link out of
+  it is refused. The `executables` directory is not itself a link.
+- The file is a regular file the worker may execute.
+
+The worker checks all of it where it checks any handler: at startup, for the
+tasks of its queue, and when a task names an executable uploaded later. It
+checks again each time a task runs. A refused executable fails its task and is
+never started.
+
+Whoever uploads a flow chooses the executable and the task's inputs, and
+nothing else. The worker starts the executable as it is. It has no shell and
+no arguments, its working directory is the code location, and its environment
+is the worker's. So the `executables` directory holds the executables of tasks
+only.
+
+### What an executable reads and writes
+
+| | |
+|---|---|
+| standard input | the task's inputs, as one JSON object by name, then the end of input |
+| standard output | the task's result: one JSON value and nothing else; nothing at all is `null` |
+| standard error | the executable's log |
+| exit code | 0 when the task succeeded; any other fails the task |
+
+- Values are written as they travel (see [Values](#values)). A datetime among
+  the inputs is `{"$datetime": "..."}`, and an executable writes one the same
+  way.
+- The result is at most 1 MiB. The worker ends an executable that writes more,
+  and the task fails.
+- Output that is not JSON, or not a value neorc carries, fails the task.
+- When an executable fails, the task's error is the exit code, or the signal
+  that ended it, and the end of standard error, 16 KiB at most. When an
+  executable succeeds, the worker logs that end.
+
+### Heartbeat
+
+An executable may say it is still working. Its environment has
+`NEORC_HEARTBEAT_FILE`, the name of a file. The executable touches the file or
+writes to it.
+
+- An executable that never touches the file is not watched.
+- Once the file is there, the executable touches it again within 60 seconds.
+  Otherwise the worker takes it for stuck, ends it and fails the task.
+- The worker measures those 60 seconds on its monotonic clock, from the last
+  change it saw in the file's modification time. A jump of the system clock
+  changes nothing.
+
+The heartbeat is between an executable and its worker. The worker keeps the
+task's lease with the manager while the executable runs, as for any handler.
+
+### Ending an executable
+
+An executable has a process group of its own. The worker ends it by killing the
+group, so what the executable started ends with it. The worker does so when the
+heartbeat stops, when the output passes the limit, and when the task is
+cancelled, as when the manager refuses the worker's token.
+
+- An executable that ends by itself leaves what it started running. Its output
+  is what it wrote up to one second after it ended.
+- A killed worker leaves its executable running. The task's lease lapses,
+  another worker takes the task, and the task runs twice. Delivery is
+  at-least-once, so an executable is idempotent, as any handler is.
+
+The worker stays free while an executable runs. It keeps the lease and stops
+when asked. It runs one task at a time.
+
+### Not in scope
+
+- How an executable gets to the `executables` directory of a worker.
+- A limit on how long an executable runs, other than its heartbeat.
+- An environment of its own for an executable, or a sandbox.
+- A list of the inputs an executable reads. The worker checks a function's
+  parameters against the task's inputs, and has nothing to check an executable
+  against.
+
 ## Values
 
 Flow inputs, task inputs and task results are JSON values plus datetimes: dicts,
