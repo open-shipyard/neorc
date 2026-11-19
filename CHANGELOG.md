@@ -72,6 +72,26 @@ one version, cut from a single tag on `main`.
 
 ### Added
 
+- `neorc-core`: a switch runs one of several named cases. A step with `switch`
+  has `on` and `cases`. `on` refers to a string input, a task, a sub-flow or
+  another switch, and gives the name of a case; another value fails the run.
+  Each case has `steps`, which may be empty, and `output`, which is `null` or
+  a step inside the case. The steps of the chosen case run, and no other
+  case. `switches.<name>` is the output of the chosen case, for steps outside
+  the switch and for a flow's `output`. A switch adds no list level. In a loop
+  it chooses a case again in each iteration, and a step of a case reads `null`
+  for an iteration where its case did not run. A flow file is refused when a
+  step outside a case refers to a step inside it. `SwitchStep` and `Case` are
+  the model, `FlowDefinition.cases_around` gives the cases a step is in, and
+  `switch_case` the case a switch chose in a run. `examples/vip_booking` is
+  the flow of [switch.md](docs/specs/switch.md).
+- `neorc-ui`: a flow's page and a run's page show a switch. In the graph a
+  switch is a box that holds one box per case, with the steps of the case
+  inside. An edge joins what `on` reads to the switch, and the switch to each
+  step that reads `switches.<name>`. In the outline a switch lists its cases.
+  A run's page says which case the run chose: it reads what `on` names, an
+  input, a task's result, a sub-flow's output or another switch's output. In
+  a loop or fan-out the run has not entered, no case is chosen yet.
 - `neorc-core`: a task's handler may be an executable file, so a task can be
   written in any language. The file is in the `executables` directory of the
   worker's code location, and the handler names its path:
